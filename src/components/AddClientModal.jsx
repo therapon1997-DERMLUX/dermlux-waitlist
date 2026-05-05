@@ -151,8 +151,11 @@ export default function AddClientModal({ onClose }) {
   const [range, setRange]           = useState({ start: null, end: null })
   const [multiDates, setMultiDates] = useState([])
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [salesPerson, setSalesPerson]   = useState('')
-  useEffect(() => { if (userProfile?.displayName) setSalesPerson(userProfile.displayName) }, [userProfile])
+  const [salesPerson, setSalesPerson]   = useState(userProfile?.displayName || userProfile?.email || '')
+  useEffect(() => {
+    const name = userProfile?.displayName || userProfile?.email || ''
+    if (name) setSalesPerson(name)
+  }, [userProfile])
   const [originalPrice, setOriginalPrice]   = useState('')
   const [discountedPrice, setDiscountedPrice] = useState('')
   const [whyWaiting, setWhyWaiting] = useState('')
@@ -237,8 +240,12 @@ export default function AddClientModal({ onClose }) {
           </div>
         </div>
 
-        <input className="input" placeholder="Email (προαιρετικό)" type="email"
-          value={email} onChange={e => setEmail(e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <input className="input" placeholder="Email (προαιρετικό)" type="email"
+            value={email} onChange={e => setEmail(e.target.value)} />
+          <input className="input" placeholder="Sales Person" value={salesPerson}
+            onChange={e => setSalesPerson(e.target.value)} />
+        </div>
 
         {/* City */}
         <div>
@@ -333,8 +340,6 @@ export default function AddClientModal({ onClose }) {
 
           {showAdvanced && (
             <div className="mt-3 space-y-3">
-              <input className="input" placeholder="Sales Person"
-                value={salesPerson} onChange={e => setSalesPerson(e.target.value)} />
               <div className="grid grid-cols-2 gap-3">
                 <input className="input" type="number" placeholder="Αρχική τιμή €"
                   value={originalPrice} onChange={e => setOriginalPrice(e.target.value)} />
