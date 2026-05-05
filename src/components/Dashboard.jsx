@@ -1,14 +1,31 @@
 import { useEffect, useState, useMemo } from 'react'
 import { collection, onSnapshot, query } from 'firebase/firestore'
 import { db } from '../firebase/config'
-import { isClientForDay, isClientForWeek, groupByDay } from '../utils/dateHelpers'
-import { format, startOfWeek, subWeeks } from 'date-fns'
+import { isClientForDay, isClientForWeek, groupByDay, toDate } from '../utils/dateHelpers'
+import { format, startOfWeek, subWeeks, isBefore, startOfDay, isWithinInterval, startOfToday, endOfDay } from 'date-fns'
 import { el } from 'date-fns/locale'
 import ClientCard from './ClientCard'
 import AddClientModal from './AddClientModal'
 
 const CITIES   = ['Paphos', 'Nicosia', 'Limassol', 'Larnaca']
 const SERVICES = ['Laser', 'Facial', 'Injectable', 'Body']
+
+// A client "belongs to the past" if their date range ended OR all preferred dates have passed
+function isPast(client) {
+  const today = startOfToday()
+  const rangeEnd = toDate(client.dateRangeEnd)
+  if (rangeEnd && isBefore(rangeEnd, today)) return true
+  const prefs = [client.preferredDate1, client.preferredDate2, client.preferredDate3]
+    .map(toDate).filter(Boolean)
+  if (prefs.length > 0 && prefs.every(d => isBefore(d, today))) return true
+  return false
+}
+
+function isToday(ts) {
+  const d = toDate(ts)
+  if (!d) return false
+  return isWithinInterval(d, { start: startOfDay(new Date()), end: endOfDay(new Date()) })
+}
 
 export default function Dashboard() {
   const [clients, setClients]       = useState([])
@@ -18,7 +35,7 @@ export default function Dashboard() {
   const [cityFilter, setCityFilter]       = useState('All')
   const [serviceFilter, setServiceFilter] = useState('All')
   const [showAdd, setShowAdd]       = useState(false)
-  const today    = useMemo(() => new Date(), [])
+  const today        = useMemo(() => new Date(), [])
   const lastWeekStart = useMemo(() => startOfWeek(subWeeks(today, 1), { weekStartsOn: 1 }), [today])
 
   useEffect(() => {
@@ -30,7 +47,8 @@ export default function Dashboard() {
     return unsub
   }, [])
 
-  const waiting = useMemo(() => clients.filter(c => c.status === 'Waiting'), [clients])
+  const waiting   = useMemo(() => clients.filter(c => c.status === 'Waiting'), [clients])
+  const scheduled = useMemo(() => clients.filter(c => c.status === 'Scheduled'), [clients])
 
   const filtered = useMemo(() => {
     let base = waiting
@@ -39,33 +57,95 @@ export default function Dashboard() {
     return base
   }, [waiting, cityFilter, serviceFilter])
 
-  const todayClients    = useMemo(() => filtered.filter(c => isClientForDay(c, today)), [filtered, today])
-  const weekGroups      = useMemo(() => groupByDay(filtered, startOfWeek(today, { weekStartsOn: 1 })), [filtered, today])
-  const pastWeekGroups  = useMemo(() => groupByDay(filtered, lastWeekStart), [filtered, lastWeekStart])
-  const unmanaged       = useMemo(() => filtered.filter(c => !c.contactHistory?.length), [filtered])
+  const scheduledFiltered = useMemo(() => {
+    let base = scheduled
+    if (cityFilter    !== 'All') base = base.filter(c => c.city    === cityFilter)
+    if (serviceFilter !== 'All') base = base.filter(c => c.service === serviceFilter)
+    return base
+  }, [scheduled, cityFilter, serviceFilter])
+
+  const todayClients   = useMemo(() => filtered.filter(c => isClientForDay(c, today)), [filtered, today])
+  const weekGroups     = useMemo(() => groupByDay(filtered, startOfWeek(today, { weekStartsOn: 1 })), [filtered, today])
+  const pastWeekGroups = useMemo(() => groupByDay(filtered, lastWeekStart), [filtered, lastWeekStart])
+  const unmanaged      = useMemo(() => filtered.filter(c => isPast(c)), [filtered])
+
+  // ── Metrics ──────────────────────────────────────────────────────────────
+  const todayContacts = useMemo(() => {
+    const logs = []
+    clients.forEach(c => (c.contactHistory || []).forEach(h => {
+      if (isToday(h.date)) logs.push({ ...h, clientName: c.name })
+    }))
+    return logs
+  }, [clients])
+
+  const scheduledToday = todayContacts.filter(l => l.result === 'Scheduled')
+
+  // ── Leaderboard (today's scheduled per agent) ─────────────────────────────
+  const leaderboard = useMemo(() => {
+    const map = {}
+    clients.forEach(c => {
+      (c.contactHistory || []).forEach(h => {
+        if (h.result === 'Scheduled' && isToday(h.date)) {
+          const name = h.userName || 'Άγνωστος'
+          map[name] = (map[name] || 0) + 1
+        }
+      })
+    })
+    return Object.entries(map)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+  }, [clients])
 
   const tabClass = (t) =>
     `px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
       tab === t ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
     }`
 
-  const badge = (n, color = 'blue') =>
-    `ml-2 text-xs rounded-full px-2 ${color === 'red' ? 'bg-red-100 text-red-600' : color === 'orange' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-700'}`
-
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-      {/* Top bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Λίστα Αναμονής</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
-            {lastUpdate ? `Τελευταία ενημέρωση: ${format(lastUpdate, 'HH:mm:ss')}` : 'Φόρτωση…'}
-          </p>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
+
+      {/* ── Metrics + Leaderboard ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <MetricCard label="Σε Αναμονή"     value={waiting.length}         color="blue"   icon="📋" />
+        <MetricCard label="Κλήσεις Σήμερα" value={todayContacts.length}   color="indigo" icon="📞" />
+        <MetricCard label="Ραντεβού Σήμερα" value={scheduledToday.length} color="green"  icon="✅" />
+        <MetricCard label="Αδιαχείριστοι"  value={unmanaged.length}       color="orange" icon="⚠️" />
+      </div>
+
+      {/* ── Leaderboard ── */}
+      {leaderboard.length > 0 && (
+        <div className="card p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-lg">🏆</span>
+            <h2 className="font-semibold text-gray-800">Leaderboard Σήμερα</h2>
+            <span className="text-xs text-gray-400 ml-1">ραντεβού που κλείστηκαν</span>
+          </div>
+          <div className="flex gap-3 flex-wrap">
+            {leaderboard.map((entry, i) => (
+              <div key={entry.name}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium text-sm
+                  ${i === 0 ? 'bg-yellow-100 text-yellow-800 border border-yellow-300' :
+                    i === 1 ? 'bg-gray-100 text-gray-700 border border-gray-300' :
+                    i === 2 ? 'bg-orange-100 text-orange-700 border border-orange-300' :
+                    'bg-white text-gray-600 border border-gray-200'}`}>
+                <span>{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}</span>
+                <span>{entry.name}</span>
+                <span className="font-bold text-base">{entry.count}</span>
+              </div>
+            ))}
+          </div>
         </div>
+      )}
+
+      {/* ── Top bar ── */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <p className="text-sm text-gray-400">
+          {lastUpdate ? `Τελευταία ενημέρωση: ${format(lastUpdate, 'HH:mm:ss')}` : 'Φόρτωση…'}
+        </p>
         <button className="btn-primary" onClick={() => setShowAdd(true)}>+ Νέος Πελάτης</button>
       </div>
 
-      {/* Filters */}
+      {/* ── Filters ── */}
       <div className="card p-4 flex flex-wrap gap-4 items-center">
         <div className="flex gap-2 flex-wrap">
           <span className="text-sm font-medium text-gray-600 self-center">Πόλη:</span>
@@ -92,26 +172,29 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* ── Tabs ── */}
       <div className="flex gap-2 flex-wrap">
         <button className={tabClass('today')} onClick={() => setTab('today')}>
-          Σήμερα <span className={badge(todayClients.length)}>{todayClients.length}</span>
+          Σήμερα <Pill n={todayClients.length} />
         </button>
         <button className={tabClass('week')} onClick={() => setTab('week')}>
-          Εβδομάδα <span className={badge(0)}>{filtered.filter(c => isClientForWeek(c, today)).length}</span>
+          Εβδομάδα <Pill n={filtered.filter(c => isClientForWeek(c, today)).length} />
         </button>
         <button className={tabClass('pastweek')} onClick={() => setTab('pastweek')}>
-          Περασμένη Εβδομάδα <span className={badge(0, 'orange')}>{filtered.filter(c => isClientForWeek(c, lastWeekStart)).length}</span>
+          Περασμένη Εβδ. <Pill n={filtered.filter(c => isClientForWeek(c, lastWeekStart)).length} color="orange" />
         </button>
         <button className={tabClass('unmanaged')} onClick={() => setTab('unmanaged')}>
-          Αδιαχείριστοι <span className={badge(unmanaged.length, 'red')}>{unmanaged.length}</span>
+          Αδιαχείριστοι <Pill n={unmanaged.length} color="red" />
+        </button>
+        <button className={tabClass('scheduled')} onClick={() => setTab('scheduled')}>
+          Ολοκληρωμένοι <Pill n={scheduledFiltered.length} color="green" />
         </button>
         <button className={tabClass('all')} onClick={() => setTab('all')}>
-          Όλοι <span className={`ml-2 text-xs rounded-full px-2 bg-gray-100 text-gray-600`}>{filtered.length}</span>
+          Όλοι <Pill n={filtered.length} color="gray" />
         </button>
       </div>
 
-      {/* Content */}
+      {/* ── Content ── */}
       {loading ? (
         <div className="text-center py-20 text-gray-400">Φόρτωση…</div>
       ) : tab === 'today' ? (
@@ -119,14 +202,50 @@ export default function Dashboard() {
       ) : tab === 'week' ? (
         <WeekView groups={weekGroups} empty="Δεν υπάρχουν υποψήφιοι για αυτή την εβδομάδα." />
       ) : tab === 'pastweek' ? (
-        <WeekView groups={pastWeekGroups} empty="Δεν υπάρχουν υποψήφιοι από την περασμένη εβδομάδα." pastWeek />
+        <WeekView groups={pastWeekGroups} empty="Δεν υπάρχουν από την περασμένη εβδομάδα." pastWeek />
       ) : tab === 'unmanaged' ? (
-        <GridView clients={unmanaged} empty="Δεν υπάρχουν αδιαχείριστοι πελάτες." />
+        <>
+          <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-sm text-red-700 font-medium">
+            ⚠️ Αυτοί οι πελάτες έχουν παρελθοντικές ημερομηνίες και είναι ακόμα σε αναμονή — χρειάζονται άμεση επικοινωνία.
+          </div>
+          <GridView clients={unmanaged} empty="Δεν υπάρχουν αδιαχείριστοι πελάτες." />
+        </>
+      ) : tab === 'scheduled' ? (
+        <GridView clients={scheduledFiltered} empty="Δεν υπάρχουν ολοκληρωμένοι ακόμα." />
       ) : (
         <GridView clients={filtered} empty="Η λίστα αναμονής είναι άδεια." />
       )}
 
       {showAdd && <AddClientModal onClose={() => setShowAdd(false)} />}
+    </div>
+  )
+}
+
+function Pill({ n, color = 'blue' }) {
+  const cls = {
+    blue:   'bg-blue-100 text-blue-700',
+    red:    'bg-red-100 text-red-600',
+    orange: 'bg-orange-100 text-orange-600',
+    green:  'bg-green-100 text-green-700',
+    gray:   'bg-gray-100 text-gray-600',
+  }
+  return <span className={`ml-1.5 text-xs rounded-full px-2 py-0.5 font-medium ${cls[color]}`}>{n}</span>
+}
+
+function MetricCard({ label, value, color, icon }) {
+  const cls = {
+    blue:   'bg-blue-50 border-blue-100 text-blue-700',
+    indigo: 'bg-indigo-50 border-indigo-100 text-indigo-700',
+    green:  'bg-green-50 border-green-100 text-green-700',
+    orange: 'bg-orange-50 border-orange-100 text-orange-700',
+  }
+  return (
+    <div className={`card p-4 border ${cls[color]} flex items-center gap-3`}>
+      <span className="text-2xl">{icon}</span>
+      <div>
+        <div className="text-2xl font-bold">{value}</div>
+        <div className="text-xs opacity-75">{label}</div>
+      </div>
     </div>
   )
 }
@@ -150,19 +269,18 @@ function WeekView({ groups, empty, pastWeek }) {
           ⚠️ Αυτοί οι πελάτες δεν κλείστηκαν την περασμένη εβδομάδα — ελέγξτε αν χρειάζονται επαναπρογραμματισμό.
         </div>
       )}
-      {groups.map(({ day, label, clients }) => (
+      {groups.map(({ day, label, clients }) =>
         clients.length > 0 && (
           <div key={day.toISOString()}>
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 capitalize">
-              {label}
-              <span className="ml-2 badge bg-blue-100 text-blue-700">{clients.length}</span>
+              {label} <span className="ml-2 badge bg-blue-100 text-blue-700">{clients.length}</span>
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {clients.map(c => <ClientCard key={c.id} client={c} />)}
             </div>
           </div>
         )
-      ))}
+      )}
     </div>
   )
 }
