@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, isSameMonth, isSameDay, isWithinInterval,
@@ -151,7 +151,8 @@ export default function AddClientModal({ onClose }) {
   const [range, setRange]           = useState({ start: null, end: null })
   const [multiDates, setMultiDates] = useState([])
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [salesPerson, setSalesPerson]   = useState(userProfile?.displayName || '')
+  const [salesPerson, setSalesPerson]   = useState('')
+  useEffect(() => { if (userProfile?.displayName) setSalesPerson(userProfile.displayName) }, [userProfile])
   const [originalPrice, setOriginalPrice]   = useState('')
   const [discountedPrice, setDiscountedPrice] = useState('')
   const [whyWaiting, setWhyWaiting] = useState('')
