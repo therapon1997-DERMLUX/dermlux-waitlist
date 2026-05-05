@@ -4,9 +4,8 @@ import {
   signOut,
   onAuthStateChanged,
   createUserWithEmailAndPassword,
-  initializeApp,
+  getAuth,
 } from 'firebase/auth'
-import { getAuth } from 'firebase/auth'
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db, firebaseConfig } from '../firebase/config'
 
@@ -14,8 +13,8 @@ const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null)
-  const [userProfile, setUserProfile]   = useState(null)
-  const [loading, setLoading]           = useState(true)
+  const [userProfile, setUserProfile] = useState(null)
+  const [loading, setLoading]         = useState(true)
 
   async function login(email, password) {
     return signInWithEmailAndPassword(auth, email, password)
@@ -27,8 +26,8 @@ export function AuthProvider({ children }) {
 
   // Create a new agent/admin without signing out current admin
   async function createUser(email, password, displayName, role = 'agent') {
-    const { initializeApp: initApp, deleteApp } = await import('firebase/app')
-    const secondaryApp  = initApp(firebaseConfig, 'Secondary-' + Date.now())
+    const { initializeApp, deleteApp } = await import('firebase/app')
+    const secondaryApp  = initializeApp(firebaseConfig, 'Secondary-' + Date.now())
     const secondaryAuth = getAuth(secondaryApp)
     try {
       const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password)
@@ -47,18 +46,23 @@ export function AuthProvider({ children }) {
   }
 
   async function fetchUserProfile(uid) {
-    const snap = await getDoc(doc(db, 'users', uid))
-    if (snap.exists()) {
-      setUserProfile(snap.data())
-    } else {
-      // First login — create a basic profile (role: agent)
-      await setDoc(doc(db, 'users', uid), {
-        email: auth.currentUser?.email,
-        displayName: auth.currentUser?.email,
-        role: 'agent',
-        active: true,
-        createdAt: serverTimestamp(),
-      })
+    try {
+      const snap = await getDoc(doc(db, 'users', uid))
+      if (snap.exists()) {
+        setUserProfile(snap.data())
+      } else {
+        await setDoc(doc(db, 'users', uid), {
+          email:       auth.currentUser?.email,
+          displayName: auth.currentUser?.email,
+          role:        'agent',
+          active:      true,
+          createdAt:   serverTimestamp(),
+        })
+        setUserProfile({ role: 'agent', displayName: auth.currentUser?.email })
+      }
+    } catch (err) {
+      console.error('fetchUserProfile error:', err)
+      // Still set a basic profile so the app doesn't get stuck
       setUserProfile({ role: 'agent', displayName: auth.currentUser?.email })
     }
   }
@@ -80,7 +84,12 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={{ currentUser, userProfile, isAdmin, login, logout, createUser, loading }}>
-      {!loading && children}
+      {loading
+        ? <div className="min-h-screen flex items-center justify-center bg-blue-50">
+            <div className="text-blue-600 text-lg font-medium">Φόρτωση…</div>
+          </div>
+        : children
+      }
     </AuthContext.Provider>
   )
 }
