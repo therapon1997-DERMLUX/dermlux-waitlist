@@ -3,6 +3,24 @@ import { collection, onSnapshot, query, doc, updateDoc, serverTimestamp } from '
 import { db } from '../../firebase/config'
 import { statusLabel, statusColor, INACTIVE_STATUSES } from '../../utils/emailValidation'
 import ContactUploadModal from './ContactUploadModal'
+import ContactDetailModal from './ContactDetailModal'
+
+const SOURCE_META = {
+  csv_import:       { label: 'CSV',          cls: 'bg-blue-100 text-blue-700' },
+  'resend-webhook': { label: 'Resend',        cls: 'bg-purple-100 text-purple-700' },
+  manual:           { label: 'Χειροκίνητα',  cls: 'bg-gray-100 text-gray-600' },
+}
+function SourceBadge({ source }) {
+  const m = SOURCE_META[source] || { label: source || '—', cls: 'bg-gray-100 text-gray-400' }
+  return <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${m.cls}`}>{m.label}</span>
+}
+
+function fmtDate(val) {
+  if (!val) return null
+  const d = val?.toDate ? val.toDate() : new Date(val)
+  if (isNaN(d)) return null
+  return d.toLocaleDateString('el-GR', { day: '2-digit', month: 'short', year: 'numeric' })
+}
 
 const STATUS_FILTERS = ['all', 'active', 'unsubscribed', 'bounced', 'complained', 'failed', 'invalid']
 
@@ -27,7 +45,8 @@ export default function ContactsTab() {
   const [loading, setLoading]       = useState(true)
   const [search, setSearch]         = useState('')
   const [filter, setFilter]         = useState('all')
-  const [showUpload, setShowUpload] = useState(false)
+  const [showUpload, setShowUpload]       = useState(false)
+  const [selectedContact, setSelectedContact] = useState(null)
 
   useEffect(() => {
     const unsub = onSnapshot(query(collection(db, 'email_contacts')), snap => {
@@ -142,6 +161,7 @@ export default function ContactsTab() {
                   <th className="text-left px-4 py-3 font-medium text-gray-500">Όνομα</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500">Email</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 hidden sm:table-cell">Τηλέφωνο</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-500 hidden md:table-cell">Πηγή</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500">Status</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 hidden lg:table-cell">Αποστολές</th>
                   <th className="px-4 py-3"></th>
@@ -151,30 +171,37 @@ export default function ContactsTab() {
                 {filtered.map(c => {
                   const { label, cls, next } = actionMeta(c.status)
                   return (
-                    <tr key={c.id} className={`hover:bg-gray-50 transition-colors ${INACTIVE_STATUSES.has(c.status) ? 'opacity-70' : ''}`}>
+                    <tr
+                      key={c.id}
+                      onClick={() => setSelectedContact(c)}
+                      className={`hover:bg-blue-50 cursor-pointer transition-colors ${INACTIVE_STATUSES.has(c.status) ? 'opacity-70' : ''}`}>
                       <td className="px-4 py-3 font-medium text-gray-900">
                         <div className="flex items-center gap-1.5">
-                          {c.name || '—'}
+                          {c.name || <span className="text-gray-400 italic text-xs">Χωρίς όνομα</span>}
                           {c.lastEngagedAt && c.status === 'active' && (
-                            <span title={`Τελευταία δραστηριότητα: ${c.lastEvent || 'engagement'}`}
-                              className="text-amber-400 text-xs" aria-label="engaged">🔥</span>
+                            <span title={`Τελευταία δραστηριότητα: ${c.lastEvent || 'engagement'}`}>🔥</span>
                           )}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-gray-600 text-xs">{c.email}</td>
-                      <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{c.phone || '—'}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-col gap-1">
-                          <span className={`badge text-xs ${statusColor(c.status)}`}>
-                            {statusLabel(c.status)}
-                          </span>
-                          {c.lastEvent && (
-                            <span className="text-xs text-gray-400">{c.lastEvent}</span>
+                      <td className="px-4 py-3 text-gray-500 text-sm hidden sm:table-cell">{c.phone || '—'}</td>
+                      <td className="px-4 py-3 hidden md:table-cell">
+                        <div className="flex flex-col gap-0.5">
+                          <SourceBadge source={c.source} />
+                          {(c.addedAt || c.importedAt) && (
+                            <span className="text-xs text-gray-400">
+                              {fmtDate(c.addedAt || c.importedAt)}
+                            </span>
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-gray-500 hidden lg:table-cell">{c.sendCount || 0}</td>
                       <td className="px-4 py-3">
+                        <span className={`badge text-xs ${statusColor(c.status)}`}>
+                          {statusLabel(c.status)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 hidden lg:table-cell">{c.sendCount || 0}</td>
+                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                         <button
                           onClick={() => setContactStatus(c, next)}
                           className={`text-xs px-2 py-1 rounded-md border transition-colors ${cls}`}>
@@ -195,6 +222,16 @@ export default function ContactsTab() {
       )}
 
       {showUpload && <ContactUploadModal onClose={() => setShowUpload(false)} existingContacts={contacts} />}
+
+      {selectedContact && (
+        <ContactDetailModal
+          contact={selectedContact}
+          onClose={() => setSelectedContact(null)}
+          onStatusChange={updated => {
+            setSelectedContact(updated)
+          }}
+        />
+      )}
     </div>
   )
 }
