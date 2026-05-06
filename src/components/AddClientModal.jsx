@@ -138,7 +138,7 @@ function TagBtn({ label, active, onClick, color = 'blue' }) {
 const SERVICE_COLORS = { Laser: 'purple', Facial: 'pink', Injectable: 'blue', Body: 'green' }
 
 // ── Main Modal ────────────────────────────────────────────────────────────────
-export default function AddClientModal({ onClose }) {
+export default function AddClientModal({ onClose, isHappyHour = false }) {
   const { currentUser, userProfile } = useAuth()
 
   const [name, setName]             = useState('')
@@ -181,7 +181,7 @@ export default function AddClientModal({ onClose }) {
     if (Object.keys(e).length) { setErrors(e); return }
     setSaving(true)
     try {
-      await addDoc(collection(db, 'clients'), {
+      await addDoc(collection(db, isHappyHour ? 'happyhour' : 'clients'), {
         name:        name.trim(),
         email:       email.trim(),
         phone:       phone.trim(),
@@ -218,7 +218,9 @@ export default function AddClientModal({ onClose }) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 p-4 overflow-y-auto">
       <div className="card w-full max-w-lg p-6 mt-4 mb-4 space-y-5">
-        <h2 className="text-lg font-semibold text-gray-900">Νέος Πελάτης</h2>
+        <h2 className="text-lg font-semibold text-gray-900">
+          {isHappyHour ? '⚡ Νέος Πελάτης Happy Hour' : 'Νέος Πελάτης'}
+        </h2>
 
         {/* Name + Phone */}
         <div className="grid grid-cols-2 gap-3">

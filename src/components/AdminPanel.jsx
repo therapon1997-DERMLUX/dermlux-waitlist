@@ -27,8 +27,9 @@ function isThisWeek(ts) {
 
 export default function AdminPanel() {
   const { createUser } = useAuth()
-  const [clients, setClients]   = useState([])
-  const [users, setUsers]       = useState([])
+  const [clients,   setClients]   = useState([])
+  const [hhClients, setHhClients] = useState([])
+  const [users,     setUsers]     = useState([])
   const [showCreateUser, setShowCreateUser] = useState(false)
 
   useEffect(() => {
@@ -38,29 +39,34 @@ export default function AdminPanel() {
     const u2 = onSnapshot(query(collection(db, 'users')), snap =>
       setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     )
-    return () => { u1(); u2() }
+    const u3 = onSnapshot(query(collection(db, 'happyhour')), snap =>
+      setHhClients(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    )
+    return () => { u1(); u2(); u3() }
   }, [])
 
-  // ---- Metrics ----
+  const allClients = useMemo(() => [...clients, ...hhClients], [clients, hhClients])
+
+  // ---- Metrics (both regular + happy hour) ----
   const todayContacts = useMemo(() => {
     const logs = []
-    clients.forEach(c => {
+    allClients.forEach(c => {
       (c.contactHistory || []).forEach(h => {
         if (isToday(h.date)) logs.push({ ...h, clientName: c.name })
       })
     })
     return logs
-  }, [clients])
+  }, [allClients])
 
   const weekContacts = useMemo(() => {
     const logs = []
-    clients.forEach(c => {
+    allClients.forEach(c => {
       (c.contactHistory || []).forEach(h => {
         if (isThisWeek(h.date)) logs.push({ ...h, clientName: c.name })
       })
     })
     return logs
-  }, [clients])
+  }, [allClients])
 
   const scheduledToday = todayContacts.filter(l => l.result === 'Scheduled').length
   const scheduledWeek  = weekContacts.filter(l => l.result === 'Scheduled').length
@@ -76,20 +82,20 @@ export default function AdminPanel() {
     return Object.entries(map).map(([name, s]) => ({ name, ...s }))
   }, [todayContacts])
 
-  // By city
+  // By city (all clients)
   const cityStats = useMemo(() =>
     CITIES.map(city => ({
       city,
-      waiting:   clients.filter(c => c.city === city && c.status === 'Waiting').length,
-      scheduled: clients.filter(c => c.city === city && c.status === 'Scheduled').length,
-    })), [clients])
+      waiting:   allClients.filter(c => c.city === city && c.status === 'Waiting').length,
+      scheduled: allClients.filter(c => c.city === city && c.status === 'Scheduled').length,
+    })), [allClients])
 
-  // By service
+  // By service (all clients)
   const serviceStats = useMemo(() =>
     SERVICES.map(service => ({
       service,
-      waiting: clients.filter(c => c.service === service && c.status === 'Waiting').length,
-    })), [clients])
+      waiting: allClients.filter(c => c.service === service && c.status === 'Waiting').length,
+    })), [allClients])
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8">
@@ -97,7 +103,7 @@ export default function AdminPanel() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <StatCard label="Σε αναμονή" value={clients.filter(c => c.status === 'Waiting').length} color="blue" />
+        <StatCard label="Σε αναμονή" value={allClients.filter(c => c.status === 'Waiting').length} color="blue" />
         <StatCard label="Κλήσεις σήμερα" value={todayContacts.length} color="indigo" />
         <StatCard label="Ραντεβού σήμερα" value={scheduledToday} color="green" />
         <StatCard label="Ραντεβού εβδομάδας" value={scheduledWeek} color="teal" />

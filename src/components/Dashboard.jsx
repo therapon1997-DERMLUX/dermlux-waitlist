@@ -10,7 +10,6 @@ import AddClientModal from './AddClientModal'
 const CITIES   = ['Paphos', 'Nicosia', 'Limassol', 'Larnaca']
 const SERVICES = ['Laser', 'Facial', 'Injectable', 'Body']
 
-// A client "belongs to the past" if their date range ended OR all preferred dates have passed
 function isPast(client) {
   const today = startOfToday()
   const rangeEnd = toDate(client.dateRangeEnd)
@@ -28,13 +27,17 @@ function isToday(ts) {
 }
 
 export default function Dashboard() {
-  const [clients, setClients]       = useState([])
-  const [loading, setLoading]       = useState(true)
+  const [clients,    setClients]    = useState([])
+  const [hhClients,  setHhClients]  = useState([])
+  const [loading,    setLoading]    = useState(true)
+  const [hhLoading,  setHhLoading]  = useState(true)
   const [lastUpdate, setLastUpdate] = useState(null)
-  const [tab, setTab]               = useState('today')
-  const [cityFilter, setCityFilter]       = useState('All')
+  const [section,    setSection]    = useState('waitlist') // 'waitlist' | 'happyhour'
+  const [tab,        setTab]        = useState('today')
+  const [cityFilter,    setCityFilter]    = useState('All')
   const [serviceFilter, setServiceFilter] = useState('All')
-  const [showAdd, setShowAdd]       = useState(false)
+  const [showAdd,    setShowAdd]    = useState(false)
+
   const today        = useMemo(() => new Date(), [])
   const lastWeekStart = useMemo(() => startOfWeek(subWeeks(today, 1), { weekStartsOn: 1 }), [today])
 
@@ -47,8 +50,29 @@ export default function Dashboard() {
     return unsub
   }, [])
 
-  const waiting   = useMemo(() => clients.filter(c => c.status === 'Waiting'), [clients])
-  const scheduled = useMemo(() => clients.filter(c => c.status === 'Scheduled'), [clients])
+  useEffect(() => {
+    const unsub = onSnapshot(query(collection(db, 'happyhour')), snap => {
+      setHhClients(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setHhLoading(false)
+    })
+    return unsub
+  }, [])
+
+  // Reset tab when switching sections
+  function switchSection(s) {
+    setSection(s)
+    setTab(s === 'happyhour' ? 'all' : 'today')
+    setCityFilter('All')
+    setServiceFilter('All')
+  }
+
+  // ── Active collection for the selected section ────────────────────────────
+  const collectionName = section === 'happyhour' ? 'happyhour' : 'clients'
+  const activeClients  = section === 'happyhour' ? hhClients : clients
+  const isLoading      = section === 'happyhour' ? hhLoading : loading
+
+  const waiting   = useMemo(() => activeClients.filter(c => c.status === 'Waiting'), [activeClients])
+  const scheduled = useMemo(() => activeClients.filter(c => c.status === 'Scheduled'), [activeClients])
 
   const filtered = useMemo(() => {
     let base = waiting
@@ -69,21 +93,33 @@ export default function Dashboard() {
   const pastWeekGroups = useMemo(() => groupByDay(filtered, lastWeekStart), [filtered, lastWeekStart])
   const unmanaged      = useMemo(() => filtered.filter(c => isPast(c)), [filtered])
 
-  // ── Metrics ──────────────────────────────────────────────────────────────
+  // ── Combined metrics (both collections) ──────────────────────────────────
+  const allClients = useMemo(() => [...clients, ...hhClients], [clients, hhClients])
+
+  const totalWaiting = useMemo(
+    () => allClients.filter(c => c.status === 'Waiting').length,
+    [allClients]
+  )
+
   const todayContacts = useMemo(() => {
     const logs = []
-    clients.forEach(c => (c.contactHistory || []).forEach(h => {
+    allClients.forEach(c => (c.contactHistory || []).forEach(h => {
       if (isToday(h.date)) logs.push({ ...h, clientName: c.name })
     }))
     return logs
-  }, [clients])
+  }, [allClients])
 
   const scheduledToday = todayContacts.filter(l => l.result === 'Scheduled')
 
-  // ── Leaderboard (today's scheduled per agent) ─────────────────────────────
+  const totalUnmanaged = useMemo(
+    () => allClients.filter(c => c.status === 'Waiting' && isPast(c)).length,
+    [allClients]
+  )
+
+  // ── Leaderboard (both collections, today) ────────────────────────────────
   const leaderboard = useMemo(() => {
     const map = {}
-    clients.forEach(c => {
+    allClients.forEach(c => {
       (c.contactHistory || []).forEach(h => {
         if (h.result === 'Scheduled' && isToday(h.date)) {
           const name = h.userName || 'Άγνωστος'
@@ -94,7 +130,7 @@ export default function Dashboard() {
     return Object.entries(map)
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count)
-  }, [clients])
+  }, [allClients])
 
   const tabClass = (t) =>
     `px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -106,10 +142,10 @@ export default function Dashboard() {
 
       {/* ── Metrics + Leaderboard ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <MetricCard label="Σε Αναμονή"     value={waiting.length}         color="blue"   icon="📋" />
+        <MetricCard label="Σε Αναμονή"     value={totalWaiting}           color="blue"   icon="📋" />
         <MetricCard label="Κλήσεις Σήμερα" value={todayContacts.length}   color="indigo" icon="📞" />
         <MetricCard label="Ραντεβού Σήμερα" value={scheduledToday.length} color="green"  icon="✅" />
-        <MetricCard label="Αδιαχείριστοι"  value={unmanaged.length}       color="orange" icon="⚠️" />
+        <MetricCard label="Αδιαχείριστοι"  value={totalUnmanaged}         color="orange" icon="⚠️" />
       </div>
 
       {/* ── Leaderboard ── */}
@@ -137,12 +173,55 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* ── Section Switcher ── */}
+      <div className="flex items-center gap-2 bg-gray-100 rounded-xl p-1 w-fit">
+        <button
+          onClick={() => switchSection('waitlist')}
+          className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
+            section === 'waitlist'
+              ? 'bg-white text-blue-700 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          📋 Λίστα Αναμονής
+          <span className={`ml-2 text-xs rounded-full px-2 py-0.5 font-medium ${
+            section === 'waitlist' ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-500'
+          }`}>
+            {clients.filter(c => c.status === 'Waiting').length}
+          </span>
+        </button>
+        <button
+          onClick={() => switchSection('happyhour')}
+          className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
+            section === 'happyhour'
+              ? 'bg-white text-amber-700 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          ⚡ Happy Hour
+          <span className={`ml-2 text-xs rounded-full px-2 py-0.5 font-medium ${
+            section === 'happyhour' ? 'bg-amber-100 text-amber-700' : 'bg-gray-200 text-gray-500'
+          }`}>
+            {hhClients.filter(c => c.status === 'Waiting').length}
+          </span>
+        </button>
+      </div>
+
+      {/* Happy Hour info banner */}
+      {section === 'happyhour' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-sm text-amber-800 font-medium flex items-center gap-2">
+          ⚡ Πελάτες Happy Hour — καλούνται μόνο για τελευταίας στιγμής διαθεσιμότητα ή ακυρώσεις.
+        </div>
+      )}
+
       {/* ── Top bar ── */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <p className="text-sm text-gray-400">
           {lastUpdate ? `Τελευταία ενημέρωση: ${format(lastUpdate, 'HH:mm:ss')}` : 'Φόρτωση…'}
         </p>
-        <button className="btn-primary" onClick={() => setShowAdd(true)}>+ Νέος Πελάτης</button>
+        <button className="btn-primary" onClick={() => setShowAdd(true)}>
+          {section === 'happyhour' ? '+ Νέος Happy Hour' : '+ Νέος Πελάτης'}
+        </button>
       </div>
 
       {/* ── Filters ── */}
@@ -174,18 +253,22 @@ export default function Dashboard() {
 
       {/* ── Tabs ── */}
       <div className="flex gap-2 flex-wrap">
-        <button className={tabClass('today')} onClick={() => setTab('today')}>
-          Σήμερα <Pill n={todayClients.length} />
-        </button>
-        <button className={tabClass('week')} onClick={() => setTab('week')}>
-          Εβδομάδα <Pill n={filtered.filter(c => isClientForWeek(c, today)).length} />
-        </button>
-        <button className={tabClass('pastweek')} onClick={() => setTab('pastweek')}>
-          Περασμένη Εβδ. <Pill n={filtered.filter(c => isClientForWeek(c, lastWeekStart)).length} color="orange" />
-        </button>
-        <button className={tabClass('unmanaged')} onClick={() => setTab('unmanaged')}>
-          Αδιαχείριστοι <Pill n={unmanaged.length} color="red" />
-        </button>
+        {section === 'waitlist' && (
+          <>
+            <button className={tabClass('today')} onClick={() => setTab('today')}>
+              Σήμερα <Pill n={todayClients.length} />
+            </button>
+            <button className={tabClass('week')} onClick={() => setTab('week')}>
+              Εβδομάδα <Pill n={filtered.filter(c => isClientForWeek(c, today)).length} />
+            </button>
+            <button className={tabClass('pastweek')} onClick={() => setTab('pastweek')}>
+              Περασμένη Εβδ. <Pill n={filtered.filter(c => isClientForWeek(c, lastWeekStart)).length} color="orange" />
+            </button>
+            <button className={tabClass('unmanaged')} onClick={() => setTab('unmanaged')}>
+              Αδιαχείριστοι <Pill n={unmanaged.length} color="red" />
+            </button>
+          </>
+        )}
         <button className={tabClass('scheduled')} onClick={() => setTab('scheduled')}>
           Ολοκληρωμένοι <Pill n={scheduledFiltered.length} color="green" />
         </button>
@@ -195,28 +278,28 @@ export default function Dashboard() {
       </div>
 
       {/* ── Content ── */}
-      {loading ? (
+      {isLoading ? (
         <div className="text-center py-20 text-gray-400">Φόρτωση…</div>
       ) : tab === 'today' ? (
-        <GridView clients={todayClients} empty="Δεν υπάρχουν υποψήφιοι για σήμερα." />
+        <GridView clients={todayClients} empty="Δεν υπάρχουν υποψήφιοι για σήμερα." collectionName={collectionName} />
       ) : tab === 'week' ? (
-        <WeekView groups={weekGroups} empty="Δεν υπάρχουν υποψήφιοι για αυτή την εβδομάδα." />
+        <WeekView groups={weekGroups} empty="Δεν υπάρχουν υποψήφιοι για αυτή την εβδομάδα." collectionName={collectionName} />
       ) : tab === 'pastweek' ? (
-        <WeekView groups={pastWeekGroups} empty="Δεν υπάρχουν από την περασμένη εβδομάδα." pastWeek />
+        <WeekView groups={pastWeekGroups} empty="Δεν υπάρχουν από την περασμένη εβδομάδα." pastWeek collectionName={collectionName} />
       ) : tab === 'unmanaged' ? (
         <>
           <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-sm text-red-700 font-medium">
             ⚠️ Αυτοί οι πελάτες έχουν παρελθοντικές ημερομηνίες και είναι ακόμα σε αναμονή — χρειάζονται άμεση επικοινωνία.
           </div>
-          <GridView clients={unmanaged} empty="Δεν υπάρχουν αδιαχείριστοι πελάτες." />
+          <GridView clients={unmanaged} empty="Δεν υπάρχουν αδιαχείριστοι πελάτες." collectionName={collectionName} />
         </>
       ) : tab === 'scheduled' ? (
-        <GridView clients={scheduledFiltered} empty="Δεν υπάρχουν ολοκληρωμένοι ακόμα." />
+        <GridView clients={scheduledFiltered} empty="Δεν υπάρχουν ολοκληρωμένοι ακόμα." collectionName={collectionName} />
       ) : (
-        <GridView clients={filtered} empty="Η λίστα αναμονής είναι άδεια." />
+        <GridView clients={filtered} empty="Η λίστα αναμονής είναι άδεια." collectionName={collectionName} />
       )}
 
-      {showAdd && <AddClientModal onClose={() => setShowAdd(false)} />}
+      {showAdd && <AddClientModal onClose={() => setShowAdd(false)} isHappyHour={section === 'happyhour'} />}
     </div>
   )
 }
@@ -250,16 +333,16 @@ function MetricCard({ label, value, color, icon }) {
   )
 }
 
-function GridView({ clients, empty }) {
+function GridView({ clients, empty, collectionName }) {
   if (!clients.length) return <EmptyState msg={empty} />
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      {clients.map(c => <ClientCard key={c.id} client={c} />)}
+      {clients.map(c => <ClientCard key={c.id} client={c} collectionName={collectionName} />)}
     </div>
   )
 }
 
-function WeekView({ groups, empty, pastWeek }) {
+function WeekView({ groups, empty, pastWeek, collectionName }) {
   const hasAny = groups.some(g => g.clients.length > 0)
   if (!hasAny) return <EmptyState msg={empty} />
   return (
@@ -276,7 +359,7 @@ function WeekView({ groups, empty, pastWeek }) {
               {label} <span className="ml-2 badge bg-blue-100 text-blue-700">{clients.length}</span>
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {clients.map(c => <ClientCard key={c.id} client={c} />)}
+              {clients.map(c => <ClientCard key={c.id} client={c} collectionName={collectionName} />)}
             </div>
           </div>
         )

@@ -36,7 +36,7 @@ const RESULTS = [
   },
 ]
 
-export default function ContactResultModal({ client, onClose }) {
+export default function ContactResultModal({ client, onClose, collectionName = 'clients' }) {
   const { currentUser, userProfile } = useAuth()
   const [result, setResult]           = useState('')
   const [notes, setNotes]             = useState('')
@@ -62,7 +62,7 @@ export default function ContactResultModal({ client, onClose }) {
                       : result === 'Not Interested' ? 'Not Interested'
                       : 'Waiting'
 
-      await updateDoc(doc(db, 'clients', client.id), {
+      await updateDoc(doc(db, collectionName, client.id), {
         contactHistory: arrayUnion(logEntry),
         calledBy:       null,
         status:         newStatus,

@@ -34,7 +34,7 @@ const RESULT_LABELS = {
   Other:            '— Άλλο',
 }
 
-export default function ClientCard({ client }) {
+export default function ClientCard({ client, collectionName = 'clients' }) {
   const { currentUser, userProfile } = useAuth()
   const [showResult, setShowResult]  = useState(false)
   const [calling, setCalling]        = useState(false)
@@ -48,7 +48,7 @@ export default function ClientCard({ client }) {
   async function handleCall() {
     setCalling(true)
     try {
-      await updateDoc(doc(db, 'clients', client.id), {
+      await updateDoc(doc(db, collectionName, client.id), {
         calledBy: {
           userId:    currentUser.uid,
           userName:  userProfile?.displayName || currentUser.email,
@@ -62,7 +62,7 @@ export default function ClientCard({ client }) {
   }
 
   async function handleReleaseLock() {
-    await updateDoc(doc(db, 'clients', client.id), {
+    await updateDoc(doc(db, collectionName, client.id), {
       calledBy:  null,
       updatedAt: serverTimestamp(),
     })
@@ -166,7 +166,7 @@ export default function ClientCard({ client }) {
       </div>
 
       {showResult && (
-        <ContactResultModal client={client} onClose={() => setShowResult(false)} />
+        <ContactResultModal client={client} onClose={() => setShowResult(false)} collectionName={collectionName} />
       )}
     </>
   )
