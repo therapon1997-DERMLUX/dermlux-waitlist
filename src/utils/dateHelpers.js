@@ -9,6 +9,7 @@ export function toDate(val) {
   if (!val) return null
   if (val?.toDate) return val.toDate()       // Firestore Timestamp
   if (val instanceof Date) return val
+  if (typeof val === 'string') return new Date(val) // ISO string or YYYY-MM-DD
   return null
 }
 
