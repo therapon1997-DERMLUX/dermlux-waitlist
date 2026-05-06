@@ -21,6 +21,7 @@ export default function Navbar() {
             <div className="flex gap-1">
               <Link to="/" className={linkClass('/')}>Dashboard</Link>
               {isAdmin && <Link to="/admin" className={linkClass('/admin')}>Admin</Link>}
+              {isAdmin && <Link to="/email" className={linkClass('/email')}>Email</Link>}
             </div>
           </div>
 
