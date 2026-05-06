@@ -123,12 +123,21 @@ export default function ClientCard({ client, collectionName = 'clients' }) {
           </div>
         )}
 
-        {/* Last contact */}
-        {lastContact && (
-          <div className="text-xs border-t pt-2 text-gray-500">
-            <span className="font-medium">Τελευταία επαφή: </span>
-            {fmtDateTime(lastContact.date)} — {RESULT_LABELS[lastContact.result] || lastContact.result}
-            {lastContact.userName && <span className="text-gray-400"> ({lastContact.userName})</span>}
+        {/* Contact history */}
+        {client.contactHistory?.length > 0 && (
+          <div className="border-t pt-2 space-y-1.5">
+            {[...client.contactHistory].reverse().map((h, i) => (
+              <div key={i} className="text-xs text-gray-500">
+                <div className="flex flex-wrap items-center gap-x-1.5">
+                  <span className="text-gray-400">{fmtDateTime(h.date)}</span>
+                  <span className="font-medium text-gray-700">{RESULT_LABELS[h.result] || h.result}</span>
+                  {h.userName && <span className="text-gray-400">({h.userName})</span>}
+                </div>
+                {h.notes && (
+                  <div className="mt-0.5 ml-0 text-gray-500 italic">💬 {h.notes}</div>
+                )}
+              </div>
+            ))}
           </div>
         )}
 
