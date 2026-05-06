@@ -152,7 +152,15 @@ export default function ContactsTab() {
                   const { label, cls, next } = actionMeta(c.status)
                   return (
                     <tr key={c.id} className={`hover:bg-gray-50 transition-colors ${INACTIVE_STATUSES.has(c.status) ? 'opacity-70' : ''}`}>
-                      <td className="px-4 py-3 font-medium text-gray-900">{c.name || '—'}</td>
+                      <td className="px-4 py-3 font-medium text-gray-900">
+                        <div className="flex items-center gap-1.5">
+                          {c.name || '—'}
+                          {c.lastEngagedAt && c.status === 'active' && (
+                            <span title={`Τελευταία δραστηριότητα: ${c.lastEvent || 'engagement'}`}
+                              className="text-amber-400 text-xs" aria-label="engaged">🔥</span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-gray-600 text-xs">{c.email}</td>
                       <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{c.phone || '—'}</td>
                       <td className="px-4 py-3">
