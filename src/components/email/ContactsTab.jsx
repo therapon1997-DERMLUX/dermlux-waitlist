@@ -1,16 +1,32 @@
 import { useEffect, useState, useMemo } from 'react'
 import { collection, onSnapshot, query, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import { statusLabel, statusColor } from '../../utils/emailValidation'
+import { statusLabel, statusColor, INACTIVE_STATUSES } from '../../utils/emailValidation'
 import ContactUploadModal from './ContactUploadModal'
 
-const STATUS_FILTERS = ['all', 'active', 'unsubscribed', 'bounced', 'invalid']
+const STATUS_FILTERS = ['all', 'active', 'unsubscribed', 'bounced', 'complained', 'failed', 'invalid']
+
+const FILTER_LABEL = {
+  all:          'Όλοι',
+  active:       'Ενεργοί',
+  unsubscribed: 'Opt-out',
+  bounced:      'Bounce',
+  complained:   'Spam',
+  failed:       'Αποτυχία',
+  invalid:      'Άκυρα',
+}
+
+// How the action button looks per status
+function actionMeta(status) {
+  if (status === 'active') return { label: 'Opt-out',     cls: 'border-red-200 text-red-500 hover:bg-red-50',     next: 'unsubscribed' }
+  return                          { label: 'Επαναφορά',   cls: 'border-green-300 text-green-700 hover:bg-green-50', next: 'active' }
+}
 
 export default function ContactsTab() {
-  const [contacts, setContacts] = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [search, setSearch]     = useState('')
-  const [filter, setFilter]     = useState('all')
+  const [contacts, setContacts]     = useState([])
+  const [loading, setLoading]       = useState(true)
+  const [search, setSearch]         = useState('')
+  const [filter, setFilter]         = useState('all')
   const [showUpload, setShowUpload] = useState(false)
 
   useEffect(() => {
@@ -35,41 +51,61 @@ export default function ContactsTab() {
     return base
   }, [contacts, filter, search])
 
-  const counts = useMemo(() => ({
-    all:          contacts.length,
-    active:       contacts.filter(c => c.status === 'active').length,
-    unsubscribed: contacts.filter(c => c.status === 'unsubscribed').length,
-    bounced:      contacts.filter(c => c.status === 'bounced').length,
-    invalid:      contacts.filter(c => c.status === 'invalid').length,
-  }), [contacts])
+  const counts = useMemo(() => {
+    const m = { all: contacts.length }
+    STATUS_FILTERS.forEach(s => { if (s !== 'all') m[s] = contacts.filter(c => c.status === s).length })
+    return m
+  }, [contacts])
 
-  async function toggleUnsubscribe(contact) {
-    const newStatus = contact.status === 'unsubscribed' ? 'active' : 'unsubscribed'
-    await updateDoc(doc(db, 'email_contacts', contact.id), {
-      status: newStatus,
-      unsubscribedAt: newStatus === 'unsubscribed' ? serverTimestamp() : null,
-      updatedAt: serverTimestamp(),
-    })
+  async function setContactStatus(contact, newStatus) {
+    const update = { status: newStatus, updatedAt: serverTimestamp() }
+    if (newStatus === 'unsubscribed') update.unsubscribedAt = serverTimestamp()
+    if (newStatus === 'active') {
+      update.unsubscribedAt = null
+      update.bouncedAt      = null
+      update.complainedAt   = null
+      update.failedAt       = null
+      update.lastEvent      = null
+    }
+    await updateDoc(doc(db, 'email_contacts', contact.id), update)
   }
 
-  const filterLabel = { all: 'Όλοι', active: 'Ενεργοί', unsubscribed: 'Opt-out', bounced: 'Bounce', invalid: 'Άκυρα' }
+  const inactiveTotal = counts.bounced + counts.complained + counts.failed + counts.unsubscribed
 
   return (
     <div className="space-y-4">
+
+      {/* Inactive contacts warning banner */}
+      {inactiveTotal > 0 && filter === 'all' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 flex items-center gap-2">
+          <span className="text-lg">⚠️</span>
+          <span>
+            <strong>{inactiveTotal}</strong> επαφές είναι ανενεργές (bounce / spam / αποτυχία / opt-out) και εξαιρούνται αυτόματα από κάθε αποστολή.
+          </span>
+        </div>
+      )}
+
       {/* Top bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 flex-wrap">
-          {STATUS_FILTERS.map(s => (
-            <button key={s}
-              onClick={() => setFilter(s)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
-                filter === s
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
-              }`}>
-              {filterLabel[s]} <span className="ml-1 opacity-70">{counts[s]}</span>
-            </button>
-          ))}
+          {STATUS_FILTERS.map(s => {
+            const cnt = counts[s] || 0
+            if (s !== 'all' && s !== 'active' && cnt === 0) return null // hide empty inactive tabs
+            return (
+              <button key={s}
+                onClick={() => setFilter(s)}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                  filter === s
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
+                }`}>
+                {FILTER_LABEL[s]}
+                <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-xs ${
+                  filter === s ? 'bg-white/20' : INACTIVE_STATUSES.has(s) && cnt > 0 ? 'bg-red-100 text-red-600' : 'opacity-60'
+                }`}>{cnt}</span>
+              </button>
+            )
+          })}
         </div>
         <button className="btn-primary text-sm" onClick={() => setShowUpload(true)}>
           + Εισαγωγή CSV / Excel
@@ -106,50 +142,46 @@ export default function ContactsTab() {
                   <th className="text-left px-4 py-3 font-medium text-gray-500">Όνομα</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500">Email</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 hidden sm:table-cell">Τηλέφωνο</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500 hidden md:table-cell">Tags</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500">Status</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 hidden lg:table-cell">Αποστολές</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filtered.map(c => (
-                  <tr key={c.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-gray-900">{c.name || '—'}</td>
-                    <td className="px-4 py-3 text-gray-600 text-xs">{c.email}</td>
-                    <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{c.phone || '—'}</td>
-                    <td className="px-4 py-3 hidden md:table-cell">
-                      <div className="flex gap-1 flex-wrap">
-                        {(c.tags || []).map(t => (
-                          <span key={t} className="badge bg-blue-100 text-blue-700 text-xs">{t}</span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`badge text-xs ${statusColor(c.status)}`}>
-                        {statusLabel(c.status)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-500 hidden lg:table-cell">{c.sendCount || 0}</td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => toggleUnsubscribe(c)}
-                        title={c.status === 'unsubscribed' ? 'Επαναφορά σε ενεργό' : 'Opt-out'}
-                        className={`text-xs px-2 py-1 rounded-md border transition-colors ${
-                          c.status === 'unsubscribed'
-                            ? 'border-green-300 text-green-700 hover:bg-green-50'
-                            : 'border-red-200 text-red-500 hover:bg-red-50'
-                        }`}>
-                        {c.status === 'unsubscribed' ? 'Επαναφορά' : 'Opt-out'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {filtered.map(c => {
+                  const { label, cls, next } = actionMeta(c.status)
+                  return (
+                    <tr key={c.id} className={`hover:bg-gray-50 transition-colors ${INACTIVE_STATUSES.has(c.status) ? 'opacity-70' : ''}`}>
+                      <td className="px-4 py-3 font-medium text-gray-900">{c.name || '—'}</td>
+                      <td className="px-4 py-3 text-gray-600 text-xs">{c.email}</td>
+                      <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{c.phone || '—'}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-1">
+                          <span className={`badge text-xs ${statusColor(c.status)}`}>
+                            {statusLabel(c.status)}
+                          </span>
+                          {c.lastEvent && (
+                            <span className="text-xs text-gray-400">{c.lastEvent}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 hidden lg:table-cell">{c.sendCount || 0}</td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => setContactStatus(c, next)}
+                          className={`text-xs px-2 py-1 rounded-md border transition-colors ${cls}`}>
+                          {label}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
           <div className="px-4 py-2 border-t bg-gray-50 text-xs text-gray-400">
             Εμφανίζονται {filtered.length} από {contacts.length} επαφές
+            {filter === 'active' && <span className="ml-2 text-green-600 font-medium">· {counts.active} θα λάβουν την επόμενη καμπάνια</span>}
           </div>
         </div>
       )}

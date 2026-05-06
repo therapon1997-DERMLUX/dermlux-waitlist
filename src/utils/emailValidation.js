@@ -39,11 +39,20 @@ export function contactDocId(email) {
     .replace(/=/g, '')
 }
 
+// Statuses that should never receive emails
+export const INACTIVE_STATUSES = new Set(['unsubscribed', 'bounced', 'complained', 'failed', 'invalid'])
+
+export function isActiveContact(status) {
+  return !INACTIVE_STATUSES.has(status)
+}
+
 export function statusLabel(status) {
   switch (status) {
     case 'active':       return 'Ενεργός'
     case 'unsubscribed': return 'Opt-out'
     case 'bounced':      return 'Bounce'
+    case 'complained':   return 'Spam'
+    case 'failed':       return 'Αποτυχία'
     case 'invalid':      return 'Άκυρο'
     default:             return status || '—'
   }
@@ -54,6 +63,8 @@ export function statusColor(status) {
     case 'active':       return 'bg-green-100 text-green-700'
     case 'unsubscribed': return 'bg-gray-100 text-gray-500'
     case 'bounced':      return 'bg-red-100 text-red-600'
+    case 'complained':   return 'bg-purple-100 text-purple-700'
+    case 'failed':       return 'bg-orange-100 text-orange-600'
     case 'invalid':      return 'bg-orange-100 text-orange-600'
     default:             return 'bg-gray-100 text-gray-500'
   }

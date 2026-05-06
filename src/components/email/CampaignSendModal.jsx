@@ -4,7 +4,7 @@ import {
   doc, updateDoc, writeBatch, serverTimestamp, increment
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import { contactDocId } from '../../utils/emailValidation'
+import { contactDocId, isActiveContact } from '../../utils/emailValidation'
 
 const WORKER_URL = import.meta.env.VITE_WORKER_URL
 const BATCH_SIZE = 100 // Resend batch limit
@@ -19,11 +19,15 @@ export default function CampaignSendModal({ campaign, onClose }) {
   const [failCount, setFailCount] = useState(0)
   const [error, setError]         = useState('')
 
-  // Load active contacts on mount
+  // Load active contacts on mount (exclude bounced/complained/failed/unsubscribed/invalid)
   useEffect(() => {
     getDocs(query(collection(db, 'email_contacts'), where('status', '==', 'active')))
       .then(snap => {
-        setContacts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+        // Double-filter client-side in case any edge status slips through
+        const active = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(c => isActiveContact(c.status))
+        setContacts(active)
         setLoading(false)
       })
       .catch(e => { setError(e.message); setLoading(false) })
