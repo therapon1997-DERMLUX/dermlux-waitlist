@@ -2,3 +2,4 @@ flask==3.1.1
 gunicorn==23.0.0
 requests==2.32.3
 anthropic>=0.40.0
+firebase-admin>=6.5.0

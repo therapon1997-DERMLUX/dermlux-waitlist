@@ -4,13 +4,23 @@ import requests
 from flask import Flask, request
 from datetime import datetime, timezone
 import anthropic
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 app = Flask(__name__)
 
-BOT_TOKEN           = os.environ.get('BOT_TOKEN', '')
-FIREBASE_PROJECT_ID = os.environ.get('FIREBASE_PROJECT_ID', 'dermlux-waitlist')
-FIREBASE_API_KEY    = os.environ.get('FIREBASE_API_KEY', '')
-ANTHROPIC_API_KEY   = os.environ.get('ANTHROPIC_API_KEY', '')
+BOT_TOKEN         = os.environ.get('BOT_TOKEN', '')
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+
+# Initialise Firebase Admin from the service account JSON stored as an env var
+_sa_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT', '')
+if _sa_json:
+    _sa_dict = json.loads(_sa_json)
+    firebase_admin.initialize_app(credentials.Certificate(_sa_dict))
+else:
+    firebase_admin.initialize_app()   # uses GOOGLE_APPLICATION_CREDENTIALS if set
+
+db = firestore.client()
 
 ai_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -38,61 +48,48 @@ def send(chat_id, text):
 
 def get_volunteer_profile(telegram_user_id):
     """Fetch volunteer profile by telegramUserId. Returns dict or None."""
-    url = (
-        f'https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}'
-        f'/databases/(default)/documents/volunteers/{telegram_user_id}?key={FIREBASE_API_KEY}'
-    )
-    resp = requests.get(url, timeout=10)
-    if resp.status_code == 200:
-        fields = resp.json().get('fields', {})
-        return {k: v.get('stringValue', '') for k, v in fields.items()}
-    return None
+    try:
+        doc = db.collection('volunteers').document(str(telegram_user_id)).get()
+        return doc.to_dict() if doc.exists else None
+    except Exception as e:
+        print(f'[Firebase] get_volunteer_profile error: {e}')
+        return None
 
 def save_volunteer_profile(telegram_user_id, data):
     """Create or update volunteer profile (uses telegramUserId as document ID)."""
-    url = (
-        f'https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}'
-        f'/databases/(default)/documents/volunteers/{telegram_user_id}?key={FIREBASE_API_KEY}'
-    )
-    payload = {
-        'fields': {
-            'firstName':      {'stringValue': data.get('firstName', '')},
-            'lastName':       {'stringValue': data.get('lastName', '')},
-            'area':           {'stringValue': data.get('area', '')},
-            'telegramUserId': {'stringValue': str(telegram_user_id)},
-            'updatedAt':      {'timestampValue': datetime.now(timezone.utc).isoformat()},
-        }
-    }
-    resp = requests.patch(url, json=payload, timeout=10)
-    if resp.status_code != 200:
-        print(f'[Firebase] save_volunteer_profile failed {resp.status_code}: {resp.text}')
-    return resp.status_code == 200
+    try:
+        db.collection('volunteers').document(str(telegram_user_id)).set({
+            'firstName':      data.get('firstName', ''),
+            'lastName':       data.get('lastName', ''),
+            'area':           data.get('area', ''),
+            'telegramUserId': str(telegram_user_id),
+            'updatedAt':      datetime.now(timezone.utc),
+        })
+        return True
+    except Exception as e:
+        print(f'[Firebase] save_volunteer_profile error: {e}')
+        return False
 
 def save_contact(data, volunteer, telegram_user_id, telegram_username):
     """Save a contact to voteContacts collection."""
-    url = (
-        f'https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}'
-        f'/databases/(default)/documents/voteContacts?key={FIREBASE_API_KEY}'
-    )
-    added_by = f'{volunteer.get("firstName", "")} {volunteer.get("lastName", "")}'.strip()
-    payload = {
-        'fields': {
-            'firstName':        {'stringValue': data.get('firstName', '')},
-            'lastName':         {'stringValue': data.get('lastName', '')},
-            'phone':            {'stringValue': data.get('phone', '')},
-            'area':             {'stringValue': data.get('area', '')},
-            'comment':          {'stringValue': data.get('comment', '')},
-            'addedByName':      {'stringValue': added_by},
-            'addedByArea':      {'stringValue': volunteer.get('area', '')},
-            'addedByUsername':  {'stringValue': telegram_username},
-            'addedByUserId':    {'stringValue': str(telegram_user_id)},
-            'timestamp':        {'timestampValue': datetime.now(timezone.utc).isoformat()},
-        }
-    }
-    resp = requests.post(url, json=payload, timeout=10)
-    if resp.status_code != 200:
-        print(f'[Firebase] save_contact failed {resp.status_code}: {resp.text}')
-    return resp.status_code == 200
+    try:
+        added_by = f'{volunteer.get("firstName", "")} {volunteer.get("lastName", "")}'.strip()
+        db.collection('voteContacts').add({
+            'firstName':       data.get('firstName', ''),
+            'lastName':        data.get('lastName', ''),
+            'phone':           data.get('phone', ''),
+            'area':            data.get('area', ''),
+            'comment':         data.get('comment', ''),
+            'addedByName':     added_by,
+            'addedByArea':     volunteer.get('area', ''),
+            'addedByUsername': telegram_username,
+            'addedByUserId':   str(telegram_user_id),
+            'timestamp':       datetime.now(timezone.utc),
+        })
+        return True
+    except Exception as e:
+        print(f'[Firebase] save_contact error: {e}')
+        return False
 
 # ── System prompts ────────────────────────────────────────────────────────────
 
