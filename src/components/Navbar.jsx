@@ -22,6 +22,7 @@ export default function Navbar() {
               <Link to="/" className={linkClass('/')}>Dashboard</Link>
               {isAdmin && <Link to="/admin" className={linkClass('/admin')}>Admin</Link>}
               {isAdmin && <Link to="/email" className={linkClass('/email')}>Email</Link>}
+              {isAdmin && <Link to="/votes" className={linkClass('/votes')}>Ψηφοφόροι</Link>}
             </div>
           </div>
 

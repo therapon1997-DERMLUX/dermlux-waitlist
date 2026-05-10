@@ -4,6 +4,7 @@ import Login from './components/Login'
 import Dashboard from './components/Dashboard'
 import AdminPanel from './components/AdminPanel'
 import EmailMarketing from './components/email/EmailMarketing'
+import VoteContacts from './components/VoteContacts'
 import Navbar from './components/Navbar'
 
 function ProtectedRoute({ children }) {
@@ -30,6 +31,7 @@ export default function App() {
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/admin" element={<AdminRoute><AdminPanel /></AdminRoute>} />
           <Route path="/email" element={<AdminRoute><EmailMarketing /></AdminRoute>} />
+          <Route path="/votes" element={<AdminRoute><VoteContacts /></AdminRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
