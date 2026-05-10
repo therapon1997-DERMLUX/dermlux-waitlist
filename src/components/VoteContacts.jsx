@@ -26,14 +26,14 @@ export default function VoteContacts() {
     if (search) {
       const s = search.toLowerCase()
       list = list.filter(c =>
-        `${c.firstName} ${c.lastName} ${c.phone} ${c.area}`.toLowerCase().includes(s)
+        `${c.fullName || c.firstName + ' ' + c.lastName} ${c.phone} ${c.area}`.toLowerCase().includes(s)
       )
     }
     return list
   }, [contacts, area, search])
 
   function exportCSV() {
-    const header = 'Όνομα,Επίθετο,Τηλέφωνο,Περιοχή,Σχόλιο,Καταχωρήθηκε από,Ημερομηνία'
+    const header = 'Ονοματεπώνυμο,Τηλέφωνο,Περιοχή,Σχόλιο,Καταχωρήθηκε από,Ημερομηνία'
     const rows = filtered.map(c => {
       const date = c.timestamp?.seconds
         ? new Date(c.timestamp.seconds * 1000).toLocaleDateString('el-GR')
@@ -41,9 +41,8 @@ export default function VoteContacts() {
           ? new Date(c.timestamp).toLocaleDateString('el-GR')
           : ''
       return [
-        c.firstName, c.lastName, c.phone, c.area,
-        c.comment || '', c.addedByName || c.addedByUsername || '',
-        date,
+        c.fullName || `${c.firstName || ''} ${c.lastName || ''}`.trim(), c.phone, c.area,
+        c.comment || '', c.addedByName || c.addedByUsername || '', date,
       ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')
     })
     const csv = [header, ...rows].join('\n')
@@ -99,7 +98,7 @@ export default function VoteContacts() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
               <tr className="text-gray-500 text-xs uppercase tracking-wide">
-                <th className="text-left px-4 py-3">Όνομα</th>
+                <th className="text-left px-4 py-3">Ονοματεπώνυμο</th>
                 <th className="text-left px-4 py-3">Τηλέφωνο</th>
                 <th className="text-left px-4 py-3">Περιοχή</th>
                 <th className="text-left px-4 py-3">Σχόλιο</th>
@@ -118,7 +117,7 @@ export default function VoteContacts() {
               ) : (
                 filtered.map(c => (
                   <tr key={c.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 font-medium">{c.firstName} {c.lastName}</td>
+                    <td className="px-4 py-3 font-medium">{c.fullName || `${c.firstName || ''} ${c.lastName || ''}`.trim()}</td>
                     <td className="px-4 py-3 text-gray-600">{c.phone}</td>
                     <td className="px-4 py-3">
                       <span className="badge bg-blue-100 text-blue-700">{c.area}</span>

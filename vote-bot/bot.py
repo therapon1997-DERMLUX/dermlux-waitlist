@@ -123,8 +123,7 @@ def save_contact(data, profile):
     added_by = f"{profile.get('firstName', '')} {profile.get('lastName', '')}".strip()
     payload = {
         'fields': {
-            'firstName':       {'stringValue': data.get('firstName', '')},
-            'lastName':        {'stringValue': data.get('lastName', '')},
+            'fullName':        {'stringValue': data.get('fullName', '')},
             'phone':           {'stringValue': data.get('phone', '')},
             'area':            {'stringValue': data.get('area', '')},
             'comment':         {'stringValue': data.get('comment', '')},
@@ -172,7 +171,7 @@ def send_confirmation(chat_id, data):
     comment_line = f'\n💬 <b>Σχόλιο:</b> {data["comment"]}' if data.get('comment') else ''
     send(chat_id,
          f'📋 <b>Έλεγχος στοιχείων:</b>\n\n'
-         f'👤 <b>Όνομα:</b> {data.get("firstName", "")} {data.get("lastName", "")}\n'
+         f'👤 <b>Ονοματεπώνυμο:</b> {data.get("fullName", "")}\n'
          f'📞 <b>Τηλέφωνο:</b> {data.get("phone", "")}\n'
          f'📍 <b>Περιοχή:</b> {data.get("area", "")}'
          f'{comment_line}\n\n'
@@ -234,28 +233,23 @@ def handle_contact(chat_id, text, user_info):
     data  = state['data']
 
     if step == 0:
-        data['firstName'] = text
+        data['fullName'] = text
         state['step'] = 1
-        send(chat_id, f'Και το <b>επίθετο</b> του/της {data["firstName"]};')
+        send(chat_id, f'Ποιο είναι το <b>τηλέφωνο</b> του/της {data["fullName"]};')
 
     elif step == 1:
-        data['lastName'] = text
-        state['step'] = 2
-        send(chat_id, f'Ποιο είναι το <b>τηλέφωνο</b> του/της {data["firstName"]} {data["lastName"]};')
-
-    elif step == 2:
         data['phone'] = text
-        state['step'] = 3
+        state['step'] = 2
         send(chat_id, 'Από ποια <b>περιοχή</b> είναι;')
 
-    elif step == 3:
+    elif step == 2:
         data['area'] = text
-        state['step'] = 4
+        state['step'] = 3
         send(chat_id,
              'Έχεις κάποιο <b>σχόλιο</b>;\n'
              '(Γράψε ό,τι θέλεις, ή <code>/skip</code> για παράλειψη)')
 
-    elif step == 4:
+    elif step == 3:
         data['comment'] = '' if text.lower() in ('/skip', '-', '.') else text
         # Move to confirmation
         user_states[chat_id] = {'mode': 'confirm', 'data': data}
@@ -278,7 +272,7 @@ def handle_confirm(chat_id, text, user_info):
             comment_line = f'\n💬 {data["comment"]}' if data.get('comment') else ''
             send(chat_id,
                  f'✅ <b>Καταχωρήθηκε!</b>\n\n'
-                 f'👤 {data["firstName"]} {data["lastName"]}\n'
+                 f'👤 {data["fullName"]}\n'
                  f'📞 {data["phone"]}\n'
                  f'📍 {data["area"]}'
                  f'{comment_line}\n\n'
@@ -290,12 +284,9 @@ def handle_confirm(chat_id, text, user_info):
     elif is_no(text) or any(w in text.lower() for w in ['όνομα', 'ονομα', 'επίθετο', 'επιθετο', 'τηλέφωνο', 'τηλεφωνο', 'περιοχή', 'περιοχη', 'σχόλιο', 'σχολιο']):
         # Figure out what they want to change
         t = text.lower()
-        if any(w in t for w in ['όνομα', 'ονομα', 'first']):
-            user_states[chat_id] = {'mode': 'edit', 'field': 'firstName', 'data': data}
-            send(chat_id, f'Ποιο είναι το σωστό <b>όνομα</b>;')
-        elif any(w in t for w in ['επίθετο', 'επιθετο', 'last']):
-            user_states[chat_id] = {'mode': 'edit', 'field': 'lastName', 'data': data}
-            send(chat_id, 'Ποιο είναι το σωστό <b>επίθετο</b>;')
+        if any(w in t for w in ['όνομα', 'ονομα', 'ονοματεπώνυμο', 'ονοματεπωνυμο', 'first', 'επίθετο', 'επιθετο']):
+            user_states[chat_id] = {'mode': 'edit', 'field': 'fullName', 'data': data}
+            send(chat_id, 'Ποιο είναι το σωστό <b>ονοματεπώνυμο</b>;')
         elif any(w in t for w in ['τηλέφωνο', 'τηλεφωνο', 'phone', 'αριθμό', 'αριθμο']):
             user_states[chat_id] = {'mode': 'edit', 'field': 'phone', 'data': data}
             send(chat_id, 'Ποιο είναι το σωστό <b>τηλέφωνο</b>;')
