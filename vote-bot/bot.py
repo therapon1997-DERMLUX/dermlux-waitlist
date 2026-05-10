@@ -145,7 +145,7 @@ HOW TO BEHAVE:
 - If the user wants to correct a field at any point ("άλλαξε", "λάθος", "εννοώ"), update it immediately.
 - Capitalize names and areas properly (e.g. γιωργης → Γιώργης).
 - For phone: strip spaces, dashes, dots — keep digits only (with leading + if present).
-- Validate phone: must be 10 digits for Greek numbers (or start with +30).
+- Validate phone: must be 8 digits for Cyprus numbers (or start with +357 followed by 8 digits).
 - If input seems wrong for a field (e.g. letters where phone expected), ask to clarify.
 - Once ALL required fields are collected, show a formatted summary and ask to confirm.
 - After confirmation, set status to "save".
