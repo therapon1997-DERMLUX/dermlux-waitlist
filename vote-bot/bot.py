@@ -5,13 +5,15 @@ from datetime import datetime, timezone
 
 app = Flask(__name__)
 
-BOT_TOKEN          = os.environ.get('BOT_TOKEN', '')
+BOT_TOKEN           = os.environ.get('BOT_TOKEN', '')
 FIREBASE_PROJECT_ID = os.environ.get('FIREBASE_PROJECT_ID', 'dermlux-waitlist')
-FIREBASE_API_KEY   = os.environ.get('FIREBASE_API_KEY', '')
+FIREBASE_API_KEY    = os.environ.get('FIREBASE_API_KEY', '')
 
-# In-memory conversation state: { chat_id: { 'step': int, 'data': {} } }
-# Steps: 0=firstName, 1=lastName, 2=phone, 3=area, 4=comment
-user_states = {}
+# In-memory state
+# user_profiles: { chat_id: { 'firstName', 'lastName', 'area', 'telegramId', 'username' } }
+# user_states:   { chat_id: { 'mode': 'onboarding'|'contact', 'step': int, 'data': {} } }
+user_profiles = {}
+user_states   = {}
 
 # ── Telegram helpers ──────────────────────────────────────────────────────────
 
@@ -22,13 +24,71 @@ def send(chat_id, text):
         timeout=10,
     )
 
-# ── Firestore helper ──────────────────────────────────────────────────────────
+# ── Firestore helpers ─────────────────────────────────────────────────────────
 
-def save_contact(data, user_info):
+def save_volunteer(profile):
+    """Save volunteer profile to Firebase volunteers collection."""
+    url = (
+        f'https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}'
+        f'/databases/(default)/documents/volunteers?key={FIREBASE_API_KEY}'
+    )
+    payload = {
+        'fields': {
+            'firstName':      {'stringValue': profile.get('firstName', '')},
+            'lastName':       {'stringValue': profile.get('lastName', '')},
+            'area':           {'stringValue': profile.get('area', '')},
+            'telegramUserId': {'stringValue': str(profile.get('telegramId', ''))},
+            'username':       {'stringValue': profile.get('username', '')},
+            'registeredAt':   {'timestampValue': datetime.now(timezone.utc).isoformat()},
+        }
+    }
+    requests.post(url, json=payload, timeout=10)
+
+
+def load_volunteer(chat_id):
+    """Try to load volunteer profile from Firebase by telegramUserId."""
+    url = (
+        f'https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}'
+        f'/databases/(default)/documents:runQuery?key={FIREBASE_API_KEY}'
+    )
+    payload = {
+        'structuredQuery': {
+            'from': [{'collectionId': 'volunteers'}],
+            'where': {
+                'fieldFilter': {
+                    'field': {'fieldPath': 'telegramUserId'},
+                    'op': 'EQUAL',
+                    'value': {'stringValue': str(chat_id)},
+                }
+            },
+            'limit': 1,
+        }
+    }
+    try:
+        resp = requests.post(url, json=payload, timeout=10)
+        if resp.status_code != 200:
+            return None
+        results = resp.json()
+        if results and results[0].get('document'):
+            fields = results[0]['document']['fields']
+            return {
+                'firstName':  fields.get('firstName',  {}).get('stringValue', ''),
+                'lastName':   fields.get('lastName',   {}).get('stringValue', ''),
+                'area':       fields.get('area',        {}).get('stringValue', ''),
+                'telegramId': chat_id,
+                'username':   fields.get('username',    {}).get('stringValue', ''),
+            }
+    except Exception:
+        pass
+    return None
+
+
+def save_contact(data, profile):
     url = (
         f'https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}'
         f'/databases/(default)/documents/voteContacts?key={FIREBASE_API_KEY}'
     )
+    added_by = f"{profile.get('firstName', '')} {profile.get('lastName', '')}".strip()
     payload = {
         'fields': {
             'firstName':        {'stringValue': data.get('firstName', '')},
@@ -36,80 +96,100 @@ def save_contact(data, user_info):
             'phone':            {'stringValue': data.get('phone', '')},
             'area':             {'stringValue': data.get('area', '')},
             'comment':          {'stringValue': data.get('comment', '')},
-            'addedByUsername':  {'stringValue': user_info.get('username', '')},
-            'addedByName':      {'stringValue': user_info.get('name', '')},
-            'telegramUserId':   {'stringValue': str(user_info.get('id', ''))},
+            'addedByUsername':  {'stringValue': profile.get('username', '')},
+            'addedByName':      {'stringValue': added_by},
+            'telegramUserId':   {'stringValue': str(profile.get('telegramId', ''))},
             'timestamp':        {'timestampValue': datetime.now(timezone.utc).isoformat()},
         }
     }
     resp = requests.post(url, json=payload, timeout=10)
     return resp.status_code == 200
 
-# ── Conversation logic ────────────────────────────────────────────────────────
+# ── Onboarding flow ───────────────────────────────────────────────────────────
 
-def handle_message(chat_id, text, user_info):
-    text = text.strip()
+def start_onboarding(chat_id):
+    user_states[chat_id] = {'mode': 'onboarding', 'step': 0, 'data': {}}
+    send(chat_id,
+         'Γεια σου! 👋 Καλώς ήρθες στο σύστημα καταχώρησης επαφών.\n\n'
+         'Πρώτα θέλω να σε γνωρίσω!\n\n'
+         'Ποιο είναι το <b>όνομά</b> σου;')
 
-    # /start or /new → reset and begin
-    if text.lower() in ('/start', '/new'):
-        user_states[chat_id] = {'step': 0, 'data': {}}
-        send(chat_id,
-             'Γεια σου! 😊 Θα με βοηθήσεις να καταχωρήσεις επαφές που θα μας ψηφίσουν.\n\n'
-             'Πώς λέγεται η επαφή; Ξεκίνα με το <b>όνομα</b>:')
-        return
 
-    state = user_states.get(chat_id)
-
-    # First message ever (no /start) → auto-start
-    if state is None:
-        user_states[chat_id] = {'step': 0, 'data': {}}
-        send(chat_id,
-             'Γεια σου! 😊 Θα με βοηθήσεις να καταχωρήσεις επαφές που θα μας ψηφίσουν.\n\n'
-             'Πώς λέγεται η επαφή; Ξεκίνα με το <b>όνομα</b>:')
-        return
-
-    step = state['step']
-    data = state['data']
+def handle_onboarding(chat_id, text, user_info):
+    state = user_states[chat_id]
+    step  = state['step']
+    data  = state['data']
 
     if step == 0:  # firstName
-        if not text:
-            send(chat_id, 'Παρακαλώ γράψε το <b>όνομα</b> της επαφής:')
-            return
         data['firstName'] = text
-        user_states[chat_id] = {'step': 1, 'data': data}
-        send(chat_id, f'Ωραία! Και το <b>επίθετο</b> του/της {data["firstName"]};')
+        state['step'] = 1
+        send(chat_id, f'Χαίρομαι {data["firstName"]}! Και το <b>επίθετό</b> σου;')
 
     elif step == 1:  # lastName
-        if not text:
-            send(chat_id, 'Παρακαλώ γράψε το <b>επίθετο</b>:')
-            return
         data['lastName'] = text
-        user_states[chat_id] = {'step': 2, 'data': data}
-        send(chat_id, f'Τέλεια! Ποιο είναι το <b>τηλέφωνο</b> του/της {data["firstName"]} {data["lastName"]};')
+        state['step'] = 2
+        send(chat_id, 'Ωραία! Από ποια <b>περιοχή</b> είσαι;')
+
+    elif step == 2:  # area
+        data['area']       = text
+        data['telegramId'] = user_info.get('id', chat_id)
+        data['username']   = user_info.get('username', '')
+
+        user_profiles[chat_id] = data
+        save_volunteer(data)
+
+        send(chat_id,
+             f'Τέλεια <b>{data["firstName"]} {data["lastName"]}</b> από {data["area"]}! 🎉\n\n'
+             f'Το προφίλ σου αποθηκεύτηκε.\n\n'
+             f'Μπορείς τώρα να ξεκινήσεις να καταχωρείς επαφές.\n'
+             f'Πώς λέγεται η πρώτη σου επαφή; Γράψε το <b>όνομα</b>:')
+
+        user_states[chat_id] = {'mode': 'contact', 'step': 0, 'data': {}}
+
+# ── Contact registration flow ─────────────────────────────────────────────────
+
+def start_contact(chat_id):
+    user_states[chat_id] = {'mode': 'contact', 'step': 0, 'data': {}}
+    profile = user_profiles.get(chat_id, {})
+    send(chat_id,
+         f'Εντάξει {profile.get("firstName", "")}! Νέα επαφή.\n\nΠώς λέγεται; Γράψε το <b>όνομα</b>:')
+
+
+def handle_contact(chat_id, text, user_info):
+    state   = user_states[chat_id]
+    step    = state['step']
+    data    = state['data']
+    profile = user_profiles.get(chat_id, {
+        'firstName': '', 'lastName': '',
+        'area': '', 'telegramId': user_info.get('id', 0),
+        'username': user_info.get('username', ''),
+    })
+
+    if step == 0:  # firstName
+        data['firstName'] = text
+        state['step'] = 1
+        send(chat_id, f'Και το <b>επίθετο</b> του/της {data["firstName"]};')
+
+    elif step == 1:  # lastName
+        data['lastName'] = text
+        state['step'] = 2
+        send(chat_id, f'Ποιο είναι το <b>τηλέφωνο</b> του/της {data["firstName"]} {data["lastName"]};')
 
     elif step == 2:  # phone
-        if not text:
-            send(chat_id, 'Παρακαλώ γράψε το <b>τηλέφωνο</b>:')
-            return
         data['phone'] = text
-        user_states[chat_id] = {'step': 3, 'data': data}
+        state['step'] = 3
         send(chat_id, 'Από ποια <b>περιοχή</b> είναι;')
 
     elif step == 3:  # area
-        if not text:
-            send(chat_id, 'Παρακαλώ γράψε την <b>περιοχή</b>:')
-            return
         data['area'] = text
-        user_states[chat_id] = {'step': 4, 'data': data}
+        state['step'] = 4
         send(chat_id,
              'Έχεις κάποιο <b>σχόλιο</b> για αυτή την επαφή;\n'
-             '(Γράψε ό,τι θέλεις, ή στείλε <code>/skip</code> για να παραλείψεις)')
+             '(Γράψε ό,τι θέλεις, ή στείλε <code>/skip</code> για παράλειψη)')
 
     elif step == 4:  # comment
         data['comment'] = '' if text.lower() in ('/skip', '-', '.') else text
-        user_states[chat_id] = {'step': 0, 'data': {}}
-
-        success = save_contact(data, user_info)
+        success = save_contact(data, profile)
 
         if success:
             comment_line = f'\n💬 {data["comment"]}' if data['comment'] else ''
@@ -119,13 +199,64 @@ def handle_message(chat_id, text, user_info):
                  f'📞 {data["phone"]}\n'
                  f'📍 {data["area"]}'
                  f'{comment_line}\n\n'
-                 f'Ευχαριστώ πολύ! 🙏 Θες να προσθέσεις άλλη επαφή; Γράψε οποτεδήποτε!')
+                 f'Θες να προσθέσεις άλλη επαφή; Γράψε οποτεδήποτε!')
+            user_states[chat_id] = {'mode': 'contact', 'step': 0, 'data': {}}
         else:
-            # Keep data in case of retry
-            user_states[chat_id] = {'step': 4, 'data': data}
+            user_states[chat_id] = {'mode': 'contact', 'step': 4, 'data': data}
             send(chat_id,
-                 '⚠️ Υπήρξε πρόβλημα κατά την αποθήκευση. Παρακαλώ δοκίμασε ξανά '
-                 'στέλνοντας ξανά το σχόλιο (ή <code>/skip</code>).')
+                 '⚠️ Υπήρξε πρόβλημα κατά την αποθήκευση. Δοκίμασε ξανά '
+                 'στέλνοντας το σχόλιο (ή <code>/skip</code>).')
+
+# ── Main message handler ──────────────────────────────────────────────────────
+
+def handle_message(chat_id, text, user_info):
+    text = text.strip()
+
+    # /new → νέα επαφή
+    if text.lower() == '/new':
+        if chat_id in user_profiles:
+            start_contact(chat_id)
+        else:
+            start_onboarding(chat_id)
+        return
+
+    # /start → onboarding αν δεν υπάρχει προφίλ, αλλιώς καλωσόρισμα
+    if text.lower() == '/start':
+        if chat_id not in user_profiles:
+            profile = load_volunteer(chat_id)
+            if profile:
+                user_profiles[chat_id] = profile
+
+        if chat_id in user_profiles:
+            profile = user_profiles[chat_id]
+            send(chat_id,
+                 f'Καλώς ήρθες πάλι <b>{profile["firstName"]}</b>! 👋\n\n'
+                 f'Γράψε μου το <b>όνομα</b> της επαφής που θέλεις να καταχωρήσεις:')
+            user_states[chat_id] = {'mode': 'contact', 'step': 0, 'data': {}}
+        else:
+            start_onboarding(chat_id)
+        return
+
+    # Πρώτο μήνυμα χωρίς /start
+    if chat_id not in user_states:
+        if chat_id not in user_profiles:
+            profile = load_volunteer(chat_id)
+            if profile:
+                user_profiles[chat_id] = profile
+
+        if chat_id in user_profiles:
+            user_states[chat_id] = {'mode': 'contact', 'step': 0, 'data': {}}
+            handle_contact(chat_id, text, user_info)
+        else:
+            start_onboarding(chat_id)
+        return
+
+    # Route
+    mode = user_states[chat_id].get('mode', 'contact')
+    if mode == 'onboarding':
+        handle_onboarding(chat_id, text, user_info)
+    else:
+        handle_contact(chat_id, text, user_info)
 
 # ── Flask routes ──────────────────────────────────────────────────────────────
 
