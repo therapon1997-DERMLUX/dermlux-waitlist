@@ -56,16 +56,17 @@ def save_volunteer_profile(telegram_user_id, data):
     )
     payload = {
         'fields': {
-            'firstName': {'stringValue': data.get('firstName', '')},
-            'lastName':  {'stringValue': data.get('lastName', '')},
-            'area':      {'stringValue': data.get('area', '')},
-            'updatedAt': {'timestampValue': datetime.now(timezone.utc).isoformat()},
+            'firstName':      {'stringValue': data.get('firstName', '')},
+            'lastName':       {'stringValue': data.get('lastName', '')},
+            'area':           {'stringValue': data.get('area', '')},
+            'telegramUserId': {'stringValue': str(telegram_user_id)},
+            'updatedAt':      {'timestampValue': datetime.now(timezone.utc).isoformat()},
         }
     }
     resp = requests.patch(url, json=payload, timeout=10)
     return resp.status_code == 200
 
-def save_contact(data, volunteer, telegram_user_id):
+def save_contact(data, volunteer, telegram_user_id, telegram_username):
     """Save a contact to voteContacts collection."""
     url = (
         f'https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}'
@@ -81,6 +82,8 @@ def save_contact(data, volunteer, telegram_user_id):
             'comment':          {'stringValue': data.get('comment', '')},
             'addedByName':      {'stringValue': added_by},
             'addedByArea':      {'stringValue': volunteer.get('area', '')},
+            'addedByUsername':  {'stringValue': telegram_username},
+            'addedByUserId':    {'stringValue': str(telegram_user_id)},
             'timestamp':        {'timestampValue': datetime.now(timezone.utc).isoformat()},
         }
     }
@@ -148,6 +151,12 @@ HOW TO BEHAVE:
 - If the user wants to update THEIR OWN volunteer profile (e.g. "άλλαξε τα δικά μου στοιχεία", \
 "λάθος το όνομά μου"), set status to "update_profile".
 
+STRICT PRIVACY RULE:
+Never reveal, discuss, or reference any data entered by other volunteers. \
+If a volunteer asks about other volunteers, other contacts, totals, lists, or anything \
+beyond their own current session, politely decline and redirect them to adding a new contact. \
+Each volunteer can only see what they themselves are currently entering.
+
 ALWAYS respond with ONLY a raw JSON object (no markdown):
 {
   "reply": "<your Greek message>",
@@ -212,7 +221,7 @@ def new_state(mode='registering', volunteer=None):
 
 # ── Message handler ───────────────────────────────────────────────────────────
 
-def handle_message(chat_id, text, telegram_user_id):
+def handle_message(chat_id, text, telegram_user_id, telegram_username):
     text = text.strip()
 
     # /start or /new — full reset, re-check volunteer profile
@@ -321,7 +330,7 @@ def handle_message(chat_id, text, telegram_user_id):
             state['history'] = []
 
         elif status == 'save':
-            ok = save_contact(state['data'], state['volunteer'], telegram_user_id)
+            ok = save_contact(state['data'], state['volunteer'], telegram_user_id, telegram_username)
             if ok:
                 d = state['data']
                 comment_line = f'\n💬 {d["comment"]}' if d.get('comment') else ''
@@ -350,11 +359,10 @@ def webhook():
         chat_id   = message['chat']['id']
         text      = message.get('text', '')
         from_user = message.get('from', {})
-        # Only use the Telegram ID internally to look up the volunteer's self-registered profile.
-        # No Telegram username or display name is collected or stored.
         telegram_user_id = from_user.get('id', 0)
+        telegram_username = from_user.get('username', '')
         if text:
-            handle_message(chat_id, text, telegram_user_id)
+            handle_message(chat_id, text, telegram_user_id, telegram_username)
 
     return 'OK'
 
