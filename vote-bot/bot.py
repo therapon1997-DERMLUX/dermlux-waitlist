@@ -158,8 +158,8 @@ def ai_parse(step, user_message, data):
                 raw = raw[4:]
         return json.loads(raw)
     except Exception:
-        # Fallback: treat as plain save
-        return {'action': 'save', 'value': user_message}
+        # Fallback: ask user to repeat rather than silently saving garbage
+        return {'action': 'unclear', 'reply': 'Δεν κατάλαβα. Μπορείς να το ξαναγράψεις;'}
 
 # ── Step prompts ──────────────────────────────────────────────────────────────
 
@@ -225,8 +225,14 @@ def handle_message(chat_id, text, user_info):
     step = state['step']
     data = state['data']
 
-    # Explicit back/skip commands (shortcuts, bypass AI)
-    if text.lower() in ('/back', 'πίσω', 'back'):
+    # Explicit back/correction phrases — catch before calling Claude
+    BACK_TRIGGERS = (
+        '/back', 'back', 'πίσω', 'λάθος', 'λαθος', 'διόρθωση', 'διορθωση',
+        'αλλαγή', 'αλλαγη', 'αλλάξω', 'αλλαξω', 'αλλαγή στοιχείων',
+        'θέλω να αλλάξω', 'θελω να αλλαξω', 'να αλλάξω', 'να αλλαξω',
+        'διόρθωσε', 'διορθωσε', 'ξανά', 'ξανα', 'επανάληψη', 'επαναληψη',
+    )
+    if any(text.lower() == t or text.lower().startswith(t) for t in BACK_TRIGGERS):
         do_back(chat_id, step, data)
         return
 
