@@ -1,98 +1,22 @@
 import os
+import json
 import requests
 from flask import Flask, request
 from datetime import datetime, timezone
+import anthropic
 
 app = Flask(__name__)
 
 BOT_TOKEN           = os.environ.get('BOT_TOKEN', '')
 FIREBASE_PROJECT_ID = os.environ.get('FIREBASE_PROJECT_ID', 'dermlux-waitlist')
 FIREBASE_API_KEY    = os.environ.get('FIREBASE_API_KEY', '')
+ANTHROPIC_API_KEY   = os.environ.get('ANTHROPIC_API_KEY', '')
 
-# In-memory state
-# user_profiles: { chat_id: { 'firstName', 'lastName', 'area', 'telegramId', 'username' } }
-# user_states:   { chat_id: { 'mode': 'onboarding'|'contact'|'confirm', 'step': int, 'data': {}, 'pending': {} } }
-user_profiles = {}
-user_states   = {}
+ai_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-# Firebase anonymous auth token (shared, refreshed on error)
-_firebase_token = None
-
-# ── Firebase Auth ─────────────────────────────────────────────────────────────
-
-def get_firebase_token():
-    global _firebase_token
-    if _firebase_token:
-        return _firebase_token
-    resp = requests.post(
-        f'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FIREBASE_API_KEY}',
-        json={'returnSecureToken': True},
-        timeout=10,
-    )
-    if resp.status_code == 200:
-        _firebase_token = resp.json().get('idToken')
-    return _firebase_token
-
-def firestore_post(collection, payload):
-    """POST to Firestore with anonymous auth. Returns True on success."""
-    global _firebase_token
-    token = get_firebase_token()
-    if not token:
-        return False
-    url = (
-        f'https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}'
-        f'/databases/(default)/documents/{collection}'
-    )
-    headers = {'Authorization': f'Bearer {token}'}
-    resp = requests.post(url, json=payload, headers=headers, timeout=10)
-    if resp.status_code == 401:
-        # Token expired — refresh and retry once
-        _firebase_token = None
-        token = get_firebase_token()
-        if not token:
-            return False
-        headers = {'Authorization': f'Bearer {token}'}
-        resp = requests.post(url, json=payload, headers=headers, timeout=10)
-    return resp.status_code == 200
-
-def firestore_query(collection, field, value):
-    """Query Firestore collection by field == value. Returns first match or None."""
-    global _firebase_token
-    token = get_firebase_token()
-    if not token:
-        return None
-    url = (
-        f'https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}'
-        f'/databases/(default)/documents:runQuery'
-    )
-    headers = {'Authorization': f'Bearer {token}'}
-    payload = {
-        'structuredQuery': {
-            'from': [{'collectionId': collection}],
-            'where': {
-                'fieldFilter': {
-                    'field': {'fieldPath': field},
-                    'op': 'EQUAL',
-                    'value': {'stringValue': str(value)},
-                }
-            },
-            'limit': 1,
-        }
-    }
-    try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=10)
-        if resp.status_code == 401:
-            _firebase_token = None
-            token = get_firebase_token()
-            headers = {'Authorization': f'Bearer {token}'}
-            resp = requests.post(url, json=payload, headers=headers, timeout=10)
-        if resp.status_code == 200:
-            results = resp.json()
-            if results and results[0].get('document'):
-                return results[0]['document']['fields']
-    except Exception:
-        pass
-    return None
+# In-memory conversation state: { chat_id: { 'step': int, 'data': {} } }
+# Steps: 0=firstName, 1=lastName, 2=phone, 3=area, 4=comment, 5=confirm
+user_states = {}
 
 # ── Telegram helpers ──────────────────────────────────────────────────────────
 
@@ -103,275 +27,255 @@ def send(chat_id, text):
         timeout=10,
     )
 
-# ── Firestore save helpers ────────────────────────────────────────────────────
+# ── Firestore helper ──────────────────────────────────────────────────────────
 
-def save_volunteer(profile):
+def save_contact(data, user_info):
+    url = (
+        f'https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}'
+        f'/databases/(default)/documents/voteContacts?key={FIREBASE_API_KEY}'
+    )
     payload = {
         'fields': {
-            'firstName':      {'stringValue': profile.get('firstName', '')},
-            'lastName':       {'stringValue': profile.get('lastName', '')},
-            'area':           {'stringValue': profile.get('area', '')},
-            'telegramUserId': {'stringValue': str(profile.get('telegramId', ''))},
-            'username':       {'stringValue': profile.get('username', '')},
-            'registeredAt':   {'timestampValue': datetime.now(timezone.utc).isoformat()},
+            'firstName':        {'stringValue': data.get('firstName', '')},
+            'lastName':         {'stringValue': data.get('lastName', '')},
+            'phone':            {'stringValue': data.get('phone', '')},
+            'area':             {'stringValue': data.get('area', '')},
+            'comment':          {'stringValue': data.get('comment', '')},
+            'addedByUsername':  {'stringValue': user_info.get('username', '')},
+            'addedByName':      {'stringValue': user_info.get('name', '')},
+            'telegramUserId':   {'stringValue': str(user_info.get('id', ''))},
+            'timestamp':        {'timestampValue': datetime.now(timezone.utc).isoformat()},
         }
     }
-    return firestore_post('volunteers', payload)
+    resp = requests.post(url, json=payload, timeout=10)
+    return resp.status_code == 200
 
+# ── AI parsing ────────────────────────────────────────────────────────────────
 
-def save_contact(data, profile):
-    added_by = f"{profile.get('firstName', '')} {profile.get('lastName', '')}".strip()
-    payload = {
-        'fields': {
-            'fullName':        {'stringValue': data.get('fullName', '')},
-            'phone':           {'stringValue': data.get('phone', '')},
-            'area':            {'stringValue': data.get('area', '')},
-            'comment':         {'stringValue': data.get('comment', '')},
-            'addedByUsername': {'stringValue': profile.get('username', '')},
-            'addedByName':     {'stringValue': added_by},
-            'telegramUserId':  {'stringValue': str(profile.get('telegramId', ''))},
-            'timestamp':       {'timestampValue': datetime.now(timezone.utc).isoformat()},
-        }
+STEP_META = {
+    0: {
+        'field': 'firstName',
+        'desc': 'first name (όνομα) of the contact person',
+        'examples': 'Γιώργης, Μαρία, Κώστας, Νίκος',
+        'skippable': False,
+    },
+    1: {
+        'field': 'lastName',
+        'desc': 'last name (επίθετο) of the contact person',
+        'examples': 'Παπαδόπουλος, Νικολάου, Γεωργίου',
+        'skippable': False,
+    },
+    2: {
+        'field': 'phone',
+        'desc': 'Greek phone number (mobile or landline)',
+        'examples': '6912345678, 2101234567, 694 123 4567',
+        'skippable': False,
+    },
+    3: {
+        'field': 'area',
+        'desc': 'area or neighborhood (περιοχή) in Greece',
+        'examples': 'Χολαργός, Κηφισιά, Θεσσαλονίκη, Γλυφάδα',
+        'skippable': False,
+    },
+    4: {
+        'field': 'comment',
+        'desc': 'optional short note about the contact',
+        'examples': 'ψηφίζει σίγουρα, αμφίβολος, φίλος του Νίκου',
+        'skippable': True,
+    },
+    5: {
+        'field': None,
+        'desc': 'confirmation — user reviewing and confirming all data',
+        'examples': 'ναι, σωστά, ok, /ok, επιβεβαιώνω',
+        'skippable': False,
+    },
+}
+
+def ai_parse(step, user_message, data):
+    """
+    Ask Claude Haiku to interpret the user's message in context.
+    Returns a dict: { action, value?, reply? }
+      action: "save" | "back" | "skip" | "confirm" | "unclear"
+      value:  clean extracted value (when action=save)
+      reply:  short Greek message to send back (when action=unclear)
+    """
+    meta = STEP_META[step]
+    already = ', '.join(f'{k}: {v}' for k, v in data.items() if v) if data else 'none yet'
+
+    if step == 5:
+        task = (
+            'The user is reviewing a summary of contact data and must confirm or go back to fix something.\n'
+            f'Data collected so far: {already}\n'
+            'Return action="confirm" if they agree/confirm (e.g. ναι, σωστά, ok, καλά, ✓).\n'
+            'Return action="back" if they want to correct something.\n'
+            'Return action="unclear" with a Greek reply if the message is ambiguous.'
+        )
+    else:
+        skip_rule = (
+            'Return action="skip" if the user wants to skip this optional field '
+            '(e.g. τίποτα, δεν έχω, pass, skip, -, παράλειψη).\n'
+            if meta['skippable'] else ''
+        )
+        task = (
+            f'The bot is collecting contact info step by step for a Greek political campaign.\n'
+            f'Current field to collect: {meta["desc"]}\n'
+            f'Valid examples: {meta["examples"]}\n'
+            f'Data collected so far: {already}\n\n'
+            f'Analyze the user message and return ONE of these actions:\n'
+            f'- "save": user provided a valid value. Extract it cleanly as "value".\n'
+            f'- "back": user wants to correct a previous field '
+            f'(e.g. λάθος, πίσω, διόρθωσε, εννοώ, όχι, ξανά).\n'
+            f'{skip_rule}'
+            f'- "unclear": input is not valid for this field. '
+            f'Provide a short friendly Greek "reply" asking them to try again.\n\n'
+            f'Extra rules:\n'
+            f'- For names: capitalize properly (γιωργης → Γιώργης).\n'
+            f'- For phone: strip spaces and dashes, keep only digits (and leading + if present).\n'
+            f'- For area: capitalize first letter of each word.\n'
+            f'- If the user seems to provide the value but also says it\'s wrong '
+            f'(e.g. "όχι εννοώ Νίκος"), treat as action="back" so they re-enter it.\n'
+            f'- Short single words that match the expected field type should be "save".'
+        )
+
+    prompt = (
+        f'{task}\n\n'
+        f'User message: "{user_message}"\n\n'
+        f'Respond with ONLY a raw JSON object, no markdown fences:\n'
+        f'{{"action": "...", "value": "...", "reply": "..."}}'
+    )
+
+    try:
+        response = ai_client.messages.create(
+            model='claude-haiku-4-5-20251001',
+            max_tokens=150,
+            messages=[{'role': 'user', 'content': prompt}],
+        )
+        raw = response.content[0].text.strip()
+        # Strip markdown fences if model wrapped it anyway
+        if raw.startswith('```'):
+            raw = raw.split('```')[1]
+            if raw.startswith('json'):
+                raw = raw[4:]
+        return json.loads(raw)
+    except Exception:
+        # Fallback: treat as plain save
+        return {'action': 'save', 'value': user_message}
+
+# ── Step prompts ──────────────────────────────────────────────────────────────
+
+def prompt_for_step(chat_id, step, data):
+    prompts = {
+        0: 'Πώς λέγεται η επαφή; Ξεκίνα με το <b>όνομα</b>:',
+        1: lambda d: f'Ωραία! Και το <b>επίθετο</b> του/της {d["firstName"]};',
+        2: lambda d: f'Τέλεια! Ποιο είναι το <b>τηλέφωνο</b> του/της {d["firstName"]} {d["lastName"]};',
+        3: 'Από ποια <b>περιοχή</b> είναι;',
+        4: ('Έχεις κάποιο <b>σχόλιο</b> για αυτή την επαφή;\n'
+            '(Γράψε ό,τι θέλεις, ή πες μου "τίποτα" για να παραλείψεις)'),
     }
-    return firestore_post('voteContacts', payload)
-
-
-def load_volunteer(chat_id):
-    fields = firestore_query('volunteers', 'telegramUserId', chat_id)
-    if fields:
-        return {
-            'firstName':  fields.get('firstName',  {}).get('stringValue', ''),
-            'lastName':   fields.get('lastName',   {}).get('stringValue', ''),
-            'area':       fields.get('area',        {}).get('stringValue', ''),
-            'telegramId': chat_id,
-            'username':   fields.get('username',    {}).get('stringValue', ''),
-        }
-    return None
-
-# ── Smart YES/NO/EDIT detection ───────────────────────────────────────────────
-
-YES_WORDS = {'ναι', 'yes', 'σωστα', 'σωστά', 'ok', 'οκ', 'εντάξει', 'εντaξει',
-             'τελεια', 'τέλεια', 'καλα', 'καλά', 'σωστο', 'σωστό', 'done',
-             'καταχωρησε', 'καταχώρησε', 'αποθηκευσε', 'αποθήκευσε', '✓', '👍'}
-
-NO_WORDS  = {'οχι', 'όχι', 'no', 'λαθος', 'λάθος', 'αλλαγη', 'αλλαγή',
-             'διορθωσε', 'διόρθωσε', 'αλλαξε', 'άλλαξε', 'διορθωση', 'διόρθωση'}
-
-def is_yes(text):
-    t = text.lower().strip()
-    return t in YES_WORDS or any(w in t for w in YES_WORDS)
-
-def is_no(text):
-    t = text.lower().strip()
-    return t in NO_WORDS or any(w in t for w in NO_WORDS)
-
-# ── Confirmation message ──────────────────────────────────────────────────────
+    p = prompts[step]
+    send(chat_id, p(data) if callable(p) else p)
 
 def send_confirmation(chat_id, data):
-    comment_line = f'\n💬 <b>Σχόλιο:</b> {data["comment"]}' if data.get('comment') else ''
+    comment_line = f'\n💬 {data["comment"]}' if data.get('comment') else '\n💬 (χωρίς σχόλιο)'
     send(chat_id,
-         f'📋 <b>Έλεγχος στοιχείων:</b>\n\n'
-         f'👤 <b>Ονοματεπώνυμο:</b> {data.get("fullName", "")}\n'
-         f'📞 <b>Τηλέφωνο:</b> {data.get("phone", "")}\n'
-         f'📍 <b>Περιοχή:</b> {data.get("area", "")}'
+         f'📋 <b>Έλεγξε τα στοιχεία πριν την αποθήκευση:</b>\n\n'
+         f'👤 {data.get("firstName", "")} {data.get("lastName", "")}\n'
+         f'📞 {data.get("phone", "")}\n'
+         f'📍 {data.get("area", "")}'
          f'{comment_line}\n\n'
-         f'Είναι σωστά; Γράψε <b>ναι</b> για αποθήκευση ή πες μου τι να διορθώσω.')
+         f'Είναι σωστά; Γράψε <b>ναι</b> για αποθήκευση, ή <b>πίσω</b> για να διορθώσεις κάτι.')
 
-# ── Onboarding flow ───────────────────────────────────────────────────────────
+# ── Conversation logic ────────────────────────────────────────────────────────
 
-def start_onboarding(chat_id):
-    user_states[chat_id] = {'mode': 'onboarding', 'step': 0, 'data': {}}
-    send(chat_id,
-         'Γεια σου! 👋 Καλώς ήρθες στο σύστημα καταχώρησης επαφών.\n\n'
-         'Πρώτα θέλω να σε γνωρίσω!\n\n'
-         'Ποιο είναι το <b>όνομά</b> σου;')
-
-
-def handle_onboarding(chat_id, text, user_info):
-    state = user_states[chat_id]
-    step  = state['step']
-    data  = state['data']
-
+def do_back(chat_id, step, data):
+    """Go one step back, clearing the field that was entered at that step."""
     if step == 0:
-        data['firstName'] = text
-        state['step'] = 1
-        send(chat_id, f'Χαίρομαι {data["firstName"]}! Και το <b>επίθετό</b> σου;')
-
-    elif step == 1:
-        data['lastName'] = text
-        state['step'] = 2
-        send(chat_id, 'Ωραία! Από ποια <b>περιοχή</b> είσαι;')
-
-    elif step == 2:
-        data['area']       = text
-        data['telegramId'] = user_info.get('id', chat_id)
-        data['username']   = user_info.get('username', '')
-
-        user_profiles[chat_id] = data
-        save_volunteer(data)
-
-        send(chat_id,
-             f'Τέλεια <b>{data["firstName"]} {data["lastName"]}</b> από {data["area"]}! 🎉\n\n'
-             f'Το προφίλ σου αποθηκεύτηκε.\n\n'
-             f'Μπορείς τώρα να ξεκινήσεις να καταχωρείς επαφές.\n'
-             f'Πώς λέγεται η πρώτη σου επαφή; Γράψε το <b>όνομα</b>:')
-
-        user_states[chat_id] = {'mode': 'contact', 'step': 0, 'data': {}}
-
-# ── Contact registration flow ─────────────────────────────────────────────────
-
-def start_contact(chat_id):
-    user_states[chat_id] = {'mode': 'contact', 'step': 0, 'data': {}}
-    profile = user_profiles.get(chat_id, {})
-    send(chat_id,
-         f'Εντάξει {profile.get("firstName", "")}! Νέα επαφή.\n\nΠώς λέγεται; Γράψε το <b>όνομα</b>:')
-
-
-def handle_contact(chat_id, text, user_info):
-    state = user_states[chat_id]
-    step  = state['step']
-    data  = state['data']
-
-    if step == 0:
-        data['fullName'] = text
-        state['step'] = 1
-        send(chat_id, f'Ποιο είναι το <b>τηλέφωνο</b> του/της {data["fullName"]};')
-
-    elif step == 1:
-        data['phone'] = text
-        state['step'] = 2
-        send(chat_id, 'Από ποια <b>περιοχή</b> είναι;')
-
-    elif step == 2:
-        data['area'] = text
-        state['step'] = 3
-        send(chat_id,
-             'Έχεις κάποιο <b>σχόλιο</b>;\n'
-             '(Γράψε ό,τι θέλεις, ή <code>/skip</code> για παράλειψη)')
-
-    elif step == 3:
-        data['comment'] = '' if text.lower() in ('/skip', '-', '.') else text
-        # Move to confirmation
-        user_states[chat_id] = {'mode': 'confirm', 'data': data}
-        send_confirmation(chat_id, data)
-
-# ── Confirmation flow ─────────────────────────────────────────────────────────
-
-def handle_confirm(chat_id, text, user_info):
-    state   = user_states[chat_id]
-    data    = state['data']
-    profile = user_profiles.get(chat_id, {
-        'firstName': '', 'lastName': '',
-        'area': '', 'telegramId': user_info.get('id', 0),
-        'username': user_info.get('username', ''),
-    })
-
-    if is_yes(text):
-        success = save_contact(data, profile)
-        if success:
-            comment_line = f'\n💬 {data["comment"]}' if data.get('comment') else ''
-            send(chat_id,
-                 f'✅ <b>Καταχωρήθηκε!</b>\n\n'
-                 f'👤 {data["fullName"]}\n'
-                 f'📞 {data["phone"]}\n'
-                 f'📍 {data["area"]}'
-                 f'{comment_line}\n\n'
-                 f'Θες να προσθέσεις άλλη επαφή; Γράψε οποτεδήποτε!')
-            user_states[chat_id] = {'mode': 'contact', 'step': 0, 'data': {}}
-        else:
-            send(chat_id, '⚠️ Υπήρξε πρόβλημα κατά την αποθήκευση. Δοκίμασε να στείλεις <b>ναι</b> ξανά.')
-
-    elif is_no(text) or any(w in text.lower() for w in ['όνομα', 'ονομα', 'επίθετο', 'επιθετο', 'τηλέφωνο', 'τηλεφωνο', 'περιοχή', 'περιοχη', 'σχόλιο', 'σχολιο']):
-        # Figure out what they want to change
-        t = text.lower()
-        if any(w in t for w in ['όνομα', 'ονομα', 'ονοματεπώνυμο', 'ονοματεπωνυμο', 'first', 'επίθετο', 'επιθετο']):
-            user_states[chat_id] = {'mode': 'edit', 'field': 'fullName', 'data': data}
-            send(chat_id, 'Ποιο είναι το σωστό <b>ονοματεπώνυμο</b>;')
-        elif any(w in t for w in ['τηλέφωνο', 'τηλεφωνο', 'phone', 'αριθμό', 'αριθμο']):
-            user_states[chat_id] = {'mode': 'edit', 'field': 'phone', 'data': data}
-            send(chat_id, 'Ποιο είναι το σωστό <b>τηλέφωνο</b>;')
-        elif any(w in t for w in ['περιοχή', 'περιοχη', 'area']):
-            user_states[chat_id] = {'mode': 'edit', 'field': 'area', 'data': data}
-            send(chat_id, 'Ποια είναι η σωστή <b>περιοχή</b>;')
-        elif any(w in t for w in ['σχόλιο', 'σχολιο', 'comment', 'σχόλια', 'σχολια']):
-            user_states[chat_id] = {'mode': 'edit', 'field': 'comment', 'data': data}
-            send(chat_id, 'Γράψε το νέο <b>σχόλιο</b> (ή <code>/skip</code> για διαγραφή):')
-        else:
-            # Generic "no" — ask what to fix
-            send(chat_id,
-                 'Τι θέλεις να διορθώσεις;\n'
-                 'Γράψε π.χ. "άλλαξε το <b>τηλέφωνο</b>" ή "λάθος <b>περιοχή</b>" κτλ.')
-    else:
-        # Unrecognized — show confirmation again
-        send_confirmation(chat_id, data)
-
-# ── Edit a single field ───────────────────────────────────────────────────────
-
-def handle_edit(chat_id, text, user_info):
-    state = user_states[chat_id]
-    field = state['field']
-    data  = state['data']
-
-    if field == 'comment':
-        data[field] = '' if text.lower() in ('/skip', '-', '.') else text
-    else:
-        data[field] = text
-
-    user_states[chat_id] = {'mode': 'confirm', 'data': data}
-    send(chat_id, '👍 Ενημερώθηκε! Να ελέγξουμε ξανά:')
-    send_confirmation(chat_id, data)
-
-# ── Main message handler ──────────────────────────────────────────────────────
+        send(chat_id, 'Είσαι ήδη στην αρχή! Γράψε το <b>όνομα</b> της επαφής:')
+        return
+    new_step = step - 1
+    field_at_step = {1: 'firstName', 2: 'lastName', 3: 'phone', 4: 'area', 5: 'comment'}
+    field = field_at_step.get(step)
+    if field and field in data:
+        del data[field]
+    user_states[chat_id] = {'step': new_step, 'data': data}
+    send(chat_id, '↩️ Εντάξει, πάμε πίσω.')
+    prompt_for_step(chat_id, new_step, data)
 
 def handle_message(chat_id, text, user_info):
     text = text.strip()
 
-    if text.lower() == '/new':
-        if chat_id in user_profiles:
-            start_contact(chat_id)
-        else:
-            start_onboarding(chat_id)
+    # Hard commands that always work regardless of state
+    if text.lower() in ('/start', '/new'):
+        user_states[chat_id] = {'step': 0, 'data': {}}
+        send(chat_id,
+             'Γεια σου! 😊 Θα με βοηθήσεις να καταχωρήσεις επαφές που θα μας ψηφίσουν.\n\n'
+             'Πώς λέγεται η επαφή; Ξεκίνα με το <b>όνομα</b>:')
         return
 
-    if text.lower() == '/start':
-        if chat_id not in user_profiles:
-            profile = load_volunteer(chat_id)
-            if profile:
-                user_profiles[chat_id] = profile
+    state = user_states.get(chat_id)
 
-        if chat_id in user_profiles:
-            profile = user_profiles[chat_id]
-            send(chat_id,
-                 f'Καλώς ήρθες πάλι <b>{profile["firstName"]}</b>! 👋\n\n'
-                 f'Γράψε μου το <b>όνομα</b> της επαφής που θέλεις να καταχωρήσεις:')
-            user_states[chat_id] = {'mode': 'contact', 'step': 0, 'data': {}}
-        else:
-            start_onboarding(chat_id)
+    # First message ever (no /start) → auto-start
+    if state is None:
+        user_states[chat_id] = {'step': 0, 'data': {}}
+        send(chat_id,
+             'Γεια σου! 😊 Θα με βοηθήσεις να καταχωρήσεις επαφές που θα μας ψηφίσουν.\n\n'
+             'Πώς λέγεται η επαφή; Ξεκίνα με το <b>όνομα</b>:')
         return
 
-    if chat_id not in user_states:
-        if chat_id not in user_profiles:
-            profile = load_volunteer(chat_id)
-            if profile:
-                user_profiles[chat_id] = profile
+    step = state['step']
+    data = state['data']
 
-        if chat_id in user_profiles:
-            user_states[chat_id] = {'mode': 'contact', 'step': 0, 'data': {}}
-            handle_contact(chat_id, text, user_info)
-        else:
-            start_onboarding(chat_id)
+    # Explicit back/skip commands (shortcuts, bypass AI)
+    if text.lower() in ('/back', 'πίσω', 'back'):
+        do_back(chat_id, step, data)
         return
 
-    mode = user_states[chat_id].get('mode', 'contact')
+    # Parse the message with Claude
+    parsed = ai_parse(step, text, data)
+    action = parsed.get('action', 'unclear')
 
-    if mode == 'onboarding':
-        handle_onboarding(chat_id, text, user_info)
-    elif mode == 'contact':
-        handle_contact(chat_id, text, user_info)
-    elif mode == 'confirm':
-        handle_confirm(chat_id, text, user_info)
-    elif mode == 'edit':
-        handle_edit(chat_id, text, user_info)
+    if action == 'back':
+        do_back(chat_id, step, data)
+        return
+
+    if action == 'unclear':
+        reply = parsed.get('reply', 'Δεν κατάλαβα. Μπορείς να το ξαναγράψεις;')
+        send(chat_id, reply)
+        return
+
+    # ── Steps 0–4: collect fields ─────────────────────────────────────────────
+
+    if step in (0, 1, 2, 3):
+        if action == 'save':
+            field = STEP_META[step]['field']
+            data[field] = parsed.get('value', text)
+            next_step = step + 1
+            user_states[chat_id] = {'step': next_step, 'data': data}
+            prompt_for_step(chat_id, next_step, data)
+
+    elif step == 4:  # comment — skippable
+        if action in ('save', 'skip'):
+            data['comment'] = parsed.get('value', '') if action == 'save' else ''
+            user_states[chat_id] = {'step': 5, 'data': data}
+            send_confirmation(chat_id, data)
+
+    elif step == 5:  # confirmation
+        if action == 'confirm' or text.lower() in ('/ok', 'ok', 'ναι', 'ναί', 'σωστά', 'σωστα'):
+            user_states[chat_id] = {'step': 0, 'data': {}}
+            success = save_contact(data, user_info)
+            if success:
+                comment_line = f'\n💬 {data["comment"]}' if data.get('comment') else ''
+                send(chat_id,
+                     f'✅ <b>Καταχωρήθηκε!</b>\n\n'
+                     f'👤 {data["firstName"]} {data["lastName"]}\n'
+                     f'📞 {data["phone"]}\n'
+                     f'📍 {data["area"]}'
+                     f'{comment_line}\n\n'
+                     f'Ευχαριστώ πολύ! 🙏 Θες να προσθέσεις άλλη επαφή; Γράψε οποτεδήποτε!')
+            else:
+                user_states[chat_id] = {'step': 5, 'data': data}
+                send(chat_id,
+                     '⚠️ Υπήρξε πρόβλημα κατά την αποθήκευση. Πες μου <b>ναι</b> για να δοκιμάσω ξανά.')
 
 # ── Flask routes ──────────────────────────────────────────────────────────────
 
