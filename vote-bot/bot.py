@@ -64,6 +64,8 @@ def save_volunteer_profile(telegram_user_id, data):
         }
     }
     resp = requests.patch(url, json=payload, timeout=10)
+    if resp.status_code != 200:
+        print(f'[Firebase] save_volunteer_profile failed {resp.status_code}: {resp.text}')
     return resp.status_code == 200
 
 def save_contact(data, volunteer, telegram_user_id, telegram_username):
@@ -88,6 +90,8 @@ def save_contact(data, volunteer, telegram_user_id, telegram_username):
         }
     }
     resp = requests.post(url, json=payload, timeout=10)
+    if resp.status_code != 200:
+        print(f'[Firebase] save_contact failed {resp.status_code}: {resp.text}')
     return resp.status_code == 200
 
 # ── System prompts ────────────────────────────────────────────────────────────
