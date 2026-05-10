@@ -14,9 +14,10 @@ ANTHROPIC_API_KEY   = os.environ.get('ANTHROPIC_API_KEY', '')
 
 ai_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-# In-memory conversation state: { chat_id: { 'step': int, 'data': {} } }
-# Steps: 0=firstName, 1=lastName, 2=phone, 3=area, 4=comment, 5=confirm
+# In-memory state per user: { chat_id: { 'data': {}, 'history': [], 'status': str } }
 user_states = {}
+
+MAX_HISTORY = 20  # keep last 20 messages to avoid context bloat
 
 # ── Telegram helpers ──────────────────────────────────────────────────────────
 
@@ -50,238 +51,171 @@ def save_contact(data, user_info):
     resp = requests.post(url, json=payload, timeout=10)
     return resp.status_code == 200
 
-# ── AI parsing ────────────────────────────────────────────────────────────────
+# ── AI conversation ───────────────────────────────────────────────────────────
 
-STEP_META = {
-    0: {
-        'field': 'firstName',
-        'desc': 'first name (όνομα) of the contact person',
-        'examples': 'Γιώργης, Μαρία, Κώστας, Νίκος',
-        'skippable': False,
-    },
-    1: {
-        'field': 'lastName',
-        'desc': 'last name (επίθετο) of the contact person',
-        'examples': 'Παπαδόπουλος, Νικολάου, Γεωργίου',
-        'skippable': False,
-    },
-    2: {
-        'field': 'phone',
-        'desc': 'Greek phone number (mobile or landline)',
-        'examples': '6912345678, 2101234567, 694 123 4567',
-        'skippable': False,
-    },
-    3: {
-        'field': 'area',
-        'desc': 'area or neighborhood (περιοχή) in Greece',
-        'examples': 'Χολαργός, Κηφισιά, Θεσσαλονίκη, Γλυφάδα',
-        'skippable': False,
-    },
-    4: {
-        'field': 'comment',
-        'desc': 'optional short note about the contact',
-        'examples': 'ψηφίζει σίγουρα, αμφίβολος, φίλος του Νίκου',
-        'skippable': True,
-    },
-    5: {
-        'field': None,
-        'desc': 'confirmation — user reviewing and confirming all data',
-        'examples': 'ναι, σωστά, ok, /ok, επιβεβαιώνω',
-        'skippable': False,
-    },
+SYSTEM_PROMPT = """\
+You are a friendly assistant for a Greek political campaign. Campaign volunteers chat with you \
+to register supporters (contacts) into a database. Your job is to collect their contact details \
+conversationally in Greek.
+
+REQUIRED fields:
+- firstName  (όνομα)
+- lastName   (επίθετο)
+- phone      (τηλέφωνο — Greek mobile or landline)
+- area       (περιοχή — neighborhood or city)
+
+OPTIONAL field:
+- comment    (σχόλιο — any note about the contact)
+
+HOW TO BEHAVE:
+- Always reply in Greek, friendly and natural.
+- If the user sends multiple fields at once, extract all of them.
+- If a field is missing, ask for it naturally (not robotically).
+- If the user wants to correct a field at any point, update it immediately.
+- Capitalize names and areas properly (e.g. γιωργης → Γιώργης).
+- For phone: strip spaces, dashes, dots — keep digits only (with leading + if present).
+- Validate phone: must be 10 digits for Greek numbers (or start with +30).
+- If input seems wrong for a field (e.g. letters where a phone is expected), ask to clarify.
+- Once ALL required fields are collected, show a formatted summary and ask the user to confirm.
+- After the user confirms, set status to "save".
+- If the user wants to add another contact after saving, reset and start fresh.
+
+ALWAYS respond with ONLY a raw JSON object (no markdown, no explanation outside JSON):
+{
+  "reply": "<your Greek message to the user>",
+  "data": {
+    "firstName": "",
+    "lastName": "",
+    "phone": "",
+    "area": "",
+    "comment": ""
+  },
+  "status": "collecting" | "confirming" | "save"
 }
 
-def ai_parse(step, user_message, data):
-    """
-    Ask Claude Haiku to interpret the user's message in context.
-    Returns a dict: { action, value?, reply? }
-      action: "save" | "back" | "skip" | "confirm" | "unclear"
-      value:  clean extracted value (when action=save)
-      reply:  short Greek message to send back (when action=unclear)
-    """
-    meta = STEP_META[step]
-    already = ', '.join(f'{k}: {v}' for k, v in data.items() if v) if data else 'none yet'
+Rules for status:
+- "collecting": still gathering fields
+- "confirming": all required fields are filled — show summary and wait for user confirmation
+- "save": user has confirmed the summary — trigger the save
 
-    if step == 5:
-        task = (
-            'The user is reviewing a summary of contact data and must confirm or go back to fix something.\n'
-            f'Data collected so far: {already}\n'
-            'Return action="confirm" if they agree/confirm (e.g. ναι, σωστά, ok, καλά, ✓).\n'
-            'Return action="back" if they want to correct something.\n'
-            'Return action="unclear" with a Greek reply if the message is ambiguous.'
-        )
-    else:
-        skip_rule = (
-            'Return action="skip" if the user wants to skip this optional field '
-            '(e.g. τίποτα, δεν έχω, pass, skip, -, παράλειψη).\n'
-            if meta['skippable'] else ''
-        )
-        task = (
-            f'The bot is collecting contact info step by step for a Greek political campaign.\n'
-            f'Current field to collect: {meta["desc"]}\n'
-            f'Valid examples: {meta["examples"]}\n'
-            f'Data collected so far: {already}\n\n'
-            f'Analyze the user message and return ONE of these actions:\n'
-            f'- "save": user provided a valid value. Extract it cleanly as "value".\n'
-            f'- "back": user wants to correct a previous field '
-            f'(e.g. λάθος, πίσω, διόρθωσε, εννοώ, όχι, ξανά).\n'
-            f'{skip_rule}'
-            f'- "unclear": input is not valid for this field. '
-            f'Provide a short friendly Greek "reply" asking them to try again.\n\n'
-            f'Extra rules:\n'
-            f'- For names: capitalize properly (γιωργης → Γιώργης).\n'
-            f'- For phone: strip spaces and dashes, keep only digits (and leading + if present).\n'
-            f'- For area: capitalize first letter of each word.\n'
-            f'- If the user seems to provide the value but also says it\'s wrong '
-            f'(e.g. "όχι εννοώ Νίκος"), treat as action="back" so they re-enter it.\n'
-            f'- Short single words that match the expected field type should be "save".'
-        )
+The "data" object must always contain the FULL current state of all fields \
+(merge new info with existing, never lose previously collected fields).
+"""
 
-    prompt = (
-        f'{task}\n\n'
-        f'User message: "{user_message}"\n\n'
-        f'Respond with ONLY a raw JSON object, no markdown fences:\n'
-        f'{{"action": "...", "value": "...", "reply": "..."}}'
+def get_initial_state():
+    return {
+        'data': {'firstName': '', 'lastName': '', 'phone': '', 'area': '', 'comment': ''},
+        'history': [],
+        'status': 'collecting',
+    }
+
+def call_claude(history, current_data):
+    """Send conversation history to Claude and get back reply + updated data + status."""
+    # Inject current data as a system reminder in the last turn
+    data_reminder = (
+        f'\n\n[Current collected data: {json.dumps(current_data, ensure_ascii=False)}]'
     )
+    # Append reminder to the last user message without modifying history
+    messages = list(history)
+    if messages and messages[-1]['role'] == 'user':
+        messages = history[:-1] + [{
+            'role': 'user',
+            'content': history[-1]['content'] + data_reminder,
+        }]
 
     try:
         response = ai_client.messages.create(
             model='claude-haiku-4-5-20251001',
-            max_tokens=150,
-            messages=[{'role': 'user', 'content': prompt}],
+            max_tokens=400,
+            system=SYSTEM_PROMPT,
+            messages=messages,
         )
         raw = response.content[0].text.strip()
-        # Strip markdown fences if model wrapped it anyway
         if raw.startswith('```'):
             raw = raw.split('```')[1]
             if raw.startswith('json'):
                 raw = raw[4:]
         return json.loads(raw)
     except Exception:
-        # Fallback: ask user to repeat rather than silently saving garbage
-        return {'action': 'unclear', 'reply': 'Δεν κατάλαβα. Μπορείς να το ξαναγράψεις;'}
+        return {
+            'reply': 'Συγγνώμη, υπήρξε πρόβλημα. Μπορείς να επαναλάβεις;',
+            'data': current_data,
+            'status': 'collecting',
+        }
 
-# ── Step prompts ──────────────────────────────────────────────────────────────
-
-def prompt_for_step(chat_id, step, data):
-    prompts = {
-        0: 'Πώς λέγεται η επαφή; Ξεκίνα με το <b>όνομα</b>:',
-        1: lambda d: f'Ωραία! Και το <b>επίθετο</b> του/της {d["firstName"]};',
-        2: lambda d: f'Τέλεια! Ποιο είναι το <b>τηλέφωνο</b> του/της {d["firstName"]} {d["lastName"]};',
-        3: 'Από ποια <b>περιοχή</b> είναι;',
-        4: ('Έχεις κάποιο <b>σχόλιο</b> για αυτή την επαφή;\n'
-            '(Γράψε ό,τι θέλεις, ή πες μου "τίποτα" για να παραλείψεις)'),
-    }
-    p = prompts[step]
-    send(chat_id, p(data) if callable(p) else p)
-
-def send_confirmation(chat_id, data):
-    comment_line = f'\n💬 {data["comment"]}' if data.get('comment') else '\n💬 (χωρίς σχόλιο)'
-    send(chat_id,
-         f'📋 <b>Έλεγξε τα στοιχεία πριν την αποθήκευση:</b>\n\n'
-         f'👤 {data.get("firstName", "")} {data.get("lastName", "")}\n'
-         f'📞 {data.get("phone", "")}\n'
-         f'📍 {data.get("area", "")}'
-         f'{comment_line}\n\n'
-         f'Είναι σωστά; Γράψε <b>ναι</b> για αποθήκευση, ή <b>πίσω</b> για να διορθώσεις κάτι.')
-
-# ── Conversation logic ────────────────────────────────────────────────────────
-
-def do_back(chat_id, step, data):
-    """Go one step back, clearing the field that was entered at that step."""
-    if step == 0:
-        send(chat_id, 'Είσαι ήδη στην αρχή! Γράψε το <b>όνομα</b> της επαφής:')
-        return
-    new_step = step - 1
-    field_at_step = {1: 'firstName', 2: 'lastName', 3: 'phone', 4: 'area', 5: 'comment'}
-    field = field_at_step.get(step)
-    if field and field in data:
-        del data[field]
-    user_states[chat_id] = {'step': new_step, 'data': data}
-    send(chat_id, '↩️ Εντάξει, πάμε πίσω.')
-    prompt_for_step(chat_id, new_step, data)
+# ── Conversation handler ──────────────────────────────────────────────────────
 
 def handle_message(chat_id, text, user_info):
     text = text.strip()
 
-    # Hard commands that always work regardless of state
+    # /start or /new → reset
     if text.lower() in ('/start', '/new'):
-        user_states[chat_id] = {'step': 0, 'data': {}}
+        user_states[chat_id] = get_initial_state()
         send(chat_id,
-             'Γεια σου! 😊 Θα με βοηθήσεις να καταχωρήσεις επαφές που θα μας ψηφίσουν.\n\n'
-             'Πώς λέγεται η επαφή; Ξεκίνα με το <b>όνομα</b>:')
+             'Γεια σου! 😊 Είμαι εδώ για να με βοηθήσεις να καταχωρίσεις επαφές '
+             'που θα μας ψηφίσουν.\n\n'
+             'Πες μου τα στοιχεία της επαφής — όνομα, επίθετο, τηλέφωνο και περιοχή. '
+             'Μπορείς να τα στείλεις όλα μαζί ή ένα-ένα, όπως θέλεις!')
         return
 
-    state = user_states.get(chat_id)
-
-    # First message ever (no /start) → auto-start
-    if state is None:
-        user_states[chat_id] = {'step': 0, 'data': {}}
+    # Init state on first message
+    if chat_id not in user_states:
+        user_states[chat_id] = get_initial_state()
         send(chat_id,
-             'Γεια σου! 😊 Θα με βοηθήσεις να καταχωρήσεις επαφές που θα μας ψηφίσουν.\n\n'
-             'Πώς λέγεται η επαφή; Ξεκίνα με το <b>όνομα</b>:')
+             'Γεια σου! 😊 Είμαι εδώ για να με βοηθήσεις να καταχωρίσεις επαφές '
+             'που θα μας ψηφίσουν.\n\n'
+             'Πες μου τα στοιχεία της επαφής — όνομα, επίθετο, τηλέφωνο και περιοχή. '
+             'Μπορείς να τα στείλεις όλα μαζί ή ένα-ένα, όπως θέλεις!')
         return
 
-    step = state['step']
-    data = state['data']
+    state = user_states[chat_id]
 
-    # Explicit back/correction phrases — catch before calling Claude
-    BACK_TRIGGERS = (
-        '/back', 'back', 'πίσω', 'λάθος', 'λαθος', 'διόρθωση', 'διορθωση',
-        'αλλαγή', 'αλλαγη', 'αλλάξω', 'αλλαξω', 'αλλαγή στοιχείων',
-        'θέλω να αλλάξω', 'θελω να αλλαξω', 'να αλλάξω', 'να αλλαξω',
-        'διόρθωσε', 'διορθωσε', 'ξανά', 'ξανα', 'επανάληψη', 'επαναληψη',
-    )
-    if any(text.lower() == t or text.lower().startswith(t) for t in BACK_TRIGGERS):
-        do_back(chat_id, step, data)
-        return
+    # Append user message to history
+    state['history'].append({'role': 'user', 'content': text})
 
-    # Parse the message with Claude
-    parsed = ai_parse(step, text, data)
-    action = parsed.get('action', 'unclear')
+    # Trim history to avoid context bloat
+    if len(state['history']) > MAX_HISTORY:
+        state['history'] = state['history'][-MAX_HISTORY:]
 
-    if action == 'back':
-        do_back(chat_id, step, data)
-        return
+    # Call Claude
+    result = call_claude(state['history'], state['data'])
 
-    if action == 'unclear':
-        reply = parsed.get('reply', 'Δεν κατάλαβα. Μπορείς να το ξαναγράψεις;')
-        send(chat_id, reply)
-        return
+    reply   = result.get('reply', 'Συγγνώμη, δεν κατάλαβα.')
+    new_data = result.get('data', state['data'])
+    status  = result.get('status', 'collecting')
 
-    # ── Steps 0–4: collect fields ─────────────────────────────────────────────
+    # Merge data (never overwrite a filled field with empty)
+    for k in state['data']:
+        if new_data.get(k):
+            state['data'][k] = new_data[k]
 
-    if step in (0, 1, 2, 3):
-        if action == 'save':
-            field = STEP_META[step]['field']
-            data[field] = parsed.get('value', text)
-            next_step = step + 1
-            user_states[chat_id] = {'step': next_step, 'data': data}
-            prompt_for_step(chat_id, next_step, data)
+    # Append assistant reply to history
+    state['history'].append({'role': 'assistant', 'content': reply})
 
-    elif step == 4:  # comment — skippable
-        if action in ('save', 'skip'):
-            data['comment'] = parsed.get('value', '') if action == 'save' else ''
-            user_states[chat_id] = {'step': 5, 'data': data}
-            send_confirmation(chat_id, data)
+    send(chat_id, reply)
 
-    elif step == 5:  # confirmation
-        if action == 'confirm' or text.lower() in ('/ok', 'ok', 'ναι', 'ναί', 'σωστά', 'σωστα'):
-            user_states[chat_id] = {'step': 0, 'data': {}}
-            success = save_contact(data, user_info)
-            if success:
-                comment_line = f'\n💬 {data["comment"]}' if data.get('comment') else ''
-                send(chat_id,
-                     f'✅ <b>Καταχωρήθηκε!</b>\n\n'
-                     f'👤 {data["firstName"]} {data["lastName"]}\n'
-                     f'📞 {data["phone"]}\n'
-                     f'📍 {data["area"]}'
-                     f'{comment_line}\n\n'
-                     f'Ευχαριστώ πολύ! 🙏 Θες να προσθέσεις άλλη επαφή; Γράψε οποτεδήποτε!')
-            else:
-                user_states[chat_id] = {'step': 5, 'data': data}
-                send(chat_id,
-                     '⚠️ Υπήρξε πρόβλημα κατά την αποθήκευση. Πες μου <b>ναι</b> για να δοκιμάσω ξανά.')
+    # If Claude says save — write to Firebase
+    if status == 'save':
+        success = save_contact(state['data'], user_info)
+        if success:
+            d = state['data']
+            comment_line = f'\n💬 {d["comment"]}' if d.get('comment') else ''
+            send(chat_id,
+                 f'✅ <b>Καταχωρήθηκε!</b>\n\n'
+                 f'👤 {d["firstName"]} {d["lastName"]}\n'
+                 f'📞 {d["phone"]}\n'
+                 f'📍 {d["area"]}'
+                 f'{comment_line}\n\n'
+                 f'Ευχαριστώ! 🙏 Θες να προσθέσεις άλλη επαφή;')
+            # Reset for next contact but keep the user in the system
+            user_states[chat_id] = get_initial_state()
+        else:
+            send(chat_id,
+                 '⚠️ Υπήρξε πρόβλημα κατά την αποθήκευση. Πες μου "αποθήκευση" για να '
+                 'δοκιμάσω ξανά.')
+            state['status'] = 'confirming'  # keep data, let user retry
+    else:
+        state['status'] = status
 
 # ── Flask routes ──────────────────────────────────────────────────────────────
 
