@@ -56,17 +56,16 @@ def save_volunteer_profile(telegram_user_id, data):
     )
     payload = {
         'fields': {
-            'firstName':      {'stringValue': data.get('firstName', '')},
-            'lastName':       {'stringValue': data.get('lastName', '')},
-            'area':           {'stringValue': data.get('area', '')},
-            'telegramUserId': {'stringValue': str(telegram_user_id)},
-            'updatedAt':      {'timestampValue': datetime.now(timezone.utc).isoformat()},
+            'firstName': {'stringValue': data.get('firstName', '')},
+            'lastName':  {'stringValue': data.get('lastName', '')},
+            'area':      {'stringValue': data.get('area', '')},
+            'updatedAt': {'timestampValue': datetime.now(timezone.utc).isoformat()},
         }
     }
     resp = requests.patch(url, json=payload, timeout=10)
     return resp.status_code == 200
 
-def save_contact(data, volunteer, telegram_user_id, telegram_username):
+def save_contact(data, volunteer, telegram_user_id):
     """Save a contact to voteContacts collection."""
     url = (
         f'https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}'
@@ -81,8 +80,7 @@ def save_contact(data, volunteer, telegram_user_id, telegram_username):
             'area':             {'stringValue': data.get('area', '')},
             'comment':          {'stringValue': data.get('comment', '')},
             'addedByName':      {'stringValue': added_by},
-            'addedByUsername':  {'stringValue': telegram_username},
-            'telegramUserId':   {'stringValue': str(telegram_user_id)},
+            'addedByArea':      {'stringValue': volunteer.get('area', '')},
             'timestamp':        {'timestampValue': datetime.now(timezone.utc).isoformat()},
         }
     }
@@ -214,10 +212,8 @@ def new_state(mode='registering', volunteer=None):
 
 # ── Message handler ───────────────────────────────────────────────────────────
 
-def handle_message(chat_id, text, user_info):
+def handle_message(chat_id, text, telegram_user_id):
     text = text.strip()
-    telegram_user_id = user_info['id']
-    telegram_username = user_info['username']
 
     # /start or /new — full reset, re-check volunteer profile
     if text.lower() in ('/start', '/new'):
@@ -325,7 +321,7 @@ def handle_message(chat_id, text, user_info):
             state['history'] = []
 
         elif status == 'save':
-            ok = save_contact(state['data'], state['volunteer'], telegram_user_id, telegram_username)
+            ok = save_contact(state['data'], state['volunteer'], telegram_user_id)
             if ok:
                 d = state['data']
                 comment_line = f'\n💬 {d["comment"]}' if d.get('comment') else ''
@@ -354,13 +350,11 @@ def webhook():
         chat_id   = message['chat']['id']
         text      = message.get('text', '')
         from_user = message.get('from', {})
-        user_info = {
-            'id':       from_user.get('id', 0),
-            'username': from_user.get('username', ''),
-            'name':     f"{from_user.get('first_name', '')} {from_user.get('last_name', '')}".strip(),
-        }
+        # Only use the Telegram ID internally to look up the volunteer's self-registered profile.
+        # No Telegram username or display name is collected or stored.
+        telegram_user_id = from_user.get('id', 0)
         if text:
-            handle_message(chat_id, text, user_info)
+            handle_message(chat_id, text, telegram_user_id)
 
     return 'OK'
 
