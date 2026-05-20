@@ -262,6 +262,54 @@ export default function EklogikáKentra() {
     setOpenPicker(null)
   }
 
+  async function exportToExcel() {
+    const { utils, writeFile } = await import('xlsx')
+
+    const rows = []
+    // Header row
+    rows.push(['Εκλογικό Κέντρο', 'Περιοχή', 'ΑΑ', 'Κάλπη', 'Αρ. Κάλπης', 'Όνομα', 'Επίθετο', 'Τηλέφωνο', 'ΑΔΤ', 'Προεδρεύον', 'Καταμέτρηση', 'Έξω', 'Όλη η Μέρα'])
+
+    for (const tier of TIERS) {
+      for (const center of tier.centers) {
+        const polls = POLL_LOOKUP[center.aa] || []
+        const people = staffData[center.aa] || []
+
+        for (const poll of polls) {
+          const match = matches[String(poll.num)]
+          if (match) {
+            // Find the person in staff to get all details
+            const person = people.find((p, i) => i === match.personIdx) || {}
+            rows.push([
+              center.name,
+              center.area,
+              center.aa,
+              poll.name,
+              poll.num,
+              match.name,
+              match.surname,
+              person.phone || '',
+              person.adt  || '',
+              match.proedrevon ? 'ΝΑΙ' : '',
+              person.katametrisi ? 'ΝΑΙ' : '',
+              person.ekso      ? 'ΝΑΙ' : '',
+              person.diarkeia  ? 'ΝΑΙ' : '',
+            ])
+          } else {
+            rows.push([center.name, center.area, center.aa, poll.name, poll.num, '', '', '', '', '', '', '', ''])
+          }
+        }
+      }
+    }
+
+    const ws = utils.aoa_to_sheet(rows)
+    // Style header row bold + blue background via column widths
+    ws['!cols'] = [28,16,10,12,10,14,18,13,12,12,13,8,10].map(w => ({ wch: w }))
+
+    const wb = utils.book_new()
+    utils.book_append_sheet(wb, ws, 'Κάλπες 2026')
+    writeFile(wb, 'κάλπες_ανά_κέντρο_2026.xlsx')
+  }
+
   async function handleImportJSON(e) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -339,6 +387,17 @@ export default function EklogikáKentra() {
           )}
         </div>
       )}
+
+      {/* ── Export bar ── */}
+      <div style={{ background:'#f8f9fa', borderBottom:'1px solid #dde3ed', padding:'8px 20px', display:'flex', alignItems:'center', gap:10 }}>
+        <button
+          onClick={exportToExcel}
+          style={{ padding:'6px 18px', background:'#1a7a3a', color:'white', border:'none', borderRadius:6, fontSize:13, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}
+        >
+          📊 Export Excel — Κάλπες ανά Κέντρο
+        </button>
+        <span style={{ fontSize:12, color:'#888' }}>Όλες οι κάλπες με τα ανατεθειμένα άτομα (και άδειες)</span>
+      </div>
 
       {/* ── Stats ── */}
       <div style={{ display:'flex', justifyContent:'center', gap:16, padding:16, flexWrap:'wrap', background:'#e8edf5', borderBottom:'2px solid #ccc' }}>
