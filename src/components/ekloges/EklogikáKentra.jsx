@@ -1,6 +1,7 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
+import { useAuth } from '../../contexts/AuthContext'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Static data
@@ -221,10 +222,14 @@ const EMPTY_FORM = { name:'', surname:'', phone:'', adt:'', comments:'', ageGrou
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function EklogikáKentra() {
+  const { isAdmin } = useAuth()
   const [staffData, setStaffData] = useState({})
   const [matches,   setMatches]   = useState({})
   const [staffModal, setStaffModal] = useState(null) // aa string | null
   const [openPicker, setOpenPicker] = useState(null) // pollNum | null
+  const [importing, setImporting] = useState(false)
+  const [importMsg, setImportMsg] = useState(null)
+  const importRef = useRef()
 
   useEffect(() => {
     const u1 = onSnapshot(collection(db, 'eklogika_staff'), snap => {
@@ -257,6 +262,39 @@ export default function EklogikáKentra() {
     setOpenPicker(null)
   }
 
+  async function handleImportJSON(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImporting(true)
+    setImportMsg(null)
+    try {
+      const text = await file.text()
+      const { staff = {}, matches: matchImport = {} } = JSON.parse(text)
+      let staffCount = 0, matchCount = 0
+      // Import staff
+      for (const [key, val] of Object.entries(staff)) {
+        const { aa, people } = val || {}
+        if (aa && Array.isArray(people) && people.length > 0) {
+          await setDoc(doc(db, 'eklogika_staff', key), { aa, people })
+          staffCount += people.length
+        }
+      }
+      // Import matches
+      for (const [pollNum, val] of Object.entries(matchImport)) {
+        if (val && val.aa) {
+          await setDoc(doc(db, 'eklogika_matches', String(pollNum)), val)
+          matchCount++
+        }
+      }
+      setImportMsg(`✅ Εισήχθησαν ${staffCount} άτομα και ${matchCount} αντιστοιχίσεις.`)
+    } catch(err) {
+      setImportMsg('❌ Σφάλμα: ' + err.message)
+    } finally {
+      setImporting(false)
+      e.target.value = ''
+    }
+  }
+
   return (
     <div style={{ fontFamily: 'Arial, sans-serif', background: '#f4f4f4', minHeight: '100vh', color: '#222' }}>
 
@@ -264,6 +302,19 @@ export default function EklogikáKentra() {
       <header style={{ background: '#1a3a6b', color: 'white', padding: '20px', textAlign: 'center' }}>
         <h1 style={{ fontSize: 22, marginBottom: 6 }}>📊 Εκλογικά Κέντρα Πάφου — Κατά Σημαντικότητα</h1>
         <p style={{ fontSize: 14, opacity: 0.85 }}>Βουλευτικές Εκλογές 2026 · Βάση δεδομένων 2021 · Ταξινόμηση κατά αριθμό ψηφοφόρων</p>
+        {isAdmin && (
+          <div style={{ marginTop: 10 }}>
+            <input ref={importRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImportJSON} />
+            <button
+              onClick={() => importRef.current?.click()}
+              disabled={importing}
+              style={{ padding:'7px 18px', background:'#2980b9', color:'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer' }}
+            >
+              {importing ? 'Εισαγωγή…' : '📥 Import από αρχείο JSON'}
+            </button>
+            {importMsg && <div style={{ marginTop:8, fontSize:13, background:'rgba(255,255,255,.15)', padding:'6px 14px', borderRadius:6, display:'inline-block' }}>{importMsg}</div>}
+          </div>
+        )}
       </header>
 
       {/* ── Stats ── */}
