@@ -302,20 +302,28 @@ export default function EklogikáKentra() {
       <header style={{ background: '#1a3a6b', color: 'white', padding: '20px', textAlign: 'center' }}>
         <h1 style={{ fontSize: 22, marginBottom: 6 }}>📊 Εκλογικά Κέντρα Πάφου — Κατά Σημαντικότητα</h1>
         <p style={{ fontSize: 14, opacity: 0.85 }}>Βουλευτικές Εκλογές 2026 · Βάση δεδομένων 2021 · Ταξινόμηση κατά αριθμό ψηφοφόρων</p>
-        {isAdmin && (
-          <div style={{ marginTop: 10 }}>
-            <input ref={importRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImportJSON} />
-            <button
-              onClick={() => importRef.current?.click()}
-              disabled={importing}
-              style={{ padding:'7px 18px', background:'#2980b9', color:'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer' }}
-            >
-              {importing ? 'Εισαγωγή…' : '📥 Import από αρχείο JSON'}
-            </button>
-            {importMsg && <div style={{ marginTop:8, fontSize:13, background:'rgba(255,255,255,.15)', padding:'6px 14px', borderRadius:6, display:'inline-block' }}>{importMsg}</div>}
-          </div>
-        )}
       </header>
+
+      {/* ── Admin import bar ── */}
+      {isAdmin && (
+        <div style={{ background:'#0e7a6a', color:'white', padding:'10px 20px', display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+          <span style={{ fontSize:14, fontWeight:600 }}>🔧 Admin:</span>
+          <input ref={importRef} type="file" accept=".json" style={{ display:'none' }} onChange={handleImportJSON} />
+          <button
+            onClick={() => { setImportMsg(null); importRef.current?.click() }}
+            disabled={importing}
+            style={{ padding:'6px 16px', background:'white', color:'#0e7a6a', border:'none', borderRadius:6, fontSize:13, fontWeight:700, cursor: importing ? 'not-allowed' : 'pointer', opacity: importing ? .6 : 1 }}
+          >
+            {importing ? '⏳ Ανεβάζω…' : '📤 Ανέβασε Δεδομένα (.json)'}
+          </button>
+          <span style={{ fontSize:12, opacity:.85 }}>Κατέβασε το αρχείο .json από το τοπικό HTML → ανέβασέ το εδώ</span>
+          {importMsg && (
+            <span style={{ marginLeft:'auto', fontSize:13, background:'rgba(255,255,255,.2)', padding:'4px 12px', borderRadius:6 }}>
+              {importMsg}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* ── Stats ── */}
       <div style={{ display:'flex', justifyContent:'center', gap:16, padding:16, flexWrap:'wrap', background:'#e8edf5', borderBottom:'2px solid #ccc' }}>
