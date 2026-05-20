@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function Navbar() {
-  const { userProfile, isAdmin, logout } = useAuth()
+  const { userProfile, isAdmin, isEkloges, logout } = useAuth()
   const location = useLocation()
 
   const linkClass = (path) =>
@@ -19,10 +19,11 @@ export default function Navbar() {
           <div className="flex items-center gap-6">
             <span className="font-bold text-lg tracking-wide">Dermlux</span>
             <div className="flex gap-1">
-              <Link to="/" className={linkClass('/')}>Dashboard</Link>
+              {userProfile?.role !== 'ekloges' && <Link to="/" className={linkClass('/')}>Dashboard</Link>}
               {isAdmin && <Link to="/admin" className={linkClass('/admin')}>Admin</Link>}
               {isAdmin && <Link to="/email" className={linkClass('/email')}>Email</Link>}
               {isAdmin && <Link to="/votes" className={linkClass('/votes')}>Ψηφοφόροι</Link>}
+              {(isAdmin || isEkloges) && <Link to="/ekloges" className={linkClass('/ekloges')}>🗳️ Εκλογές</Link>}
             </div>
           </div>
 

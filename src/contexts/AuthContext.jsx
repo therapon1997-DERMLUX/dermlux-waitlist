@@ -81,9 +81,10 @@ export function AuthProvider({ children }) {
   }, [])
 
   const isAdmin = userProfile?.role === 'admin'
+  const isEkloges = userProfile?.role === 'ekloges' || userProfile?.role === 'admin'
 
   return (
-    <AuthContext.Provider value={{ currentUser, userProfile, isAdmin, login, logout, createUser, loading }}>
+    <AuthContext.Provider value={{ currentUser, userProfile, isAdmin, isEkloges, login, logout, createUser, loading }}>
       {loading
         ? <div className="min-h-screen flex items-center justify-center bg-blue-50">
             <div className="text-blue-600 text-lg font-medium">Φόρτωση…</div>

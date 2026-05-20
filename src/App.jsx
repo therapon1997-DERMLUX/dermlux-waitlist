@@ -6,16 +6,26 @@ import AdminPanel from './components/AdminPanel'
 import EmailMarketing from './components/email/EmailMarketing'
 import VoteContacts from './components/VoteContacts'
 import Navbar from './components/Navbar'
+import EklogikáKentra from './components/ekloges/EklogikáKentra'
 
 function ProtectedRoute({ children }) {
-  const { currentUser } = useAuth()
-  return currentUser ? children : <Navigate to="/login" replace />
+  const { currentUser, userProfile } = useAuth()
+  if (!currentUser) return <Navigate to="/login" replace />
+  if (userProfile?.role === 'ekloges') return <Navigate to="/ekloges" replace />
+  return children
 }
 
 function AdminRoute({ children }) {
   const { currentUser, isAdmin } = useAuth()
   if (!currentUser) return <Navigate to="/login" replace />
   if (!isAdmin) return <Navigate to="/" replace />
+  return children
+}
+
+function EklogesRoute({ children }) {
+  const { currentUser, isAdmin, isEkloges } = useAuth()
+  if (!currentUser) return <Navigate to="/login" replace />
+  if (!isEkloges && !isAdmin) return <Navigate to="/" replace />
   return children
 }
 
@@ -32,6 +42,7 @@ export default function App() {
           <Route path="/admin" element={<AdminRoute><AdminPanel /></AdminRoute>} />
           <Route path="/email" element={<AdminRoute><EmailMarketing /></AdminRoute>} />
           <Route path="/votes" element={<AdminRoute><VoteContacts /></AdminRoute>} />
+          <Route path="/ekloges" element={<EklogesRoute><EklogikáKentra /></EklogesRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

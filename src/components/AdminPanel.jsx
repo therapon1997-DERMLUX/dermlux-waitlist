@@ -287,6 +287,7 @@ function CreateUserModal({ onClose, createUser }) {
           <select className="input" value={role} onChange={e => setRole(e.target.value)}>
             <option value="agent">Agent</option>
             <option value="admin">Admin</option>
+            <option value="ekloges">Εκλογές</option>
           </select>
         </div>
         <div className="flex gap-3 pt-2">
