@@ -271,14 +271,29 @@ export default function EklogikáKentra() {
       const text = await file.text()
       const { staff = {}, matches: matchImport = {} } = JSON.parse(text)
       let staffCount = 0, matchCount = 0
-      // Import staff
+
+      // Import staff — handle two formats:
+      // Format A (new): { [safeId]: { aa, people: [...] } }
+      // Format B (old localStorage raw): { [aa]: [...people] }
       for (const [key, val] of Object.entries(staff)) {
-        const { aa, people } = val || {}
+        let aa, people, docId
+        if (Array.isArray(val)) {
+          // Format B: key is raw aa, val is the people array
+          aa = key
+          people = val
+          docId = safeId(key)
+        } else {
+          // Format A: key is already safeId, val has { aa, people }
+          aa = val?.aa
+          people = val?.people
+          docId = key
+        }
         if (aa && Array.isArray(people) && people.length > 0) {
-          await setDoc(doc(db, 'eklogika_staff', key), { aa, people })
+          await setDoc(doc(db, 'eklogika_staff', docId), { aa, people })
           staffCount += people.length
         }
       }
+
       // Import matches
       for (const [pollNum, val] of Object.entries(matchImport)) {
         if (val && val.aa) {
@@ -286,7 +301,7 @@ export default function EklogikáKentra() {
           matchCount++
         }
       }
-      setImportMsg(`✅ Εισήχθησαν ${staffCount} άτομα και ${matchCount} αντιστοιχίσεις.`)
+      setImportMsg(`✅ ${staffCount} άτομα + ${matchCount} αντιστοιχίσεις εισήχθησαν.`)
     } catch(err) {
       setImportMsg('❌ Σφάλμα: ' + err.message)
     } finally {
