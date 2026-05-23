@@ -118,9 +118,11 @@ export default function BallotSubmit() {
   return (
     <div style={{ minHeight: '100vh', background: '#f0f4f8', fontFamily: 'Arial, sans-serif' }}>
       {/* Header */}
-      <header style={{ background: '#1a3a6b', color: 'white', padding: '20px 16px', textAlign: 'center' }}>
-        <h1 style={{ fontSize: 20, fontWeight: 'bold', margin: 0 }}>🗳️ Αποτελέσματα Καταμέτρησης</h1>
-        <p style={{ fontSize: 13, opacity: 0.8, marginTop: 6, marginBottom: 0 }}>Βουλευτικές Εκλογές 2026 · Επαρχία Πάφου</p>
+      <header style={{ background: 'linear-gradient(135deg, #0e2450 0%, #1B4080 100%)', color: 'white', padding: '20px 16px', textAlign: 'center', borderBottom: '3px solid #45C0AC' }}>
+        <img src="/dermlux-waitlist/nikoletta.png" alt="Νικολέττα"
+          style={{ width: 60, height: 60, borderRadius: '50%', objectFit: 'cover', objectPosition: 'top center', border: '2px solid #45C0AC', marginBottom: 10 }} />
+        <h1 style={{ fontSize: 18, fontWeight: 'bold', margin: 0 }}>🗳️ Αποτελέσματα Καταμέτρησης</h1>
+        <p style={{ fontSize: 12, opacity: 0.75, marginTop: 5, marginBottom: 0 }}>Βουλευτικές Εκλογές 2026 · Επαρχία Πάφου</p>
       </header>
 
       {/* Form */}
