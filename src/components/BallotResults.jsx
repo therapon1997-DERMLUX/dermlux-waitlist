@@ -59,10 +59,11 @@ export default function BallotResults() {
   }
 
   function exportCSV() {
-    const header = ['Αναφέρων', 'Εκλογικό Κέντρο', 'Περιοχή', 'Κάλπη', '#',
+    const header = ['Αναφέρων', 'Τηλέφωνο', 'Εκλογικό Κέντρο', 'Περιοχή', 'Κάλπη', '#',
       ...CANDIDATES.map(c => c.label), 'Σχόλια', 'Ημερομηνία'].join(',')
     const rows = filtered.map(r => [
       r.reporterName,
+      r.reporterPhone || '',
       r.centerName,
       r.centerArea,
       r.pollName,
@@ -151,6 +152,7 @@ function ResultCard({ result: r, onMarkSeen, onDelete, formatDate }) {
         <div className="flex items-center gap-3">
           {isNew && <span className="text-xs font-bold bg-white text-blue-600 px-2 py-0.5 rounded-full">ΝΕΟ</span>}
           <span className="font-semibold">{r.reporterName}</span>
+          {r.reporterPhone && <><span className="opacity-70">·</span><span>📞 {r.reporterPhone}</span></>}
           <span className="opacity-70">·</span>
           <span>{formatDate(r.timestamp)}</span>
         </div>

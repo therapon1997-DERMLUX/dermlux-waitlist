@@ -17,6 +17,7 @@ const EMPTY_VOTES = Object.fromEntries(CANDIDATES.map(c => [c.key, '']))
 export default function BallotSubmit() {
   const [name,       setName]       = useState('')
   const [surname,    setSurname]    = useState('')
+  const [phone,      setPhone]      = useState('')
   const [centerAA,   setCenterAA]   = useState('')
   const [pollNum,    setPollNum]    = useState('')
   const [votes,      setVotes]      = useState(EMPTY_VOTES)
@@ -46,7 +47,7 @@ export default function BallotSubmit() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!name.trim() || !surname.trim() || !centerAA || !pollNum) return
+    if (!name.trim() || !surname.trim() || !centerAA || !pollNum || !phone.trim()) return
     setSubmitting(true)
     setError(null)
     try {
@@ -56,6 +57,7 @@ export default function BallotSubmit() {
       )
       await addDoc(collection(db, 'ballot_results'), {
         reporterName: name.trim() + ' ' + surname.trim(),
+        reporterPhone: phone.trim(),
         centerAA,
         centerName: selectedCenter?.name || '',
         centerArea: selectedCenter?.area || '',
@@ -92,6 +94,7 @@ export default function BallotSubmit() {
           </p>
           <div style={{ background: '#f0f4f8', borderRadius: 10, padding: '14px 18px', textAlign: 'left', fontSize: 14, color: '#333', marginBottom: 24 }}>
             <div><strong>Εκλογικό Κέντρο:</strong> {selectedCenter?.name}</div>
+            <div><strong>Τηλέφωνο:</strong> {phone}</div>
             <div><strong>Κάλπη:</strong> {polls.find(p => String(p.num) === String(pollNum))?.name} #{pollNum}</div>
             {Object.entries(votes).map(([key, val]) => {
               const cand = CANDIDATES.find(c => c.key === key)
@@ -127,7 +130,7 @@ export default function BallotSubmit() {
           <div style={{ fontWeight: 'bold', fontSize: 14, color: '#1a3a6b', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
             👤 Στοιχεία Αναφέροντος
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>Όνομα *</label>
               <input
@@ -150,6 +153,18 @@ export default function BallotSubmit() {
                 autoComplete="off"
               />
             </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Τηλέφωνο *</label>
+            <input
+              style={inputStyle}
+              type="tel"
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
+              placeholder="π.χ. 99 123456"
+              required
+              autoComplete="off"
+            />
           </div>
         </div>
 
@@ -263,7 +278,7 @@ export default function BallotSubmit() {
             width: '100%', padding: '14px', background: '#1a3a6b', color: 'white',
             border: 'none', borderRadius: 10, fontSize: 16, fontWeight: 'bold',
             cursor: submitting ? 'not-allowed' : 'pointer',
-            opacity: (submitting || !name.trim() || !surname.trim() || !centerAA || !pollNum) ? 0.55 : 1,
+            opacity: (submitting || !name.trim() || !surname.trim() || !phone.trim() || !centerAA || !pollNum) ? 0.55 : 1,
             transition: 'opacity .15s',
           }}
         >
