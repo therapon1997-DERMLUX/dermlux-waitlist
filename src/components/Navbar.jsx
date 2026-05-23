@@ -11,7 +11,7 @@ export default function Navbar() {
   useEffect(() => {
     if (!isAdmin) return
     const unsub = onSnapshot(
-      query(collection(db, 'ballot_results'), where('seen', '==', false)),
+      query(collection(db, 'ballot_results'), where('status', '==', 'pending')),
       snap => setUnseenCount(snap.size)
     )
     return unsub

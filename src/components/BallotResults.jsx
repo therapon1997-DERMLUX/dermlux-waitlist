@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc } from 'firebase/firestore'
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../firebase/config'
 
 const CANDIDATES = [
@@ -13,8 +13,9 @@ const CANDIDATES = [
 
 export default function BallotResults() {
   const [results, setResults] = useState([])
-  const [search, setSearch]   = useState('')
-  const [filter, setFilter]   = useState('all') // all | unseen
+  const [tab,     setTab]     = useState('pending')  // pending | approved | rejected | all
+  const [search,  setSearch]  = useState('')
+  const [editId,  setEditId]  = useState(null)
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -24,11 +25,18 @@ export default function BallotResults() {
     return unsub
   }, [])
 
-  const unseen = useMemo(() => results.filter(r => r.seen === false).length, [results])
+  const counts = useMemo(() => ({
+    pending:  results.filter(r => !r.status || r.status === 'pending').length,
+    approved: results.filter(r => r.status === 'approved').length,
+    rejected: results.filter(r => r.status === 'rejected').length,
+    all:      results.length,
+  }), [results])
 
   const filtered = useMemo(() => {
     let list = results
-    if (filter === 'unseen') list = list.filter(r => r.seen === false)
+    if (tab === 'pending')  list = list.filter(r => !r.status || r.status === 'pending')
+    if (tab === 'approved') list = list.filter(r => r.status === 'approved')
+    if (tab === 'rejected') list = list.filter(r => r.status === 'rejected')
     if (search) {
       const s = search.toLowerCase()
       list = list.filter(r =>
@@ -36,15 +44,18 @@ export default function BallotResults() {
       )
     }
     return list
-  }, [results, search, filter])
+  }, [results, tab, search])
 
-  async function markSeen(id) {
-    await updateDoc(doc(db, 'ballot_results', id), { seen: true })
+  async function approve(id) {
+    await updateDoc(doc(db, 'ballot_results', id), { status: 'approved', seen: true, approvedAt: serverTimestamp() })
   }
 
-  async function markAllSeen() {
-    const unseenIds = results.filter(r => r.seen === false).map(r => r.id)
-    await Promise.all(unseenIds.map(id => updateDoc(doc(db, 'ballot_results', id), { seen: true })))
+  async function reject(id) {
+    await updateDoc(doc(db, 'ballot_results', id), { status: 'rejected', seen: true })
+  }
+
+  async function resetPending(id) {
+    await updateDoc(doc(db, 'ballot_results', id), { status: 'pending' })
   }
 
   async function handleDelete(id) {
@@ -60,81 +71,87 @@ export default function BallotResults() {
 
   function exportCSV() {
     const header = ['Αναφέρων', 'Τηλέφωνο', 'Εκλογικό Κέντρο', 'Περιοχή', 'Κάλπη', '#',
-      ...CANDIDATES.map(c => c.label), 'Σχόλια', 'Ημερομηνία'].join(',')
+      ...CANDIDATES.map(c => c.label), 'Σχόλια', 'Κατάσταση', 'Ημερομηνία'].join(',')
     const rows = filtered.map(r => [
-      r.reporterName,
-      r.reporterPhone || '',
-      r.centerName,
-      r.centerArea,
-      r.pollName,
-      r.pollNum,
+      r.reporterName, r.reporterPhone || '', r.centerName, r.centerArea,
+      r.pollName, r.pollNum,
       ...CANDIDATES.map(c => r[c.key] ?? ''),
-      r.comments || '',
-      formatDate(r.timestamp),
+      r.comments || '', r.status || 'pending', formatDate(r.timestamp),
     ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
     const csv = [header, ...rows].join('\n')
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = `apotelesmata_${new Date().toISOString().slice(0,10)}.csv`
+    const a = document.createElement('a'); a.href = url
+    a.download = `apotelesmata_${new Date().toISOString().slice(0,10)}.csv`
     a.click(); URL.revokeObjectURL(url)
   }
 
+  const TABS = [
+    { key: 'pending',  label: 'Εκκρεμή',        color: 'bg-yellow-100 text-yellow-800' },
+    { key: 'approved', label: 'Εγκεκριμένα',    color: 'bg-green-100 text-green-800' },
+    { key: 'rejected', label: 'Απορριφθέντα',   color: 'bg-red-100 text-red-700' },
+    { key: 'all',      label: 'Όλα',             color: 'bg-gray-100 text-gray-700' },
+  ]
+
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            📊 Αποτελέσματα Καταμέτρησης
-            {unseen > 0 && (
-              <span className="inline-flex items-center justify-center bg-red-500 text-white text-xs font-bold rounded-full w-6 h-6">
-                {unseen}
-              </span>
-            )}
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">{results.length} σύνολο · {filtered.length} εμφανίζονται</p>
+          <h1 className="text-2xl font-bold">📊 Αποτελέσματα Καταμέτρησης</h1>
+          <p className="text-sm text-gray-500 mt-1">{filtered.length} εγγραφές</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          {unseen > 0 && (
-            <button onClick={markAllSeen} className="text-sm px-3 py-1.5 rounded-md border border-blue-300 text-blue-700 hover:bg-blue-50 transition-colors">
-              Σήμανση όλων ως αναγνωσμένα
-            </button>
-          )}
+          <a href="/#/apotelesmata" target="_blank" rel="noreferrer"
+            className="text-sm px-3 py-1.5 rounded-md border border-green-400 text-green-700 hover:bg-green-50 transition-colors">
+            🌐 Public Page
+          </a>
           <button onClick={exportCSV} className="btn-primary text-sm">Εξαγωγή CSV</button>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3">
-        <input
-          className="input w-64"
-          placeholder="Αναζήτηση ονόματος, κέντρου…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-        <select className="input w-48" value={filter} onChange={e => setFilter(e.target.value)}>
-          <option value="all">Όλα</option>
-          <option value="unseen">Μόνο νέα {unseen > 0 ? `(${unseen})` : ''}</option>
-        </select>
+      {/* Tabs */}
+      <div className="flex gap-2 flex-wrap">
+        {TABS.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors border-2 ${
+              tab === t.key ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-transparent bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}>
+            {t.label}
+            <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${t.color}`}>
+              {counts[t.key]}
+            </span>
+          </button>
+        ))}
       </div>
+
+      {/* Search */}
+      <input
+        className="input w-full sm:w-72"
+        placeholder="Αναζήτηση ονόματος, κέντρου…"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+      />
 
       {/* Cards */}
       {filtered.length === 0 ? (
-        <div className="card p-10 text-center text-gray-400">
-          Δεν υπάρχουν αποτελέσματα ακόμα.
-        </div>
+        <div className="card p-10 text-center text-gray-400">Δεν υπάρχουν εγγραφές.</div>
       ) : (
         <div className="space-y-3">
           {filtered.map(r => (
-            <ResultCard
-              key={r.id}
-              result={r}
-              onMarkSeen={() => markSeen(r.id)}
-              onDelete={() => handleDelete(r.id)}
-              formatDate={formatDate}
-            />
+            editId === r.id
+              ? <EditCard key={r.id} result={r} onClose={() => setEditId(null)} formatDate={formatDate} />
+              : <ResultCard
+                  key={r.id}
+                  result={r}
+                  onApprove={() => approve(r.id)}
+                  onReject={() => reject(r.id)}
+                  onEdit={() => setEditId(r.id)}
+                  onReset={() => resetPending(r.id)}
+                  onDelete={() => handleDelete(r.id)}
+                  formatDate={formatDate}
+                />
           ))}
         </div>
       )}
@@ -142,33 +159,40 @@ export default function BallotResults() {
   )
 }
 
-function ResultCard({ result: r, onMarkSeen, onDelete, formatDate }) {
-  const isNew = r.seen === false
+// ─────────────────────────────────────────────────────────────────────────────
+// Result card (read mode)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ResultCard({ result: r, onApprove, onReject, onEdit, onReset, onDelete, formatDate }) {
+  const status = r.status || 'pending'
+
+  const statusStyle = {
+    pending:  'bg-yellow-50 border-yellow-300',
+    approved: 'bg-green-50 border-green-400',
+    rejected: 'bg-red-50 border-red-300 opacity-70',
+  }[status] || 'bg-white border-gray-200'
+
+  const topBarStyle = {
+    pending:  'bg-yellow-100 text-yellow-900',
+    approved: 'bg-green-600 text-white',
+    rejected: 'bg-red-100 text-red-800',
+  }[status] || 'bg-gray-100 text-gray-700'
+
+  const statusLabel = { pending: '⏳ Εκκρεμεί', approved: '✅ Εγκεκριμένο', rejected: '❌ Απορρίφθηκε' }[status]
 
   return (
-    <div className={`card overflow-hidden transition-all ${isNew ? 'ring-2 ring-blue-400' : ''}`}>
+    <div className={`card overflow-hidden border ${statusStyle}`}>
       {/* Top bar */}
-      <div className={`flex items-center justify-between px-4 py-2 text-sm ${isNew ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
-        <div className="flex items-center gap-3">
-          {isNew && <span className="text-xs font-bold bg-white text-blue-600 px-2 py-0.5 rounded-full">ΝΕΟ</span>}
+      <div className={`flex items-center justify-between px-4 py-2 text-sm ${topBarStyle}`}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-bold">{statusLabel}</span>
+          <span className="opacity-60">·</span>
           <span className="font-semibold">{r.reporterName}</span>
-          {r.reporterPhone && <><span className="opacity-70">·</span><span>📞 {r.reporterPhone}</span></>}
-          <span className="opacity-70">·</span>
-          <span>{formatDate(r.timestamp)}</span>
+          {r.reporterPhone && <span className="opacity-70 text-xs">📞 {r.reporterPhone}</span>}
+          <span className="opacity-60">·</span>
+          <span className="text-xs opacity-80">{formatDate(r.timestamp)}</span>
         </div>
-        <div className="flex items-center gap-2">
-          {isNew && (
-            <button
-              onClick={onMarkSeen}
-              className={`text-xs px-2 py-0.5 rounded border transition-colors ${isNew ? 'border-white/50 hover:bg-white/20' : 'border-gray-300 hover:bg-gray-200'}`}
-            >
-              ✓ Αναγνώσθηκε
-            </button>
-          )}
-          <button onClick={onDelete} className={`text-xs opacity-60 hover:opacity-100 transition-opacity ${isNew ? 'text-white' : 'text-red-500'}`}>
-            Διαγραφή
-          </button>
-        </div>
+        <button onClick={onDelete} className="text-xs opacity-40 hover:opacity-80 transition-opacity ml-2">🗑️</button>
       </div>
 
       {/* Body */}
@@ -181,26 +205,145 @@ function ResultCard({ result: r, onMarkSeen, onDelete, formatDate }) {
         </div>
 
         {/* Vote grid */}
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3">
           {CANDIDATES.map((c, i) => (
-            <div
-              key={c.key}
-              className={`rounded-lg p-2 text-center ${i === 0 ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50 border border-gray-200'}`}
-            >
+            <div key={c.key} className={`rounded-lg p-2 text-center ${i === 0 ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50 border border-gray-200'}`}>
               <div className={`text-xs font-medium mb-1 ${i === 0 ? 'text-blue-600' : 'text-gray-500'}`}>{c.label}</div>
               <div className={`text-xl font-bold ${i === 0 ? 'text-blue-700' : 'text-gray-800'}`}>
-                {r[c.key] ?? <span className="text-gray-300 text-base">—</span>}
+                {r[c.key] ?? <span className="text-gray-300 text-sm">—</span>}
               </div>
             </div>
           ))}
         </div>
 
-        {/* Comments */}
         {r.comments && (
-          <div className="mt-3 text-sm text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+          <div className="text-sm text-gray-500 bg-gray-50 rounded-lg px-3 py-2 mb-3">
             💬 {r.comments}
           </div>
         )}
+
+        {/* Action buttons */}
+        <div className="flex gap-2 flex-wrap">
+          {status !== 'approved' && (
+            <button onClick={onApprove}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition-colors">
+              ✅ Έγκριση
+            </button>
+          )}
+          {status !== 'rejected' && (
+            <button onClick={onReject}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text-white text-sm font-bold rounded-lg hover:bg-red-600 transition-colors">
+              ❌ Απόρριψη
+            </button>
+          )}
+          <button onClick={onEdit}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors">
+            ✏️ Επεξεργασία
+          </button>
+          {(status === 'approved' || status === 'rejected') && (
+            <button onClick={onReset}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-yellow-300 text-yellow-700 text-sm font-medium rounded-lg hover:bg-yellow-50 transition-colors">
+              ↩ Επαναφορά
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Edit card (inline edit mode)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function EditCard({ result: r, onClose, formatDate }) {
+  const [form, setForm] = useState({
+    reporterName: r.reporterName || '',
+    reporterPhone: r.reporterPhone || '',
+    comments: r.comments || '',
+    ...Object.fromEntries(CANDIDATES.map(c => [c.key, r[c.key] != null ? String(r[c.key]) : ''])),
+  })
+  const [saving, setSaving] = useState(false)
+
+  function set(f, v) { setForm(p => ({ ...p, [f]: v })) }
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      const voteNums = Object.fromEntries(
+        CANDIDATES.map(c => [c.key, form[c.key] === '' ? null : Number(form[c.key])])
+      )
+      await updateDoc(doc(db, 'ballot_results', r.id), {
+        reporterName: form.reporterName,
+        reporterPhone: form.reporterPhone,
+        comments: form.comments,
+        ...voteNums,
+      })
+      onClose()
+    } finally { setSaving(false) }
+  }
+
+  const inp = 'border border-gray-300 rounded-md px-2 py-1.5 text-sm w-full focus:outline-none focus:border-blue-400'
+  const numInp = 'border border-gray-300 rounded-md px-2 py-1.5 text-sm text-center font-bold w-full focus:outline-none focus:border-blue-400'
+
+  return (
+    <div className="card overflow-hidden border-2 border-blue-400">
+      <div className="bg-blue-600 text-white px-4 py-2 text-sm font-bold flex items-center justify-between">
+        <span>✏️ Επεξεργασία — {r.centerName} · {r.pollName} #{r.pollNum}</span>
+        <button onClick={onClose} className="opacity-70 hover:opacity-100 text-lg leading-none">✕</button>
+      </div>
+      <div className="px-4 py-4 space-y-4">
+
+        {/* Reporter */}
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <label className="text-xs font-bold text-gray-500 block mb-1">Αναφέρων</label>
+            <input className={inp} value={form.reporterName} onChange={e => set('reporterName', e.target.value)} />
+          </div>
+          <div className="flex-1">
+            <label className="text-xs font-bold text-gray-500 block mb-1">Τηλέφωνο</label>
+            <input className={inp} value={form.reporterPhone} onChange={e => set('reporterPhone', e.target.value)} />
+          </div>
+        </div>
+
+        {/* Votes */}
+        <div>
+          <label className="text-xs font-bold text-gray-500 block mb-2">Ψήφοι</label>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+            {CANDIDATES.map((c, i) => (
+              <div key={c.key} className={`rounded-lg p-2 text-center ${i === 0 ? 'bg-blue-50' : 'bg-gray-50'}`}>
+                <div className="text-xs font-medium text-gray-500 mb-1">{c.label}</div>
+                <input
+                  type="text" inputMode="numeric" pattern="\d*"
+                  className={numInp}
+                  value={form[c.key]}
+                  onChange={e => {
+                    const v = e.target.value
+                    if (v === '' || /^\d+$/.test(v)) set(c.key, v)
+                  }}
+                  placeholder="—"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Comments */}
+        <div>
+          <label className="text-xs font-bold text-gray-500 block mb-1">Σχόλια</label>
+          <textarea className={inp + ' resize-none'} rows={2} value={form.comments} onChange={e => set('comments', e.target.value)} />
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-2 justify-end">
+          <button onClick={onClose} className="px-4 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50">
+            Ακύρωση
+          </button>
+          <button onClick={handleSave} disabled={saving}
+            className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 disabled:opacity-50">
+            {saving ? 'Αποθήκευση…' : '✔ Αποθήκευση'}
+          </button>
+        </div>
       </div>
     </div>
   )

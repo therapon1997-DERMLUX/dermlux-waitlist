@@ -66,6 +66,7 @@ export default function BallotSubmit() {
         ...voteNums,
         comments: comments.trim(),
         timestamp: serverTimestamp(),
+        status: 'pending',
         seen: false,
       })
       setSubmitted(true)

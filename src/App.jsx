@@ -9,6 +9,7 @@ import Navbar from './components/Navbar'
 import EklogikáKentra from './components/ekloges/EklogikáKentra'
 import BallotSubmit from './components/BallotSubmit'
 import BallotResults from './components/BallotResults'
+import PublicResults from './components/PublicResults'
 
 function ProtectedRoute({ children }) {
   const { currentUser, userProfile } = useAuth()
@@ -46,6 +47,7 @@ export default function App() {
           <Route path="/votes" element={<AdminRoute><VoteContacts /></AdminRoute>} />
           <Route path="/ekloges" element={<EklogesRoute><EklogikáKentra /></EklogesRoute>} />
           <Route path="/kaipes" element={<BallotSubmit />} />
+          <Route path="/apotelesmata" element={<PublicResults />} />
           <Route path="/ballot-results" element={<AdminRoute><BallotResults /></AdminRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
