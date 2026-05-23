@@ -1,8 +1,21 @@
 import { Link, useLocation } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { collection, onSnapshot, query, where } from 'firebase/firestore'
+import { db } from '../firebase/config'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function Navbar() {
   const { userProfile, isAdmin, isEkloges, logout } = useAuth()
+  const [unseenCount, setUnseenCount] = useState(0)
+
+  useEffect(() => {
+    if (!isAdmin) return
+    const unsub = onSnapshot(
+      query(collection(db, 'ballot_results'), where('seen', '==', false)),
+      snap => setUnseenCount(snap.size)
+    )
+    return unsub
+  }, [isAdmin])
   const location = useLocation()
 
   const linkClass = (path) =>
@@ -24,6 +37,16 @@ export default function Navbar() {
               {isAdmin && <Link to="/email" className={linkClass('/email')}>Email</Link>}
               {isAdmin && <Link to="/votes" className={linkClass('/votes')}>Ψηφοφόροι</Link>}
               {(isAdmin || isEkloges) && <Link to="/ekloges" className={linkClass('/ekloges')}>🗳️ Εκλογές</Link>}
+              {isAdmin && (
+                <Link to="/ballot-results" className={`${linkClass('/ballot-results')} relative`}>
+                  📊 Αποτελέσματα
+                  {unseenCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center bg-red-500 text-white text-xs font-bold rounded-full w-4 h-4 leading-none">
+                      {unseenCount > 9 ? '9+' : unseenCount}
+                    </span>
+                  )}
+                </Link>
+              )}
             </div>
           </div>
 
