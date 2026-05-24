@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
-import { collection, onSnapshot, query, where, getDocs } from 'firebase/firestore'
+import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import confetti from 'canvas-confetti'
 import { POLL_LOOKUP, ALL_CENTERS } from '../data/electionData'
@@ -64,10 +64,10 @@ function fireConfetti() {
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function PublicResults() {
   const [approved,   setApproved]   = useState([])
-  const [submitted,  setSubmitted]  = useState([])   // pending in Firestore (received, not yet approved)
+  const [submitted,  setSubmitted]  = useState([])
   const [countdown,  setCountdown]  = useState(null)
   const [newCard,    setNewCard]    = useState(null)
-  const [connected,  setConnected]  = useState(true)
+  const [loading,    setLoading]    = useState(true)
   const prevIdsRef   = useRef(new Set())
   const initialLoad  = useRef(true)
   const unsubApprRef = useRef(null)
@@ -80,7 +80,7 @@ export default function PublicResults() {
     unsubApprRef.current = onSnapshot(
       query(collection(db, 'ballot_results'), where('status', '==', 'approved')),
       snap => {
-        setConnected(true)
+        setLoading(false)
         const docs = snap.docs
           .map(d => ({ id: d.id, ...d.data() }))
           .filter(d => !d.isOfficial)
@@ -95,7 +95,7 @@ export default function PublicResults() {
           if (newest) setCountdown({ result: newest, n: 3 })
         }
       },
-      err => { console.error('approved listener:', err); setConnected(false) }
+      err => { console.error('approved listener:', err); setLoading(false) }
     )
 
     // Pending
@@ -299,10 +299,9 @@ export default function PublicResults() {
               ΑΠΟΤΕΛΕΣΜΑΤΑ ΕΚΛΟΓΩΝ
             </h1>
             <div style={{ marginTop: 10, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <span style={{ background: connected ? 'rgba(69,192,172,.15)' : 'rgba(239,68,68,.15)',
-                border: `1px solid ${connected ? TEAL : RED}`, borderRadius: 20, padding: '3px 12px',
-                fontSize: 12, color: connected ? TEAL : RED }}>
-                {connected ? '🔴 LIVE' : '⚠️ Αποσυνδεδεμένο'}
+              <span style={{ background: 'rgba(69,192,172,.15)', border: `1px solid ${TEAL}`,
+                borderRadius: 20, padding: '3px 12px', fontSize: 12, color: TEAL }}>
+                {loading ? '⏳ Φόρτωση…' : '🔴 LIVE'}
               </span>
               <span style={{ background: 'rgba(34,197,94,.15)', borderRadius: 20, padding: '3px 12px', fontSize: 12, color: GREEN }}>
                 ✅ {approved.length} / 122 ολοκληρωμένες
