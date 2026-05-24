@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { ALL_CENTERS, POLL_LOOKUP } from '../data/electionData'
@@ -17,16 +17,20 @@ const CANDIDATES = [
 const EMPTY_VOTES = Object.fromEntries(CANDIDATES.map(c => [c.key, '']))
 
 export default function BallotSubmit() {
-  const [name,       setName]       = useState('')
-  const [surname,    setSurname]    = useState('')
-  const [phone,      setPhone]      = useState('')
-  const [centerAA,   setCenterAA]   = useState('')
-  const [pollNum,    setPollNum]    = useState('')
-  const [votes,      setVotes]      = useState(EMPTY_VOTES)
-  const [comments,   setComments]   = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [submitted,  setSubmitted]  = useState(false)
-  const [error,      setError]      = useState(null)
+  const [name,         setName]         = useState('')
+  const [surname,      setSurname]      = useState('')
+  const [phone,        setPhone]        = useState('')
+  const [centerAA,     setCenterAA]     = useState('')
+  const [centerSearch, setCenterSearch] = useState('')
+  const [showDropdown, setShowDropdown] = useState(false)
+  const [pollNum,      setPollNum]      = useState('')
+  const [votes,        setVotes]        = useState(EMPTY_VOTES)
+  const [comments,     setComments]     = useState('')
+  const [submitting,   setSubmitting]   = useState(false)
+  const [submitted,    setSubmitted]    = useState(false)
+  const [error,        setError]        = useState(null)
+  const searchRef = useRef(null)
+  const dropdownRef = useRef(null)
 
   const selectedCenter = useMemo(
     () => ALL_CENTERS.find(c => c.aa === centerAA) || null,
@@ -37,9 +41,37 @@ export default function BallotSubmit() {
     [centerAA]
   )
 
-  function handleCenterChange(aa) {
+  const filteredCenters = useMemo(() => {
+    const q = centerSearch.toLowerCase().trim()
+    if (!q) return ALL_CENTERS
+    return ALL_CENTERS.filter(c =>
+      c.name.toLowerCase().includes(q) || c.area.toLowerCase().includes(q)
+    )
+  }, [centerSearch])
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClick(e) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setShowDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  function handleCenterSelect(aa, name, area) {
     setCenterAA(aa)
+    setCenterSearch(`${name} (${area})`)
+    setShowDropdown(false)
     setPollNum('')
+  }
+
+  function handleCenterSearchChange(val) {
+    setCenterSearch(val)
+    setCenterAA('')   // clear selection when typing
+    setPollNum('')
+    setShowDropdown(true)
   }
 
   function handleVote(key, val) {
@@ -80,8 +112,9 @@ export default function BallotSubmit() {
   }
 
   function handleReset() {
-    setName(''); setSurname(''); setCenterAA(''); setPollNum('')
-    setVotes(EMPTY_VOTES); setComments(''); setSubmitted(false); setError(null)
+    setName(''); setSurname(''); setCenterAA(''); setCenterSearch('')
+    setPollNum(''); setVotes(EMPTY_VOTES); setComments('')
+    setSubmitted(false); setError(null)
   }
 
   if (submitted) {
@@ -179,21 +212,69 @@ export default function BallotSubmit() {
             📍 Εκλογικό Κέντρο
           </div>
 
-          <div style={{ marginBottom: 12 }}>
+          <div style={{ marginBottom: 12, position: 'relative' }} ref={dropdownRef}>
             <label style={labelStyle}>Εκλογικό Κέντρο *</label>
-            <select
-              style={inputStyle}
-              value={centerAA}
-              onChange={e => handleCenterChange(e.target.value)}
-              required
-            >
-              <option value="">— Επιλέξτε κέντρο —</option>
-              {ALL_CENTERS.map(c => (
-                <option key={c.aa} value={c.aa}>
-                  {c.name} ({c.area})
-                </option>
-              ))}
-            </select>
+            <div style={{ position: 'relative' }}>
+              <input
+                ref={searchRef}
+                style={{
+                  ...inputStyle,
+                  paddingRight: 32,
+                  borderColor: showDropdown ? '#1a3a6b' : '#ccc',
+                  borderRadius: showDropdown && filteredCenters.length > 0 ? '6px 6px 0 0' : 6,
+                }}
+                value={centerSearch}
+                onChange={e => handleCenterSearchChange(e.target.value)}
+                onFocus={() => setShowDropdown(true)}
+                placeholder="Αναζήτηση κέντρου ή περιοχής…"
+                autoComplete="off"
+              />
+              {/* Clear / caret icon */}
+              <span
+                onClick={() => { setCenterSearch(''); setCenterAA(''); setPollNum(''); searchRef.current?.focus(); setShowDropdown(true) }}
+                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                  cursor: 'pointer', color: '#aaa', fontSize: 14, userSelect: 'none' }}
+              >
+                {centerSearch ? '✕' : '▾'}
+              </span>
+            </div>
+
+            {/* Dropdown list */}
+            {showDropdown && (
+              <div style={{
+                position: 'absolute', zIndex: 100, left: 0, right: 0,
+                background: 'white', border: '1px solid #1a3a6b', borderTop: 'none',
+                borderRadius: '0 0 6px 6px',
+                maxHeight: 220, overflowY: 'auto',
+                boxShadow: '0 6px 20px rgba(0,0,0,.12)',
+              }}>
+                {filteredCenters.length === 0 ? (
+                  <div style={{ padding: '10px 12px', color: '#aaa', fontSize: 13 }}>
+                    Δεν βρέθηκαν αποτελέσματα
+                  </div>
+                ) : filteredCenters.map(c => (
+                  <div
+                    key={c.aa}
+                    onMouseDown={() => handleCenterSelect(c.aa, c.name, c.area)}
+                    style={{
+                      padding: '9px 12px', cursor: 'pointer', fontSize: 13,
+                      background: c.aa === centerAA ? '#eef2fb' : 'white',
+                      borderBottom: '1px solid #f0f0f0',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f5f7ff'}
+                    onMouseLeave={e => e.currentTarget.style.background = c.aa === centerAA ? '#eef2fb' : 'white'}
+                  >
+                    <div style={{ fontWeight: c.aa === centerAA ? 'bold' : 'normal', color: '#1a3a6b' }}>
+                      {c.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#888', marginTop: 1 }}>{c.area}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Hidden required input for form validation */}
+            <input type="text" required value={centerAA} readOnly style={{ opacity: 0, height: 0, position: 'absolute' }} tabIndex={-1} />
           </div>
 
           <div>
