@@ -76,7 +76,16 @@ export default function BallotSubmit() {
 
   function handleVote(key, val) {
     if (val !== '' && !/^\d+$/.test(val)) return
-    setVotes(v => ({ ...v, [key]: val }))
+    setVotes(prev => {
+      const next = { ...prev, [key]: val }
+      // Auto-calculate synolo from all candidate + lefka + akyra fields
+      if (key !== 'synolo') {
+        const candidateKeys = ['nikoletta', 'pazaros', 'koupparis', 'karseras', 'giorgos', 'lefka', 'akyra']
+        const sum = candidateKeys.reduce((s, k) => s + (next[k] !== '' ? Number(next[k]) : 0), 0)
+        next.synolo = sum > 0 ? String(sum) : ''
+      }
+      return next
+    })
   }
 
   async function handleSubmit(e) {
@@ -302,39 +311,48 @@ export default function BallotSubmit() {
             📊 Αριθμός Ψήφων
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {CANDIDATES.map((cand, i) => (
-              <div
-                key={cand.key}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  padding: '10px 12px',
-                  background: i === 0 ? '#f0f4fb' : '#fafafa',
-                  borderRadius: 8,
-                  border: i === 0 ? '1px solid #c0cfea' : '1px solid #eee',
-                }}
-              >
-                <label style={{
-                  flex: 1, fontSize: 14,
-                  fontWeight: i === 0 ? 'bold' : 'normal',
-                  color: i === 0 ? '#1a3a6b' : '#333',
-                }}>
-                  {cand.label}
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="\d*"
-                  value={votes[cand.key]}
-                  onChange={e => handleVote(cand.key, e.target.value)}
-                  placeholder="0"
+            {CANDIDATES.map((cand, i) => {
+              const isSynolo = cand.key === 'synolo'
+              return (
+                <div
+                  key={cand.key}
                   style={{
-                    width: 80, padding: '7px 10px', border: '1px solid #ccc', borderRadius: 6,
-                    fontSize: 16, fontWeight: 'bold', textAlign: 'center',
-                    fontFamily: 'Arial, sans-serif',
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '10px 12px',
+                    background: isSynolo ? '#f0f4fb' : '#fafafa',
+                    borderRadius: 8,
+                    border: isSynolo ? '1px solid #c0cfea' : '1px solid #eee',
                   }}
-                />
-              </div>
-            ))}
+                >
+                  <label style={{
+                    flex: 1, fontSize: 14,
+                    fontWeight: isSynolo ? 'bold' : 'normal',
+                    color: isSynolo ? '#1a3a6b' : '#333',
+                  }}>
+                    {cand.label}
+                    {isSynolo && <span style={{ fontSize: 10, fontWeight: 'normal', color: '#888', marginLeft: 6 }}>αυτόματο</span>}
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="\d*"
+                    value={votes[cand.key]}
+                    onChange={e => handleVote(cand.key, e.target.value)}
+                    placeholder="0"
+                    readOnly={isSynolo}
+                    style={{
+                      width: 80, padding: '7px 10px', borderRadius: 6,
+                      fontSize: 16, fontWeight: 'bold', textAlign: 'center',
+                      fontFamily: 'Arial, sans-serif',
+                      border: isSynolo ? '1px solid #a0b4d6' : '1px solid #ccc',
+                      background: isSynolo ? '#dce8f8' : 'white',
+                      color: isSynolo ? '#1a3a6b' : '#222',
+                      cursor: isSynolo ? 'default' : 'text',
+                    }}
+                  />
+                </div>
+              )
+            })}
           </div>
         </div>
 
