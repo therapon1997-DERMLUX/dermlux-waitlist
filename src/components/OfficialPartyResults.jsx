@@ -33,17 +33,21 @@ const PARTIES = {
 
 // ── MessagePack schema indices (from /api/mappings) ───────────────────────────
 // overviewResultsResponseDto
+// [autoInc(0), version(1), isFinal(2), islandwide(3), districtResults(4),
+//  municipalityResults(5), regionResults(6), psResults(7), bbResults(8), allocationOfSeats(9)]
 const OV_DISTRICT = 4
+const OV_SEATS    = 9
 
-// nodeResultsResponseDto: [votesTargetId, results]
-// resultResponseDto:      [partyResults(0), personResults(1), id(2), ...,
-//                          validBallots(9), ..., completion(13), ...,
-//                          ballotBoxesCounted(17), ballotBoxesTotal(18), ..., lastUpdate(21)]
+// nodeResultsResponseDto:              [votesTargetId(0), results(1)]
+// allocationOfSeatsAreaResultResponseDto: [areaId(0), results(1)]
+// allocationOfSeatsResultResponseDto:  [partyId(0), seatsAllocated(1), confirmedSeatsAllocated(2)]
+// resultResponseDto: [partyResults(0), ..., validBallots(9), ..., completion(13), ...,
+//                     ballotBoxesCounted(17), ballotBoxesTotal(18), ..., lastUpdate(21)]
 // candidateResultResponseDto: [id(0), votes(1), votesPercent(2), ranking(3), ...]
 
 async function fetchPaphosPartyResults() {
   const url = `${API_BASE}/elections/${ELECTION_ID}/results` +
-    `?votesDistrictId=${DISTRICT_ID}&include-results-from=districts&include-results-for=parties`
+    `?votesDistrictId=${DISTRICT_ID}&include-results-from=districts&include-results-for=parties,seats-allocation`
 
   const res = await fetch(PROXY(url), { signal: AbortSignal.timeout(15000) })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -51,7 +55,7 @@ async function fetchPaphosPartyResults() {
   const buffer = await res.arrayBuffer()
   const data   = decode(new Uint8Array(buffer))
 
-  // Navigate to Paphos district results
+  // ── Paphos district vote results ──
   const districtResults = Array.isArray(data) ? data[OV_DISTRICT] : null
   if (!districtResults) throw new Error('No district results in response')
 
@@ -68,16 +72,32 @@ async function fetchPaphosPartyResults() {
     .filter(p => p.votes > 0)
     .sort((a, b) => b.votes - a.votes)
 
+  // ── Seat allocation for Paphos ──
+  const seatsMap = {}
+  try {
+    const allSeats = data[OV_SEATS]   // array of allocationOfSeatsAreaResultResponseDto
+    if (Array.isArray(allSeats)) {
+      const paphosSeats = allSeats.find(s => Array.isArray(s) && s[0] === DISTRICT_ID)
+      if (paphosSeats && Array.isArray(paphosSeats[1])) {
+        paphosSeats[1].forEach(s => {
+          if (Array.isArray(s) && s[0] != null) {
+            seatsMap[s[0]] = s[1] ?? 0   // partyId → seatsAllocated
+          }
+        })
+      }
+    }
+  } catch (_) { /* seats not available yet */ }
+
   return {
-    parties:     partyData,
-    validBallots: r[9]  ?? 0,
-    blankBallots: r[5]  ?? 0,
-    invalidBallots: r[7] ?? 0,
-    completion:   typeof r[13] === 'number' ? +(r[13] * 100).toFixed(1) : 0,
-    boxesCounted: r[17] ?? 0,
-    boxesTotal:   r[18] ?? 0,
-    lastUpdate:   r[21] ?? null,
-    fetchedAt:    new Date(),
+    parties:       partyData,
+    seatsMap,
+    validBallots:  r[9]  ?? 0,
+    blankBallots:  r[5]  ?? 0,
+    invalidBallots:r[7]  ?? 0,
+    completion:    typeof r[13] === 'number' ? +(r[13] * 100).toFixed(1) : 0,
+    boxesCounted:  r[17] ?? 0,
+    boxesTotal:    r[18] ?? 0,
+    fetchedAt:     new Date(),
   }
 }
 
@@ -204,6 +224,7 @@ export default function OfficialPartyResults() {
             const name     = party?.short || `Κόμμα ${p.id}`
             const color    = party?.color || '#888'
             const barWidth = (p.votes / maxVotes) * 100
+            const seats    = data.seatsMap[p.id] ?? 0
 
             return (
               <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -237,10 +258,32 @@ export default function OfficialPartyResults() {
                 <span style={{ fontSize: 11, opacity: .45, minWidth: 52, textAlign: 'right' }}>
                   {p.votes.toLocaleString('el-GR')}
                 </span>
+                {/* Seats */}
+                {seats > 0 ? (
+                  <span style={{
+                    fontSize: 11, fontWeight: 'bold',
+                    background: `${color}30`, border: `1px solid ${color}60`,
+                    color: color, borderRadius: 10,
+                    padding: '1px 7px', minWidth: 36, textAlign: 'center',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {seats} 💺
+                  </span>
+                ) : (
+                  <span style={{ minWidth: 36 }} />
+                )}
               </div>
             )
           })}
         </div>
+
+        {/* Total seats summary */}
+        {Object.values(data.seatsMap).some(s => s > 0) && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,.08)',
+            fontSize: 11, opacity: .4, textAlign: 'right' }}>
+            Σύνολο εδρών Πάφου: {Object.values(data.seatsMap).reduce((s, v) => s + v, 0)}
+          </div>
+        )}
       </div>
     </div>
   )
