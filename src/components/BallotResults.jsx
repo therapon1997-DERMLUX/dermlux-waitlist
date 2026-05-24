@@ -1,7 +1,11 @@
 import { useEffect, useState, useMemo } from 'react'
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, serverTimestamp, setDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
+import { TIERS, POLL_LOOKUP } from '../data/electionData'
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Candidate config
+// ─────────────────────────────────────────────────────────────────────────────
 const VOTE_CANDIDATES = [
   { key: 'nikoletta', label: 'Νικολέττα' },
   { key: 'pazaros',   label: 'Χ.Πάζαρος' },
@@ -9,26 +13,68 @@ const VOTE_CANDIDATES = [
   { key: 'karseras',  label: 'Καρσεράς' },
   { key: 'giorgos',   label: 'Γιώργος' },
 ]
+const ALL_CANDIDATES = [{ key: 'synolo', label: 'Σύνολο' }, ...VOTE_CANDIDATES]
 
-const ALL_CANDIDATES = [
-  { key: 'synolo',    label: 'Σύνολο' },
-  ...VOTE_CANDIDATES,
-]
-
-// Returns 0 if nikoletta is first, 1 if second, etc.
 function nikolettaPosition(r) {
-  const sorted = [...VOTE_CANDIDATES]
+  return [...VOTE_CANDIDATES]
     .map(c => ({ key: c.key, votes: r[c.key] ?? 0 }))
     .sort((a, b) => b.votes - a.votes)
-  return sorted.findIndex(c => c.key === 'nikoletta')
+    .findIndex(c => c.key === 'nikoletta')
 }
 
-export default function BallotResults() {
-  const [results, setResults] = useState([])
-  const [search,  setSearch]  = useState('')
-  const [editId,  setEditId]  = useState(null)
-  const [showRejected, setShowRejected] = useState(false)
+// ─────────────────────────────────────────────────────────────────────────────
+// Official API config & center-name lookup
+// ─────────────────────────────────────────────────────────────────────────────
+const OFFICIAL_BASE = 'https://results.elections.moi.gov.cy/api/greek/Results'
+const PROXY = url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`
+const DISTRICT_ID = 6       // Παφός
+const POLL_MS = 3 * 60 * 1000
+const SEEN_KEY = 'officialSeenBoxIds_2026'
 
+// Normalize Greek string for fuzzy matching
+function norm(s) {
+  if (!s) return ''
+  return s.toLowerCase()
+    .replace(/ά/g,'α').replace(/έ/g,'ε').replace(/ή/g,'η').replace(/ί/g,'ι')
+    .replace(/ό/g,'ο').replace(/ύ/g,'υ').replace(/ώ/g,'ω')
+    .replace(/ϊ|ΐ/g,'ι').replace(/ϋ|ΰ/g,'υ')
+    .replace(/\s+/g,' ').trim()
+}
+
+// Build lookup: "normCenterName::normBoxName" → {pollNum, centerName, pollName}
+const CENTER_LOOKUP = {}
+for (const tier of TIERS) {
+  for (const center of tier.centers) {
+    const polls = POLL_LOOKUP[center.aa] || []
+    const nc = norm(center.name)
+    for (const p of polls) {
+      CENTER_LOOKUP[`${nc}::${norm(p.name)}`] = {
+        pollNum: p.num,
+        centerName: center.name,
+        pollName: p.name,
+      }
+    }
+  }
+}
+
+async function apiFetch(url) {
+  const res = await fetch(PROXY(url), { signal: AbortSignal.timeout(15000) })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main component
+// ─────────────────────────────────────────────────────────────────────────────
+export default function BallotResults() {
+  const [results,      setResults]      = useState([])
+  const [search,       setSearch]       = useState('')
+  const [editId,       setEditId]       = useState(null)
+  const [showRejected, setShowRejected] = useState(false)
+  const [pollerStatus, setPollerStatus] = useState('idle')   // idle | fetching | ok | error
+  const [lastFetched,  setLastFetched]  = useState(null)
+
+  // ── Firestore listener ──────────────────────────────────────────────────
   useEffect(() => {
     const unsub = onSnapshot(
       query(collection(db, 'ballot_results'), orderBy('timestamp', 'desc')),
@@ -37,9 +83,123 @@ export default function BallotResults() {
     return unsub
   }, [])
 
-  const pending  = useMemo(() => results.filter(r => !r.status || r.status === 'pending'), [results])
-  const approved = useMemo(() => results.filter(r => r.status === 'approved'), [results])
-  const rejected = useMemo(() => results.filter(r => r.status === 'rejected'), [results])
+  // ── Official API poller ─────────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false
+
+    async function pollOfficial() {
+      setPollerStatus('fetching')
+      try {
+        // Discover election ID
+        const rootData = await apiFetch(OFFICIAL_BASE)
+        const elections = rootData.AvailableElections || []
+        const el2026 = elections.find(e =>
+          String(e.Year) === '2026' || String(e.Name || '').includes('2026')
+        )
+        const electionId = el2026?.Id ?? 127   // fallback: 2021 data for testing
+
+        // Paphos areas
+        const areasData = await apiFetch(
+          `${OFFICIAL_BASE}?electionId=${electionId}&districtId=${DISTRICT_ID}`
+        )
+        const areas = areasData.CurrentResult?.Children || []
+
+        const seenBoxIds = JSON.parse(localStorage.getItem(SEEN_KEY) || '{}')
+        const newSeen = { ...seenBoxIds }
+
+        for (const area of areas) {
+          if (cancelled) return
+          if (!area.CompletedBallotBoxes) continue
+
+          // Polling stations in this area
+          const psData = await apiFetch(
+            `${OFFICIAL_BASE}?electionId=${electionId}&districtId=${DISTRICT_ID}&areaId=${area.Id}`
+          )
+          const stations = psData.CurrentResult?.Children || []
+
+          for (const ps of stations) {
+            if (cancelled) return
+            if (!ps.CompletedBallotBoxes) continue
+
+            // Ballot boxes + candidate results
+            const bbData = await apiFetch(
+              `${OFFICIAL_BASE}?electionId=${electionId}&districtId=${DISTRICT_ID}` +
+              `&areaId=${area.Id}&pollingstationId=${ps.Id}&ballotboxId=`
+            )
+            const boxes           = bbData.BallotBoxes     || []
+            const candidateRes    = bbData.CandidateResults || []
+            const validBallots    = bbData.CurrentResult?.ValidBallots ?? 0
+
+            const votes = {}
+            candidateRes.forEach(cr => { votes[cr.Name] = cr.Votes })
+
+            for (const box of boxes) {
+              const boxKey = String(box.Id)
+              if (newSeen[boxKey]) continue     // already saved
+
+              // Match to our poll numbering
+              const matchKey = `${norm(ps.Name)}::${norm(box.Name)}`
+              const matched  = CENTER_LOOKUP[matchKey]
+
+              newSeen[boxKey] = true
+              const docId = `official_${box.Id}`
+
+              try {
+                await setDoc(doc(db, 'ballot_results', docId), {
+                  source:        'official',
+                  isOfficial:    true,
+                  officialBoxId: box.Id,
+                  officialPsId:  ps.Id,
+                  centerName:    ps.Name,
+                  pollName:      box.Name,
+                  centerArea:    area.Name,
+                  pollNum:       matched?.pollNum ?? null,
+                  officialVotes: votes,
+                  synolo:        validBallots,
+                  status:        'pending',
+                  timestamp:     serverTimestamp(),
+                  reporterName:  '🏛️ Επίσημη Κάλπη',
+                }, { merge: true })
+              } catch (e) {
+                console.warn('Failed to save official ballot:', e)
+              }
+            }
+          }
+        }
+
+        localStorage.setItem(SEEN_KEY, JSON.stringify(newSeen))
+        if (!cancelled) {
+          setPollerStatus('ok')
+          setLastFetched(new Date())
+        }
+      } catch (e) {
+        console.warn('Official poller error:', e)
+        if (!cancelled) setPollerStatus('error')
+      }
+    }
+
+    pollOfficial()
+    const timer = setInterval(pollOfficial, POLL_MS)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [])
+
+  // ── Derived state ───────────────────────────────────────────────────────
+  const agentResults   = useMemo(() => results.filter(r => !r.isOfficial), [results])
+  const officialByPollNum = useMemo(() => {
+    const m = {}
+    results.filter(r => r.isOfficial && r.pollNum)
+           .forEach(r => { m[r.pollNum] = r })
+    return m
+  }, [results])
+
+  const pending  = useMemo(() => agentResults.filter(r => !r.status || r.status === 'pending'), [agentResults])
+  const approved = useMemo(() => agentResults.filter(r => r.status === 'approved'), [agentResults])
+  const rejected = useMemo(() => agentResults.filter(r => r.status === 'rejected'), [agentResults])
+
+  // Official entries pending approval
+  const officialPending = useMemo(() =>
+    results.filter(r => r.isOfficial && (!r.status || r.status === 'pending'))
+  , [results])
 
   const filterList = list => {
     if (!search) return list
@@ -49,6 +209,7 @@ export default function BallotResults() {
     )
   }
 
+  // ── Actions ─────────────────────────────────────────────────────────────
   async function approve(id) {
     await updateDoc(doc(db, 'ballot_results', id), { status: 'approved', seen: true, approvedAt: serverTimestamp() })
   }
@@ -70,32 +231,39 @@ export default function BallotResults() {
   }
 
   function exportCSV() {
-    const header = ['Αναφέρων', 'Τηλέφωνο', 'Εκλογικό Κέντρο', 'Περιοχή', 'Κάλπη', '#',
-      ...ALL_CANDIDATES.map(c => c.label), 'Σχόλια', 'Κατάσταση', 'Ημερομηνία'].join(',')
-    const rows = results.map(r => [
+    const header = ['Αναφέρων','Τηλέφωνο','Εκλογικό Κέντρο','Περιοχή','Κάλπη','#',
+      ...ALL_CANDIDATES.map(c => c.label),'Σχόλια','Κατάσταση','Ημερομηνία'].join(',')
+    const rows = agentResults.map(r => [
       r.reporterName, r.reporterPhone || '', r.centerName, r.centerArea,
       r.pollName, r.pollNum,
       ...ALL_CANDIDATES.map(c => r[c.key] ?? ''),
       r.comments || '', r.status || 'pending', formatDate(r.timestamp),
-    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
-    const csv = [header, ...rows].join('\n')
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `apotelesmata_${new Date().toISOString().slice(0,10)}.csv`
+    ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(','))
+    const csv   = [header, ...rows].join('\n')
+    const blob  = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url   = URL.createObjectURL(blob)
+    const a     = document.createElement('a'); a.href = url
+    a.download  = `apotelesmata_${new Date().toISOString().slice(0,10)}.csv`
     a.click(); URL.revokeObjectURL(url)
   }
 
   const pendingFiltered  = filterList(pending)
   const approvedFiltered = filterList(approved)
   const rejectedFiltered = filterList(rejected)
+  const offPendFiltered  = filterList(officialPending)
 
   const cardProps = { onEdit: id => setEditId(id), onApprove: approve, onReject: reject, onReset: resetPending, onDelete: handleDelete, formatDate }
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
+  // Poller status indicator
+  const pollerDot = pollerStatus === 'fetching' ? '🔄' : pollerStatus === 'ok' ? '🟢' : pollerStatus === 'error' ? '🔴' : '⚪'
+  const pollerLabel = pollerStatus === 'fetching' ? 'Ανάκτηση...' :
+    pollerStatus === 'ok' ? (lastFetched ? `${lastFetched.toLocaleTimeString('el-GR', {hour:'2-digit',minute:'2-digit'})}` : 'OK') :
+    pollerStatus === 'error' ? 'Σφάλμα σύνδεσης' : 'Αναμονή'
 
-      {/* Header */}
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+      {/* ── Header ── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold">📊 Αποτελέσματα Καταμέτρησης</h1>
@@ -103,7 +271,13 @@ export default function BallotResults() {
             {pending.length} εκκρεμείς · {approved.length} ολοκληρωμένες · {rejected.length} απορριφθείσες
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap items-center">
+          {/* Poller status badge */}
+          <div className="text-xs border border-gray-200 rounded-full px-3 py-1 bg-white flex items-center gap-1.5 text-gray-500">
+            {pollerDot}
+            <span className="font-medium">Επίσημα</span>
+            <span className="opacity-60">{pollerLabel}</span>
+          </div>
           <a href="/#/apotelesmata" target="_blank" rel="noreferrer"
             className="text-sm px-3 py-1.5 rounded-md border border-green-400 text-green-700 hover:bg-green-50 transition-colors">
             🌐 Public Page
@@ -112,7 +286,7 @@ export default function BallotResults() {
         </div>
       </div>
 
-      {/* Search */}
+      {/* ── Search ── */}
       <input
         className="input w-full sm:w-72"
         placeholder="Αναζήτηση ονόματος, κέντρου…"
@@ -120,10 +294,28 @@ export default function BallotResults() {
         onChange={e => setSearch(e.target.value)}
       />
 
-      {/* Two-column layout */}
+      {/* ── ΕΠΙΣΗΜΕΣ ΚΑΛΠΕΣ section ── */}
+      {offPendFiltered.length > 0 && (
+        <div className="rounded-2xl border-2 border-indigo-300 bg-indigo-50 p-4">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-base font-bold text-indigo-800">🏛️ Επίσημες Κάλπες</span>
+            <span className="text-xs bg-indigo-200 text-indigo-800 rounded-full px-2 py-0.5 font-bold">
+              {offPendFiltered.length} νέες
+            </span>
+            <span className="text-xs text-indigo-500 ml-1">από results.elections.moi.gov.cy</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            {offPendFiltered.map(r => (
+              <OfficialCard key={r.id} result={r} {...cardProps} onEdit={() => setEditId(r.id)} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Two-column: Ολοκληρωμένες | Εκκρεμείς ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
-        {/* ── LEFT: Ολοκληρωμένες ── */}
+        {/* LEFT: Ολοκληρωμένες */}
         <div>
           <div className="flex items-center gap-2 mb-3">
             <h2 className="text-base font-bold text-gray-700">✅ Ολοκληρωμένες</h2>
@@ -131,7 +323,6 @@ export default function BallotResults() {
               {approvedFiltered.length}
             </span>
           </div>
-
           {approvedFiltered.length === 0 ? (
             <div className="rounded-xl border border-dashed border-gray-200 p-10 text-center text-gray-300 text-sm">
               Καμία ολοκληρωμένη κάλπη ακόμα
@@ -141,13 +332,16 @@ export default function BallotResults() {
               {approvedFiltered.map(r =>
                 editId === r.id
                   ? <EditCard key={r.id} result={r} onClose={() => setEditId(null)} formatDate={formatDate} />
-                  : <ApprovedCard key={r.id} result={r} {...cardProps} onEdit={() => setEditId(r.id)} />
+                  : <ApprovedCard key={r.id} result={r} {...cardProps}
+                      onEdit={() => setEditId(r.id)}
+                      officialData={r.pollNum ? officialByPollNum[r.pollNum] : null}
+                    />
               )}
             </div>
           )}
         </div>
 
-        {/* ── RIGHT: Εκκρεμείς ── */}
+        {/* RIGHT: Εκκρεμείς */}
         <div>
           <div className="flex items-center gap-2 mb-3">
             <h2 className="text-base font-bold text-gray-700">⏳ Εκκρεμείς</h2>
@@ -155,7 +349,6 @@ export default function BallotResults() {
               {pendingFiltered.length}
             </span>
           </div>
-
           {pendingFiltered.length === 0 ? (
             <div className="rounded-xl border border-dashed border-gray-200 p-10 text-center text-gray-300 text-sm">
               Δεν υπάρχουν εκκρεμείς κάλπες
@@ -165,7 +358,10 @@ export default function BallotResults() {
               {pendingFiltered.map(r =>
                 editId === r.id
                   ? <EditCard key={r.id} result={r} onClose={() => setEditId(null)} formatDate={formatDate} />
-                  : <PendingCard key={r.id} result={r} {...cardProps} onEdit={() => setEditId(r.id)} />
+                  : <PendingCard key={r.id} result={r} {...cardProps}
+                      onEdit={() => setEditId(r.id)}
+                      officialData={r.pollNum ? officialByPollNum[r.pollNum] : null}
+                    />
               )}
             </div>
           )}
@@ -197,9 +393,66 @@ export default function BallotResults() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pending card (yellow)
+// Official κάλπη card (indigo)
 // ─────────────────────────────────────────────────────────────────────────────
-function PendingCard({ result: r, onApprove, onReject, onEdit, onDelete, formatDate }) {
+function OfficialCard({ result: r, onApprove, onReject, onDelete, formatDate }) {
+  const votes = r.officialVotes || {}
+  const sorted = Object.entries(votes).sort((a, b) => b[1] - a[1]).slice(0, 6)
+
+  return (
+    <div className="card overflow-hidden border-2 border-indigo-300 bg-white">
+      <div className="bg-indigo-600 text-white flex items-center justify-between px-3 py-2 text-xs">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-bold">🏛️ ΕΠΙΣΗΜΗ ΚΑΛΠΗ</span>
+          <span className="opacity-70">·</span>
+          <span>{r.centerName}</span>
+          {r.centerArea && <span className="opacity-70">{r.centerArea}</span>}
+        </div>
+        <button onClick={() => onDelete(r.id)} className="opacity-40 hover:opacity-80 transition-opacity ml-2">🗑️</button>
+      </div>
+      <div className="px-3 py-3">
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <span className="badge bg-indigo-100 text-indigo-700">{r.pollName}</span>
+          {r.pollNum && <span className="text-xs text-gray-400">#{r.pollNum}</span>}
+          <span className="text-xs text-gray-400 ml-auto">{formatDate(r.timestamp)}</span>
+        </div>
+        {/* Σύνολο */}
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xs text-gray-500">Σύνολο:</span>
+          <span className="text-lg font-bold text-indigo-700">{r.synolo ?? '—'}</span>
+        </div>
+        {/* Top candidates/parties */}
+        {sorted.length > 0 ? (
+          <div className="space-y-1">
+            {sorted.map(([name, votes]) => (
+              <div key={name} className="flex justify-between text-xs">
+                <span className="text-gray-600 truncate max-w-[160px]" title={name}>{name}</span>
+                <span className="font-bold text-gray-800 ml-2">{votes}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400 italic">Δεν υπάρχουν αποτελέσματα ακόμα</p>
+        )}
+        <div className="flex gap-2 mt-3 flex-wrap">
+          <button onClick={() => onApprove(r.id)}
+            className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 transition-colors">
+            ✅ Έγκριση
+          </button>
+          <button onClick={() => onReject(r.id)}
+            className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white text-xs font-bold rounded-lg hover:bg-red-600 transition-colors">
+            ❌ Απόρριψη
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pending card (yellow) — with optional official side-by-side
+// ─────────────────────────────────────────────────────────────────────────────
+function PendingCard({ result: r, officialData, onApprove, onReject, onEdit, onDelete, formatDate }) {
   return (
     <div className="card overflow-hidden border border-yellow-300 bg-yellow-50">
       <div className="bg-yellow-100 text-yellow-900 flex items-center justify-between px-4 py-2 text-sm">
@@ -219,7 +472,13 @@ function PendingCard({ result: r, onApprove, onReject, onEdit, onDelete, formatD
           <span className="text-gray-400 text-xs">{r.centerArea}</span>
           <span className="badge bg-blue-100 text-blue-700">{r.pollName} #{r.pollNum}</span>
         </div>
-        <VoteGrid result={r} />
+
+        {officialData ? (
+          <CompareGrid agentResult={r} officialData={officialData} />
+        ) : (
+          <VoteGrid result={r} />
+        )}
+
         {r.comments && (
           <div className="text-sm text-gray-500 bg-gray-50 rounded-lg px-3 py-2 mb-3">
             💬 {r.comments}
@@ -245,15 +504,15 @@ function PendingCard({ result: r, onApprove, onReject, onEdit, onDelete, formatD
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Approved card (green if nikoletta 1st, red if not)
+// Approved card (green/red) — with optional official side-by-side
 // ─────────────────────────────────────────────────────────────────────────────
-function ApprovedCard({ result: r, onReset, onEdit, onDelete, formatDate }) {
-  const pos = nikolettaPosition(r)
+function ApprovedCard({ result: r, officialData, onReset, onEdit, onDelete, formatDate }) {
+  const pos      = nikolettaPosition(r)
   const isFirst  = pos === 0
   const isSecond = pos === 1
 
-  const borderColor = isFirst ? 'border-green-400' : isSecond ? 'border-red-400' : 'border-gray-300'
-  const bgColor     = isFirst ? 'bg-green-50'      : isSecond ? 'bg-red-50'      : 'bg-gray-50'
+  const borderColor = isFirst ? 'border-green-400' : isSecond ? 'border-red-400'  : 'border-gray-300'
+  const bgColor     = isFirst ? 'bg-green-50'      : isSecond ? 'bg-red-50'       : 'bg-gray-50'
   const headerBg    = isFirst ? 'bg-green-600 text-white' : isSecond ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700'
   const badge       = isFirst ? '🟢 1η Νικολέττα' : isSecond ? '🔴 2η Νικολέττα' : '⚪ —'
 
@@ -275,7 +534,13 @@ function ApprovedCard({ result: r, onReset, onEdit, onDelete, formatDate }) {
           {r.reporterPhone && <span className="text-xs text-gray-400">📞 {r.reporterPhone}</span>}
           <span className="text-xs text-gray-400 ml-auto">{formatDate(r.approvedAt || r.timestamp)}</span>
         </div>
-        <VoteGrid result={r} highlight />
+
+        {officialData ? (
+          <CompareGrid agentResult={r} officialData={officialData} highlight />
+        ) : (
+          <VoteGrid result={r} highlight />
+        )}
+
         {r.comments && (
           <div className="text-sm text-gray-500 bg-white bg-opacity-60 rounded-lg px-3 py-2 mb-3">
             💬 {r.comments}
@@ -297,7 +562,92 @@ function ApprovedCard({ result: r, onReset, onEdit, onDelete, formatDate }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Rejected card (gray/muted)
+// Side-by-side comparison grid
+// ─────────────────────────────────────────────────────────────────────────────
+function CompareGrid({ agentResult: r, officialData, highlight }) {
+  const officialVotes = officialData?.officialVotes || {}
+  const topOfficial   = Object.entries(officialVotes)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+
+  return (
+    <div className="grid grid-cols-2 gap-3 mb-3">
+      {/* Agent column */}
+      <div>
+        <div className="text-xs font-bold text-gray-500 mb-1.5 flex items-center gap-1">
+          👤 <span>Πράκτορας</span>
+        </div>
+        <VoteGrid result={r} highlight={highlight} compact />
+      </div>
+
+      {/* Official column */}
+      <div>
+        <div className="text-xs font-bold text-indigo-600 mb-1.5 flex items-center gap-1">
+          🏛️ <span>Επίσημα</span>
+        </div>
+        <div className="rounded-lg bg-indigo-50 border border-indigo-200 p-2 space-y-1">
+          <div className="flex justify-between text-xs mb-1.5">
+            <span className="text-indigo-500 font-medium">Σύνολο</span>
+            <span className="font-bold text-indigo-800">{officialData?.synolo ?? '—'}</span>
+          </div>
+          {topOfficial.length > 0 ? (
+            topOfficial.map(([name, votes]) => (
+              <div key={name} className="flex justify-between text-xs">
+                <span className="text-gray-600 truncate max-w-[110px] text-[11px]" title={name}>{name}</span>
+                <span className="font-bold text-gray-800 ml-1 text-xs">{votes}</span>
+              </div>
+            ))
+          ) : (
+            <p className="text-[11px] text-gray-400 italic">Χωρίς επίσημα</p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Vote grid (agent results)
+// ─────────────────────────────────────────────────────────────────────────────
+function VoteGrid({ result: r, highlight, compact }) {
+  const pos = highlight ? nikolettaPosition(r) : -1
+  const cols = compact ? 'grid-cols-2 gap-1' : 'grid-cols-3 sm:grid-cols-6 gap-2'
+
+  return (
+    <div className={`grid ${cols} mb-3`}>
+      <div className={`rounded-lg p-2 text-center bg-blue-50 border border-blue-200 ${compact ? 'col-span-2' : ''}`}>
+        <div className="text-xs font-medium mb-1 text-blue-600">Σύνολο</div>
+        <div className="text-xl font-bold text-blue-700">
+          {r.synolo ?? <span className="text-gray-300 text-sm">—</span>}
+        </div>
+      </div>
+      {VOTE_CANDIDATES.map((c, i) => {
+        const isNiko = c.key === 'nikoletta'
+        const isTop  = highlight && i === pos && pos === 0
+        const isLow  = highlight && isNiko && pos > 0
+        return (
+          <div key={c.key} className={`rounded-lg p-2 text-center border ${
+            isTop ? 'bg-green-100 border-green-400' :
+            isLow ? 'bg-red-100 border-red-300' :
+                    'bg-gray-50 border-gray-200'
+          }`}>
+            <div className={`text-xs font-medium mb-1 ${
+              isTop ? 'text-green-700' : isLow ? 'text-red-600' : 'text-gray-500'
+            }`}>{c.label}</div>
+            <div className={`text-xl font-bold ${
+              isTop ? 'text-green-800' : isLow ? 'text-red-700' : 'text-gray-800'
+            }`}>
+              {r[c.key] ?? <span className="text-gray-300 text-sm">—</span>}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rejected card
 // ─────────────────────────────────────────────────────────────────────────────
 function RejectedCard({ result: r, onReset, onEdit, onDelete, formatDate }) {
   return (
@@ -330,54 +680,13 @@ function RejectedCard({ result: r, onReset, onEdit, onDelete, formatDate }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Vote grid (shared)
-// ─────────────────────────────────────────────────────────────────────────────
-function VoteGrid({ result: r, highlight }) {
-  const pos = highlight ? nikolettaPosition(r) : -1
-
-  return (
-    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3">
-      {/* Synolo */}
-      <div className="rounded-lg p-2 text-center bg-blue-50 border border-blue-200">
-        <div className="text-xs font-medium mb-1 text-blue-600">Σύνολο</div>
-        <div className="text-xl font-bold text-blue-700">
-          {r.synolo ?? <span className="text-gray-300 text-sm">—</span>}
-        </div>
-      </div>
-      {/* Vote candidates */}
-      {VOTE_CANDIDATES.map((c, i) => {
-        const isNiko = c.key === 'nikoletta'
-        const isTop  = highlight && i === pos && pos === 0
-        const isLow  = highlight && isNiko && pos > 0
-        return (
-          <div key={c.key} className={`rounded-lg p-2 text-center border ${
-            isTop  ? 'bg-green-100 border-green-400' :
-            isLow  ? 'bg-red-100 border-red-300' :
-                     'bg-gray-50 border-gray-200'
-          }`}>
-            <div className={`text-xs font-medium mb-1 ${
-              isTop ? 'text-green-700' : isLow ? 'text-red-600' : 'text-gray-500'
-            }`}>{c.label}</div>
-            <div className={`text-xl font-bold ${
-              isTop ? 'text-green-800' : isLow ? 'text-red-700' : 'text-gray-800'
-            }`}>
-              {r[c.key] ?? <span className="text-gray-300 text-sm">—</span>}
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Edit card (inline edit mode)
+// Edit card (inline)
 // ─────────────────────────────────────────────────────────────────────────────
 function EditCard({ result: r, onClose, formatDate }) {
   const [form, setForm] = useState({
-    reporterName: r.reporterName || '',
+    reporterName:  r.reporterName  || '',
     reporterPhone: r.reporterPhone || '',
-    comments: r.comments || '',
+    comments:      r.comments      || '',
     ...Object.fromEntries(ALL_CANDIDATES.map(c => [c.key, r[c.key] != null ? String(r[c.key]) : ''])),
   })
   const [saving, setSaving] = useState(false)
@@ -400,7 +709,7 @@ function EditCard({ result: r, onClose, formatDate }) {
     } finally { setSaving(false) }
   }
 
-  const inp = 'border border-gray-300 rounded-md px-2 py-1.5 text-sm w-full focus:outline-none focus:border-blue-400'
+  const inp    = 'border border-gray-300 rounded-md px-2 py-1.5 text-sm w-full focus:outline-none focus:border-blue-400'
   const numInp = 'border border-gray-300 rounded-md px-2 py-1.5 text-sm text-center font-bold w-full focus:outline-none focus:border-blue-400'
 
   return (
@@ -442,10 +751,12 @@ function EditCard({ result: r, onClose, formatDate }) {
         </div>
         <div>
           <label className="text-xs font-bold text-gray-500 block mb-1">Σχόλια</label>
-          <textarea className={inp + ' resize-none'} rows={2} value={form.comments} onChange={e => set('comments', e.target.value)} />
+          <textarea className={inp + ' resize-none'} rows={2} value={form.comments}
+            onChange={e => set('comments', e.target.value)} />
         </div>
         <div className="flex gap-2 justify-end">
-          <button onClick={onClose} className="px-4 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50">
+          <button onClick={onClose}
+            className="px-4 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50">
             Ακύρωση
           </button>
           <button onClick={handleSave} disabled={saving}
