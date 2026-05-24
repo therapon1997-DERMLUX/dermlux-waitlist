@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
-import { collection, onSnapshot, query, where } from 'firebase/firestore'
+import { collection, onSnapshot, query, where, getDocs } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import confetti from 'canvas-confetti'
 import { POLL_LOOKUP, ALL_CENTERS } from '../data/electionData'
@@ -107,7 +107,7 @@ export default function PublicResults() {
     )
   }, [])
 
-  // ── Initial subscription ─────────────────────────────────────────────────
+  // ── Initial subscription (real-time) ────────────────────────────────────
   useEffect(() => {
     subscribe()
     return () => {
@@ -116,13 +116,41 @@ export default function PublicResults() {
     }
   }, [subscribe])
 
-  // ── Re-subscribe when page becomes visible (fixes bfcache / tab-switch staleness) ──
+  // ── Polling fallback every 15s — εγγυάται ενημέρωση ακόμα κι αν κοπεί το WebSocket ──
+  useEffect(() => {
+    async function poll() {
+      try {
+        const snap = await getDocs(
+          query(collection(db, 'ballot_results'), where('status', '==', 'approved'))
+        )
+        const docs = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(d => !d.isOfficial)
+          .sort((a, b) => (b.approvedAt?.seconds || 0) - (a.approvedAt?.seconds || 0))
+
+        const prevIds = prevIdsRef.current
+        const newIds  = docs.map(d => d.id).filter(id => !prevIds.has(id))
+        prevIdsRef.current = new Set(docs.map(d => d.id))
+        setApproved(docs)
+        setLoading(false)
+        if (!initialLoad.current && newIds.length > 0) {
+          const newest = docs.find(d => d.id === newIds[0])
+          if (newest) setCountdown({ result: newest, n: 3 })
+        }
+        initialLoad.current = false
+      } catch (e) {
+        console.warn('poll error:', e)
+      }
+    }
+
+    const timer = setInterval(poll, 15000)
+    return () => clearInterval(timer)
+  }, [])
+
+  // ── Re-subscribe on tab focus ────────────────────────────────────────────
   useEffect(() => {
     function onVisible() {
-      if (!document.hidden) {
-        initialLoad.current = false   // don't suppress new-ballot animation on re-focus
-        subscribe()
-      }
+      if (!document.hidden) subscribe()
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
