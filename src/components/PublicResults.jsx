@@ -21,18 +21,27 @@ const CANDIDATES = [
 
 const RANK_MEDALS = ['🥇', '🥈', '🥉', '4ος', '5ος']
 
-// ── Build flat list of all 122 polls from electionData ─────────────────────────
-const CENTER_MAP = Object.fromEntries(ALL_CENTERS.map(c => [c.aa, { name: c.name, area: c.area }]))
+// ── Build flat list of all 122 polls + voters map from electionData ───────────
+const CENTER_MAP = Object.fromEntries(
+  ALL_CENTERS.map(c => [c.aa, { name: c.name, area: c.area, voters: c.voters, boxes: c.boxes }])
+)
 
 const ALL_POLLS = []
+// pollNum → estimated voters (center.voters / center.boxes)
+const POLL_VOTERS_MAP = {}
+
 for (const [aa, polls] of Object.entries(POLL_LOOKUP)) {
   const center = CENTER_MAP[aa]
   if (!center) continue
+  const votersPerPoll = Math.round(center.voters / (center.boxes || polls.length))
   for (const poll of polls) {
     ALL_POLLS.push({ pollNum: poll.num, pollName: poll.name, centerName: center.name, centerArea: center.area })
+    POLL_VOTERS_MAP[poll.num] = votersPerPoll
   }
 }
 ALL_POLLS.sort((a, b) => a.pollNum - b.pollNum)
+
+const TOTAL_VOTERS = Object.values(POLL_VOTERS_MAP).reduce((s, v) => s + v, 0)
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function nikolettaPos(r) {
@@ -121,6 +130,47 @@ export default function PublicResults() {
   const nikolettaFirst = ranked[0]?.key === 'nikoletta' && totals.nikoletta > 0
   const maxVotes       = Math.max(...Object.values(totals), 1)
   const totalSynolo    = approved.reduce((s, r) => s + (r.synolo || 0), 0)
+
+  // ── Forecasting ──────────────────────────────────────────────────────────────
+  const forecast = useMemo(() => {
+    if (approved.length < 3) return null   // need at least 3 data points
+
+    // Voters accounted for so far
+    const reportedVoters = approved.reduce((s, r) => s + (POLL_VOTERS_MAP[r.pollNum] || 0), 0)
+    if (reportedVoters === 0 || totalSynolo === 0) return null
+
+    const pctComplete  = (reportedVoters / TOTAL_VOTERS) * 100
+    const turnout      = totalSynolo / reportedVoters
+    const pendingVoters = TOTAL_VOTERS - reportedVoters
+    const expectedExtra = pendingVoters * turnout
+
+    // Predicted final votes per candidate
+    const predicted = {}
+    let predictedTotal = 0
+    CANDIDATES.forEach(c => {
+      const share = totals[c.key] / totalSynolo
+      predicted[c.key] = Math.round(totals[c.key] + share * expectedExtra)
+      predictedTotal += predicted[c.key]
+    })
+
+    const rankedForecast = [...CANDIDATES]
+      .map(c => ({ ...c, predicted: predicted[c.key], current: totals[c.key] }))
+      .sort((a, b) => b.predicted - a.predicted)
+
+    const confidence =
+      pctComplete < 15 ? 'Πολύ Χαμηλή' :
+      pctComplete < 35 ? 'Χαμηλή' :
+      pctComplete < 55 ? 'Μέτρια' :
+      pctComplete < 75 ? 'Καλή' : 'Υψηλή'
+
+    const confidenceColor =
+      pctComplete < 15 ? '#6b7280' :
+      pctComplete < 35 ? '#f59e0b' :
+      pctComplete < 55 ? '#eab308' :
+      pctComplete < 75 ? '#84cc16' : GREEN
+
+    return { rankedForecast, predictedTotal, pctComplete, turnout, confidence, confidenceColor }
+  }, [approved, totals, totalSynolo])
 
   const prevLeaderRef = useRef(null)
   useEffect(() => {
@@ -251,6 +301,9 @@ export default function PublicResults() {
         </div>
       )}
 
+      {/* ── Forecast banner ── */}
+      {forecast && <ForecastBanner forecast={forecast} />}
+
       {/* ── Leaderboard ── */}
       <div style={{ maxWidth: 1200, margin: '28px auto 0', padding: '0 20px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -341,6 +394,126 @@ export default function PublicResults() {
               />
             ))}
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Forecast banner ───────────────────────────────────────────────────────────
+function ForecastBanner({ forecast: f }) {
+  const { rankedForecast, predictedTotal, pctComplete, turnout, confidence, confidenceColor } = f
+  const maxPredicted = rankedForecast[0]?.predicted || 1
+  const nikoFirst    = rankedForecast[0]?.key === 'nikoletta'
+
+  return (
+    <div style={{
+      maxWidth: 1200, margin: '24px auto 0', padding: '0 20px',
+    }}>
+      <div style={{
+        background: 'rgba(255,255,255,.04)',
+        border: `1px solid ${nikoFirst ? 'rgba(69,192,172,.3)' : 'rgba(239,68,68,.2)'}`,
+        borderRadius: 16,
+        padding: '20px 24px',
+        backdropFilter: 'blur(8px)',
+      }}>
+
+        {/* Header row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10, letterSpacing: 3, textTransform: 'uppercase',
+              color: TEAL, fontWeight: 'bold', marginBottom: 4 }}>
+              🔮 Πρόβλεψη Τελικού Αποτελέσματος
+            </div>
+            <div style={{ fontSize: 12, opacity: .45 }}>
+              Βασίζεται στο μοτίβο των {Math.round(pctComplete)}% καταμετρημένων ψηφοφόρων
+              · Συμμετοχή: ~{Math.round(turnout * 100)}%
+              · Εκτιμώμενο σύνολο ψήφων: ~{predictedTotal.toLocaleString('el-GR')}
+            </div>
+          </div>
+          {/* Confidence pill */}
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            background: 'rgba(255,255,255,.05)', borderRadius: 12, padding: '8px 16px',
+            border: `1px solid ${confidenceColor}40`,
+            minWidth: 100,
+          }}>
+            <div style={{ fontSize: 9, opacity: .5, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 4 }}>
+              Εμπιστοσύνη
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 'bold', color: confidenceColor }}>
+              {confidence}
+            </div>
+            <div style={{ fontSize: 11, opacity: .5, marginTop: 2 }}>{Math.round(pctComplete)}% σε</div>
+          </div>
+        </div>
+
+        {/* Progress bar — % reported */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, opacity: .4, marginBottom: 5 }}>
+            <span>Καταμετρήθηκε</span>
+            <span>{Math.round(pctComplete)}% ({Math.round(pctComplete * 1.22)} / 122 κάλπες εκτιμητικά)</span>
+          </div>
+          <div style={{ background: 'rgba(255,255,255,.08)', borderRadius: 6, height: 6, overflow: 'hidden' }}>
+            <div style={{
+              height: '100%', borderRadius: 6,
+              width: `${Math.min(pctComplete, 100)}%`,
+              background: `linear-gradient(90deg, ${TEAL}, ${confidenceColor})`,
+              transition: 'width .7s ease',
+            }} />
+          </div>
+        </div>
+
+        {/* Predicted ranking bars */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {rankedForecast.map((c, i) => {
+            const pct   = maxPredicted > 0 ? (c.predicted / maxPredicted) * 100 : 0
+            const isNiko = c.key === 'nikoletta'
+            const isTop  = i === 0
+            const barColor = isTop
+              ? (isNiko ? GREEN : RED)
+              : (isNiko && !isTop ? RED : c.color)
+
+            return (
+              <div key={c.key}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 5 }}>
+                  <span style={{ fontSize: isTop ? 18 : 14, minWidth: 28, lineHeight: 1 }}>
+                    {['🥇','🥈','🥉','4ος','5ος'][i]}
+                  </span>
+                  {isNiko && (
+                    <img src="/dermlux-waitlist/nikoletta.png" alt=""
+                      style={{ width: 22, height: 22, borderRadius: '50%',
+                        objectFit: 'cover', objectPosition: 'top center',
+                        border: `1.5px solid ${TEAL}`, flexShrink: 0 }} />
+                  )}
+                  <span style={{ flex: 1, fontSize: isTop ? 15 : 13, fontWeight: isTop ? 'bold' : 'normal',
+                    opacity: isTop ? 1 : .7 }}>
+                    {c.label}
+                  </span>
+                  <span style={{ fontSize: isTop ? 22 : 16, fontWeight: 'bold', color: barColor,
+                    minWidth: 70, textAlign: 'right' }}>
+                    ~{c.predicted.toLocaleString('el-GR')}
+                  </span>
+                  <span style={{ fontSize: 11, opacity: .35, minWidth: 48, textAlign: 'right' }}>
+                    ({totalSynolo > 0 ? Math.round((c.current / totalSynolo) * 100) : 0}% τώρα)
+                  </span>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,.07)', borderRadius: 4, height: isTop ? 8 : 5, overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%', borderRadius: 4,
+                    width: `${pct}%`,
+                    background: barColor,
+                    opacity: isTop ? 1 : .6,
+                    transition: 'width .7s ease',
+                  }} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        <div style={{ marginTop: 14, fontSize: 10, opacity: .25, textAlign: 'center' }}>
+          Η πρόβλεψη είναι εκτίμηση και ενημερώνεται σε πραγματικό χρόνο · Δεν αντικαθιστά τα επίσημα αποτελέσματα
         </div>
       </div>
     </div>
