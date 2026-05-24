@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../firebase/config'
+import * as XLSX from 'xlsx'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Candidate config
@@ -99,6 +100,31 @@ export default function BallotResults() {
     return d.toLocaleString('el-GR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
   }
 
+  function exportPendingExcel() {
+    const rows = pending.map(r => ({
+      'Αναφέρων':          r.reporterName || '',
+      'Τηλέφωνο':          r.reporterPhone || '',
+      'Εκλογικό Κέντρο':  r.centerName || '',
+      'Περιοχή':           r.centerArea || '',
+      'Κάλπη':             r.pollName || '',
+      '#':                 r.pollNum || '',
+      'Σύνολο':            r.synolo ?? '',
+      'Νικολέττα':         r.nikoletta ?? '',
+      'Χ.Πάζαρος':        r.pazaros ?? '',
+      'Κούππαρης':         r.koupparis ?? '',
+      'Καρσεράς':          r.karseras ?? '',
+      'Γιώργος':           r.giorgos ?? '',
+      'Λευκά':             r.lefka ?? '',
+      'Άκυρα':             r.akyra ?? '',
+      'Σχόλια':            r.comments || '',
+      'Ημερομηνία':        formatDate(r.timestamp),
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Εκκρεμείς')
+    XLSX.writeFile(wb, `ekkremes_kalpes_${new Date().toISOString().slice(0,10)}.xlsx`)
+  }
+
   function exportCSV() {
     const header = ['Αναφέρων','Τηλέφωνο','Εκλογικό Κέντρο','Περιοχή','Κάλπη','#',
       ...ALL_CANDIDATES.map(c => c.label),'Σχόλια','Κατάσταση','Ημερομηνία'].join(',')
@@ -138,6 +164,9 @@ export default function BallotResults() {
             className="text-sm px-3 py-1.5 rounded-md border border-green-400 text-green-700 hover:bg-green-50 transition-colors">
             🌐 Public Page
           </a>
+          <button onClick={exportPendingExcel} className="text-sm px-3 py-1.5 rounded-md border border-yellow-400 text-yellow-700 hover:bg-yellow-50 transition-colors">
+            📥 Εκκρεμείς Excel
+          </button>
           <button onClick={exportCSV} className="btn-primary text-sm">Εξαγωγή CSV</button>
         </div>
       </div>
