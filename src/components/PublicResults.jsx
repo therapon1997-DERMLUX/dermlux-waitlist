@@ -173,7 +173,7 @@ export default function PublicResults() {
       pctComplete < 55 ? '#eab308' :
       pctComplete < 75 ? '#84cc16' : GREEN
 
-    return { rankedForecast, predictedTotal, pctComplete, turnout, confidence, confidenceColor }
+    return { rankedForecast, predictedTotal, pctComplete, turnout, confidence, confidenceColor, totalSynolo }
   }, [approved, totals, totalSynolo])
 
   const prevLeaderRef = useRef(null)
@@ -406,7 +406,7 @@ export default function PublicResults() {
 
 // ── Forecast banner ───────────────────────────────────────────────────────────
 function ForecastBanner({ forecast: f }) {
-  const { rankedForecast, predictedTotal, pctComplete, turnout, confidence, confidenceColor } = f
+  const { rankedForecast, predictedTotal, pctComplete, turnout, confidence, confidenceColor, totalSynolo } = f
   const maxPredicted = rankedForecast[0]?.predicted || 1
   const nikoFirst    = rankedForecast[0]?.key === 'nikoletta'
 
