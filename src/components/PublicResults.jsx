@@ -3,13 +3,14 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import confetti from 'canvas-confetti'
 
-// ── Brand palette ─────────────────────────────────────────────────────────────
 const NAVY    = '#1B4080'
 const TEAL    = '#45C0AC'
 const LAVENDER= '#A99DC8'
+const GREEN   = '#22c55e'
+const RED     = '#ef4444'
 
 const CANDIDATES = [
-  { key: 'nikoletta', label: 'Νικολέττα',  color: TEAL,      glow: TEAL },
+  { key: 'nikoletta', label: 'Νικολέττα',  color: TEAL,       glow: TEAL },
   { key: 'pazaros',   label: 'Χ.Πάζαρος', color: '#5B8CCC',  glow: '#5B8CCC' },
   { key: 'koupparis', label: 'Κούππαρης',  color: '#56B87A',  glow: '#56B87A' },
   { key: 'karseras',  label: 'Καρσεράς',   color: '#E8965A',  glow: '#E8965A' },
@@ -17,6 +18,13 @@ const CANDIDATES = [
 ]
 
 const RANK_MEDALS = ['🥇', '🥈', '🥉', '4ος', '5ος']
+
+function nikolettaPos(r) {
+  return [...CANDIDATES]
+    .map(c => ({ key: c.key, v: r[c.key] ?? 0 }))
+    .sort((a, b) => b.v - a.v)
+    .findIndex(c => c.key === 'nikoletta')
+}
 
 function fireConfetti() {
   const end = Date.now() + 4000
@@ -29,18 +37,17 @@ function fireConfetti() {
 }
 
 export default function PublicResults() {
-  const [results,   setResults]   = useState([])
+  const [approved, setApproved] = useState([])
+  const [pending,  setPending]  = useState([])
   const [countdown, setCountdown] = useState(null)
   const [newCard,   setNewCard]   = useState(null)
   const prevIdsRef  = useRef(new Set())
   const initialLoad = useRef(true)
 
+  // ── Approved listener ──
   useEffect(() => {
     const unsub = onSnapshot(
-      query(
-        collection(db, 'ballot_results'),
-        where('status', '==', 'approved'),
-      ),
+      query(collection(db, 'ballot_results'), where('status', '==', 'approved')),
       snap => {
         const docs = snap.docs
           .map(d => ({ id: d.id, ...d.data() }))
@@ -48,18 +55,33 @@ export default function PublicResults() {
         const prevIds = prevIdsRef.current
         const newIds  = docs.map(d => d.id).filter(id => !prevIds.has(id))
         prevIdsRef.current = new Set(docs.map(d => d.id))
-        setResults(docs)
+        setApproved(docs)
         if (initialLoad.current) { initialLoad.current = false; return }
         if (newIds.length > 0) {
           const newest = docs.find(d => d.id === newIds[0])
           if (newest) setCountdown({ result: newest, n: 3 })
         }
       },
-      err => console.error('PublicResults error:', err)
+      err => console.error('approved listener:', err)
     )
     return unsub
   }, [])
 
+  // ── Pending listener ──
+  useEffect(() => {
+    const unsub = onSnapshot(
+      query(collection(db, 'ballot_results'), where('status', '==', 'pending')),
+      snap => setPending(
+        snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0))
+      ),
+      err => console.error('pending listener:', err)
+    )
+    return unsub
+  }, [])
+
+  // ── Countdown tick ──
   useEffect(() => {
     if (!countdown) return
     if (countdown.n <= 0) {
@@ -72,11 +94,12 @@ export default function PublicResults() {
     return () => clearTimeout(t)
   }, [countdown])
 
+  // ── Leaderboard totals ──
   const totals = useMemo(() => {
     const t = Object.fromEntries(CANDIDATES.map(c => [c.key, 0]))
-    results.forEach(r => CANDIDATES.forEach(c => { if (r[c.key] != null) t[c.key] += r[c.key] }))
+    approved.forEach(r => CANDIDATES.forEach(c => { if (r[c.key] != null) t[c.key] += r[c.key] }))
     return t
-  }, [results])
+  }, [approved])
 
   const ranked = useMemo(() =>
     [...CANDIDATES].sort((a, b) => totals[b.key] - totals[a.key]),
@@ -84,34 +107,30 @@ export default function PublicResults() {
 
   const nikolettaFirst = ranked[0]?.key === 'nikoletta' && totals.nikoletta > 0
   const maxVotes       = Math.max(...Object.values(totals), 1)
-  const totalSynolo    = results.reduce((s, r) => s + (r.synolo || 0), 0)
+  const totalSynolo    = approved.reduce((s, r) => s + (r.synolo || 0), 0)
 
   const prevLeaderRef = useRef(null)
   useEffect(() => {
-    const leader = ranked[0]?.key
-    if (nikolettaFirst) {
-      if (leader !== prevLeaderRef.current || results.length > 0) fireConfetti()
-    }
-    prevLeaderRef.current = leader
-  }, [results.length]) // eslint-disable-line
+    if (nikolettaFirst && ranked[0]?.key !== prevLeaderRef.current) fireConfetti()
+    prevLeaderRef.current = ranked[0]?.key
+  }, [approved.length]) // eslint-disable-line
 
   return (
     <div style={{ minHeight: '100vh', background: NAVY, fontFamily: "'Arial', sans-serif", color: 'white' }}>
 
-      {/* ── Global styles ── */}
       <style>{`
-        @keyframes popIn    { from { transform: scale(1.6); opacity:0 } to { transform: scale(1); opacity:1 } }
-        @keyframes slideUp  { from { transform: translateY(50px); opacity:0 } to { transform: translateY(0); opacity:1 } }
-        @keyframes pulse    { 0%,100% { opacity:1; transform:scale(1) } 50% { opacity:.7; transform:scale(1.03) } }
-        @keyframes shimmer  { 0% { background-position: -200% center } 100% { background-position: 200% center } }
-        @keyframes barGrow  { from { width:0 } to { width:var(--w) } }
+        @keyframes popIn   { from { transform:scale(1.6); opacity:0 } to { transform:scale(1); opacity:1 } }
+        @keyframes slideUp { from { transform:translateY(50px); opacity:0 } to { transform:translateY(0); opacity:1 } }
+        @keyframes shimmer { 0% { background-position:-200% center } 100% { background-position:200% center } }
+        @keyframes fadeIn  { from { opacity:0; transform:translateY(12px) } to { opacity:1; transform:translateY(0) } }
+        @keyframes pulse   { 0%,100% { opacity:1 } 50% { opacity:.55 } }
       `}</style>
 
       {/* ── Countdown overlay ── */}
       {countdown && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 999,
-          background: 'rgba(10,20,50,.92)',
+          background: 'rgba(10,20,50,.94)',
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
         }}>
           <img src="/dermlux-waitlist/nikoletta.png" alt=""
@@ -166,21 +185,12 @@ export default function PublicResults() {
         borderBottom: `3px solid ${TEAL}`,
         padding: '24px 20px 20px',
       }}>
-        <div style={{ maxWidth: 700, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-          {/* Photo */}
+        <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
           <div style={{ flexShrink: 0 }}>
-            <img
-              src="/dermlux-waitlist/nikoletta.png"
-              alt="Νικολέττα"
-              style={{
-                width: 90, height: 90, borderRadius: '50%',
-                objectFit: 'cover', objectPosition: 'top center',
-                border: `3px solid ${TEAL}`,
-                boxShadow: `0 0 20px rgba(69,192,172,.4)`,
-              }}
-            />
+            <img src="/dermlux-waitlist/nikoletta.png" alt="Νικολέττα"
+              style={{ width: 90, height: 90, borderRadius: '50%', objectFit: 'cover', objectPosition: 'top center',
+                border: `3px solid ${TEAL}`, boxShadow: `0 0 20px rgba(69,192,172,.4)` }} />
           </div>
-          {/* Title */}
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 11, letterSpacing: 3, color: TEAL, textTransform: 'uppercase', marginBottom: 4 }}>
               Βουλευτικές Εκλογές 2026 · Επαρχία Πάφου
@@ -193,7 +203,10 @@ export default function PublicResults() {
                 🔴 LIVE
               </span>
               <span style={{ background: 'rgba(255,255,255,.08)', borderRadius: 20, padding: '3px 12px', fontSize: 12 }}>
-                📊 {results.length} κάλπ{results.length === 1 ? 'η' : 'ες'}
+                ✅ {approved.length} ολοκληρωμέν{approved.length === 1 ? 'η' : 'ες'}
+              </span>
+              <span style={{ background: 'rgba(255,255,255,.08)', borderRadius: 20, padding: '3px 12px', fontSize: 12 }}>
+                ⏳ {pending.length} αναμον{pending.length === 1 ? 'ή' : 'ή'}
               </span>
               {totalSynolo > 0 && (
                 <span style={{ background: 'rgba(255,255,255,.08)', borderRadius: 20, padding: '3px 12px', fontSize: 12 }}>
@@ -209,29 +222,26 @@ export default function PublicResults() {
       {nikolettaFirst && (
         <div style={{
           background: `linear-gradient(90deg, ${NAVY}, ${TEAL}, ${LAVENDER}, ${TEAL}, ${NAVY})`,
-          backgroundSize: '200% auto',
-          animation: 'shimmer 3s linear infinite',
+          backgroundSize: '200% auto', animation: 'shimmer 3s linear infinite',
           textAlign: 'center', padding: '12px 20px',
-          fontWeight: 'bold', fontSize: 16, letterSpacing: 1,
-          color: 'white',
+          fontWeight: 'bold', fontSize: 16, letterSpacing: 1, color: 'white',
         }}>
           🎉 Η ΝΙΚΟΛΕΤΤΑ ΠΡΟΗΓΕΙΤΑΙ! 🎉
         </div>
       )}
 
       {/* ── Leaderboard ── */}
-      <div style={{ maxWidth: 700, margin: '28px auto 0', padding: '0 16px' }}>
+      <div style={{ maxWidth: 1100, margin: '28px auto 0', padding: '0 20px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {ranked.map((c, i) => {
             const votes   = totals[c.key]
             const pct     = maxVotes > 0 ? (votes / maxVotes) * 100 : 0
             const isFirst = i === 0 && votes > 0
             const isNiko  = c.key === 'nikoletta'
-
             return (
               <div key={c.key} style={{
                 background: isFirst
-                  ? `linear-gradient(135deg, rgba(255,255,255,.12), rgba(255,255,255,.06))`
+                  ? 'linear-gradient(135deg, rgba(255,255,255,.12), rgba(255,255,255,.06))'
                   : 'rgba(255,255,255,.05)',
                 borderRadius: 12,
                 border: isFirst ? `1px solid ${c.color}` : '1px solid rgba(255,255,255,.08)',
@@ -240,44 +250,27 @@ export default function PublicResults() {
                 boxShadow: isFirst ? `0 0 20px rgba(69,192,172,.15)` : 'none',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: isFirst ? 10 : 8 }}>
-                  {/* Medal / rank */}
                   <span style={{ fontSize: isFirst ? 30 : 20, minWidth: 36, textAlign: 'center', lineHeight: 1 }}>
                     {RANK_MEDALS[i]}
                   </span>
-
-                  {/* Photo for Νικολέττα */}
                   {isNiko && (
                     <img src="/dermlux-waitlist/nikoletta.png" alt="Νικολέττα"
-                      style={{
-                        width: isFirst ? 44 : 32, height: isFirst ? 44 : 32,
+                      style={{ width: isFirst ? 44 : 32, height: isFirst ? 44 : 32,
                         borderRadius: '50%', objectFit: 'cover', objectPosition: 'top center',
-                        border: `2px solid ${TEAL}`, flexShrink: 0,
-                        transition: 'all .4s',
-                      }} />
+                        border: `2px solid ${TEAL}`, flexShrink: 0, transition: 'all .4s' }} />
                   )}
-
-                  {/* Name */}
                   <span style={{ flex: 1, fontWeight: 'bold', fontSize: isFirst ? 20 : 15, transition: 'font-size .4s' }}>
                     {c.label}
                   </span>
-
-                  {/* Vote count */}
-                  <span style={{
-                    fontSize: isFirst ? 32 : 22, fontWeight: 'bold', color: c.color,
+                  <span style={{ fontSize: isFirst ? 32 : 22, fontWeight: 'bold', color: c.color,
                     minWidth: 64, textAlign: 'right',
-                    textShadow: isFirst ? `0 0 12px ${c.glow}` : 'none',
-                    transition: 'all .4s',
-                  }}>
+                    textShadow: isFirst ? `0 0 12px ${c.glow}` : 'none', transition: 'all .4s' }}>
                     {votes.toLocaleString('el-GR')}
                   </span>
                 </div>
-
-                {/* Progress bar */}
                 <div style={{ background: 'rgba(255,255,255,.1)', borderRadius: 6, height: isFirst ? 10 : 6, overflow: 'hidden' }}>
                   <div style={{
-                    background: isFirst
-                      ? `linear-gradient(90deg, ${c.color}, ${c.color}cc)`
-                      : c.color,
+                    background: isFirst ? `linear-gradient(90deg, ${c.color}, ${c.color}cc)` : c.color,
                     width: `${pct}%`, height: '100%', borderRadius: 6,
                     transition: 'width .7s ease',
                     boxShadow: isFirst ? `0 0 10px ${c.glow}` : 'none',
@@ -289,56 +282,116 @@ export default function PublicResults() {
         </div>
       </div>
 
-      {/* ── Ballot feed ── */}
-      {results.length > 0 && (
-        <div style={{ maxWidth: 700, margin: '32px auto 48px', padding: '0 16px' }}>
-          <div style={{ fontSize: 11, fontWeight: 'bold', opacity: .4, letterSpacing: 3, marginBottom: 12, textTransform: 'uppercase' }}>
-            Αναλυτικά ανά κάλπη
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {results.map(r => <BallotRow key={r.id} result={r} />)}
-          </div>
-        </div>
-      )}
+      {/* ── Two-column ballot area ── */}
+      <div style={{ maxWidth: 1100, margin: '36px auto 60px', padding: '0 20px',
+        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
 
-      {results.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '80px 20px' }}>
-          <img src="/dermlux-waitlist/nikoletta.png" alt="Νικολέττα"
-            style={{ width: 120, height: 120, borderRadius: '50%', objectFit: 'cover', objectPosition: 'top center',
-              border: `3px solid ${TEAL}`, opacity: .7, marginBottom: 20 }} />
-          <div style={{ opacity: .4, fontSize: 16 }}>Αναμονή αποτελεσμάτων…</div>
+        {/* ── LEFT: Ολοκληρωμένες ── */}
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 'bold', letterSpacing: 3, textTransform: 'uppercase',
+            opacity: .5, marginBottom: 14 }}>
+            ✅ Ολοκληρωμένες ({approved.length})
+          </div>
+
+          {approved.length === 0 ? (
+            <div style={{ opacity: .25, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>
+              Καμία ακόμα…
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {approved.map(r => <ApprovedBallotRow key={r.id} result={r} />)}
+            </div>
+          )}
         </div>
-      )}
+
+        {/* ── RIGHT: Pending ── */}
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 'bold', letterSpacing: 3, textTransform: 'uppercase',
+            opacity: .5, marginBottom: 14 }}>
+            ⏳ Εκκρεμείς ({pending.length})
+          </div>
+
+          {pending.length === 0 ? (
+            <div style={{ opacity: .25, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>
+              Αναμονή νέων καλπών…
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {pending.map(r => <PendingBallotRow key={r.id} result={r} />)}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
 
-function BallotRow({ result: r }) {
+// ── Approved ballot row (green if Νικολέττα 1st, red if 2nd) ──────────────────
+function ApprovedBallotRow({ result: r }) {
+  const pos      = nikolettaPos(r)
+  const isFirst  = pos === 0
+  const isSecond = pos === 1
+
+  const borderColor = isFirst  ? `${GREEN}60` : isSecond ? `${RED}60` : 'rgba(255,255,255,.08)'
+  const bgColor     = isFirst  ? 'rgba(34,197,94,.1)' : isSecond ? 'rgba(239,68,68,.1)' : 'rgba(255,255,255,.04)'
+  const dotColor    = isFirst  ? GREEN : isSecond ? RED : '#888'
+  const badge       = isFirst  ? '🟢 1η' : isSecond ? '🔴 2η' : '⚪'
+
   return (
     <div style={{
-      background: 'rgba(255,255,255,.05)', borderRadius: 8,
-      padding: '10px 14px', border: '1px solid rgba(255,255,255,.07)',
+      background: bgColor, borderRadius: 10,
+      border: `1px solid ${borderColor}`,
+      padding: '10px 14px',
+      animation: 'fadeIn .4s ease',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7, flexWrap: 'wrap' }}>
-        <span style={{ fontWeight: 'bold', fontSize: 12 }}>{r.centerName}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 13, fontWeight: 'bold' }}>{r.centerName}</span>
         <span style={{ fontSize: 11, opacity: .45 }}>{r.centerArea}</span>
-        <span style={{
-          background: 'rgba(69,192,172,.15)', border: `1px solid ${TEAL}40`,
-          color: TEAL, borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 'bold',
-        }}>{r.pollName} #{r.pollNum}</span>
-        {r.synolo != null && (
-          <span style={{ marginLeft: 'auto', fontSize: 11, opacity: .55 }}>
-            Σύνολο: <strong style={{ color: 'white' }}>{r.synolo}</strong>
-          </span>
-        )}
+        <span style={{ background: `${TEAL}20`, border: `1px solid ${TEAL}40`,
+          color: TEAL, borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 'bold' }}>
+          {r.pollName} #{r.pollNum}
+        </span>
+        <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 'bold', color: dotColor }}>{badge}</span>
       </div>
-      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
         {CANDIDATES.map(c => r[c.key] != null && (
-          <div key={c.key} style={{ textAlign: 'center', minWidth: 44 }}>
-            <div style={{ fontSize: 10, opacity: .5, marginBottom: 2 }}>{c.label}</div>
-            <div style={{ fontWeight: 'bold', fontSize: 16, color: c.color }}>{r[c.key]}</div>
+          <div key={c.key} style={{ textAlign: 'center', minWidth: 40 }}>
+            <div style={{ fontSize: 10, opacity: .45, marginBottom: 2 }}>{c.label}</div>
+            <div style={{ fontWeight: 'bold', fontSize: 16,
+              color: c.key === 'nikoletta' ? (isFirst ? GREEN : isSecond ? RED : c.color) : c.color }}>
+              {r[c.key]}
+            </div>
           </div>
         ))}
+        {r.synolo != null && (
+          <div style={{ textAlign: 'center', minWidth: 40, marginLeft: 'auto' }}>
+            <div style={{ fontSize: 10, opacity: .45, marginBottom: 2 }}>Σύνολο</div>
+            <div style={{ fontWeight: 'bold', fontSize: 16, opacity: .6 }}>{r.synolo}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Pending ballot row (no vote counts shown) ──────────────────────────────────
+function PendingBallotRow({ result: r }) {
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,.04)', borderRadius: 10,
+      border: '1px solid rgba(255,200,50,.2)',
+      padding: '10px 14px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b',
+          flexShrink: 0, animation: 'pulse 1.5s ease-in-out infinite' }} />
+        <span style={{ fontSize: 13, fontWeight: 'bold' }}>{r.centerName}</span>
+        <span style={{ fontSize: 11, opacity: .45 }}>{r.centerArea}</span>
+        <span style={{ background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.12)',
+          color: 'rgba(255,255,255,.6)', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 'bold' }}>
+          {r.pollName} #{r.pollNum}
+        </span>
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: '#f59e0b', opacity: .7 }}>αναμονή…</span>
       </div>
     </div>
   )
