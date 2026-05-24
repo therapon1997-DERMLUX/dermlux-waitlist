@@ -1,7 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, serverTimestamp, setDoc } from 'firebase/firestore'
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../firebase/config'
-import { TIERS, POLL_LOOKUP } from '../data/electionData'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Candidate config
@@ -27,47 +26,6 @@ function nikolettaPosition(r) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Official API config & center-name lookup
-// ─────────────────────────────────────────────────────────────────────────────
-const OFFICIAL_BASE = 'https://results.elections.moi.gov.cy/api/greek/Results'
-const PROXY = url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`
-const DISTRICT_ID = 6       // Παφός
-const POLL_MS = 3 * 60 * 1000
-const SEEN_KEY = 'officialSeenBoxIds_2026'
-
-// Normalize Greek string for fuzzy matching
-function norm(s) {
-  if (!s) return ''
-  return s.toLowerCase()
-    .replace(/ά/g,'α').replace(/έ/g,'ε').replace(/ή/g,'η').replace(/ί/g,'ι')
-    .replace(/ό/g,'ο').replace(/ύ/g,'υ').replace(/ώ/g,'ω')
-    .replace(/ϊ|ΐ/g,'ι').replace(/ϋ|ΰ/g,'υ')
-    .replace(/\s+/g,' ').trim()
-}
-
-// Build lookup: "normCenterName::normBoxName" → {pollNum, centerName, pollName}
-const CENTER_LOOKUP = {}
-for (const tier of TIERS) {
-  for (const center of tier.centers) {
-    const polls = POLL_LOOKUP[center.aa] || []
-    const nc = norm(center.name)
-    for (const p of polls) {
-      CENTER_LOOKUP[`${nc}::${norm(p.name)}`] = {
-        pollNum: p.num,
-        centerName: center.name,
-        pollName: p.name,
-      }
-    }
-  }
-}
-
-async function apiFetch(url) {
-  const res = await fetch(PROXY(url), { signal: AbortSignal.timeout(15000) })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────────────────────
 export default function BallotResults() {
@@ -75,8 +33,6 @@ export default function BallotResults() {
   const [search,       setSearch]       = useState('')
   const [editId,       setEditId]       = useState(null)
   const [showRejected, setShowRejected] = useState(false)
-  const [pollerStatus, setPollerStatus] = useState('idle')   // idle | fetching | ok | error
-  const [lastFetched,  setLastFetched]  = useState(null)
 
   // ── Firestore listener ──────────────────────────────────────────────────
   useEffect(() => {
@@ -87,123 +43,17 @@ export default function BallotResults() {
     return unsub
   }, [])
 
-  // ── Official API poller ─────────────────────────────────────────────────
-  useEffect(() => {
-    let cancelled = false
-
-    async function pollOfficial() {
-      setPollerStatus('fetching')
-      try {
-        // Discover election ID
-        const rootData = await apiFetch(OFFICIAL_BASE)
-        const elections = rootData.AvailableElections || []
-        const el2026 = elections.find(e =>
-          String(e.Year) === '2026' || String(e.Name || '').includes('2026')
-        )
-        const electionId = el2026?.Id ?? 127   // fallback: 2021 data for testing
-
-        // Paphos areas
-        const areasData = await apiFetch(
-          `${OFFICIAL_BASE}?electionId=${electionId}&districtId=${DISTRICT_ID}`
-        )
-        const areas = areasData.CurrentResult?.Children || []
-
-        const seenBoxIds = JSON.parse(localStorage.getItem(SEEN_KEY) || '{}')
-        const newSeen = { ...seenBoxIds }
-
-        for (const area of areas) {
-          if (cancelled) return
-          if (!area.CompletedBallotBoxes) continue
-
-          // Polling stations in this area
-          const psData = await apiFetch(
-            `${OFFICIAL_BASE}?electionId=${electionId}&districtId=${DISTRICT_ID}&areaId=${area.Id}`
-          )
-          const stations = psData.CurrentResult?.Children || []
-
-          for (const ps of stations) {
-            if (cancelled) return
-            if (!ps.CompletedBallotBoxes) continue
-
-            // Ballot boxes + candidate results
-            const bbData = await apiFetch(
-              `${OFFICIAL_BASE}?electionId=${electionId}&districtId=${DISTRICT_ID}` +
-              `&areaId=${area.Id}&pollingstationId=${ps.Id}&ballotboxId=`
-            )
-            const boxes           = bbData.BallotBoxes     || []
-            const candidateRes    = bbData.CandidateResults || []
-            const validBallots    = bbData.CurrentResult?.ValidBallots ?? 0
-
-            const votes = {}
-            candidateRes.forEach(cr => { votes[cr.Name] = cr.Votes })
-
-            for (const box of boxes) {
-              const boxKey = String(box.Id)
-              if (newSeen[boxKey]) continue     // already saved
-
-              // Match to our poll numbering
-              const matchKey = `${norm(ps.Name)}::${norm(box.Name)}`
-              const matched  = CENTER_LOOKUP[matchKey]
-
-              newSeen[boxKey] = true
-              const docId = `official_${box.Id}`
-
-              try {
-                await setDoc(doc(db, 'ballot_results', docId), {
-                  source:        'official',
-                  isOfficial:    true,
-                  officialBoxId: box.Id,
-                  officialPsId:  ps.Id,
-                  centerName:    ps.Name,
-                  pollName:      box.Name,
-                  centerArea:    area.Name,
-                  pollNum:       matched?.pollNum ?? null,
-                  officialVotes: votes,
-                  synolo:        validBallots,
-                  status:        'pending',
-                  timestamp:     serverTimestamp(),
-                  reporterName:  '🏛️ Επίσημη Κάλπη',
-                }, { merge: true })
-              } catch (e) {
-                console.warn('Failed to save official ballot:', e)
-              }
-            }
-          }
-        }
-
-        localStorage.setItem(SEEN_KEY, JSON.stringify(newSeen))
-        if (!cancelled) {
-          setPollerStatus('ok')
-          setLastFetched(new Date())
-        }
-      } catch (e) {
-        console.warn('Official poller error:', e)
-        if (!cancelled) setPollerStatus('error')
-      }
-    }
-
-    pollOfficial()
-    const timer = setInterval(pollOfficial, POLL_MS)
-    return () => { cancelled = true; clearInterval(timer) }
-  }, [])
-
   // ── Derived state ───────────────────────────────────────────────────────
-  const agentResults   = useMemo(() => results.filter(r => !r.isOfficial), [results])
-  const officialByPollNum = useMemo(() => {
-    const m = {}
-    results.filter(r => r.isOfficial && r.pollNum)
-           .forEach(r => { m[r.pollNum] = r })
-    return m
-  }, [results])
+  const agentResults = useMemo(() => results.filter(r => !r.isOfficial), [results])
 
   const pending  = useMemo(() => agentResults.filter(r => !r.status || r.status === 'pending'), [agentResults])
   const approved = useMemo(() => agentResults.filter(r => r.status === 'approved'), [agentResults])
   const rejected = useMemo(() => agentResults.filter(r => r.status === 'rejected'), [agentResults])
 
-  // Official entries pending approval
-  const officialPending = useMemo(() =>
-    results.filter(r => r.isOfficial && (!r.status || r.status === 'pending'))
-  , [results])
+  // pollNums that already have an approved entry
+  const approvedPollNums = useMemo(() =>
+    new Set(approved.map(r => Number(r.pollNum)))
+  , [approved])
 
   // Duplicate detection: pollNums that appear more than once across non-rejected agent results
   const duplicatePollNums = useMemo(() => {
@@ -269,15 +119,8 @@ export default function BallotResults() {
   const pendingFiltered  = filterList(pending)
   const approvedFiltered = filterList(approved)
   const rejectedFiltered = filterList(rejected)
-  const offPendFiltered  = filterList(officialPending)
 
   const cardProps = { onEdit: id => setEditId(id), onApprove: approve, onReject: reject, onReset: resetPending, onDelete: handleDelete, formatDate }
-
-  // Poller status indicator
-  const pollerDot = pollerStatus === 'fetching' ? '🔄' : pollerStatus === 'ok' ? '🟢' : pollerStatus === 'error' ? '🔴' : '⚪'
-  const pollerLabel = pollerStatus === 'fetching' ? 'Ανάκτηση...' :
-    pollerStatus === 'ok' ? (lastFetched ? `${lastFetched.toLocaleTimeString('el-GR', {hour:'2-digit',minute:'2-digit'})}` : 'OK') :
-    pollerStatus === 'error' ? 'Σφάλμα σύνδεσης' : 'Αναμονή'
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -291,12 +134,6 @@ export default function BallotResults() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap items-center">
-          {/* Poller status badge */}
-          <div className="text-xs border border-gray-200 rounded-full px-3 py-1 bg-white flex items-center gap-1.5 text-gray-500">
-            {pollerDot}
-            <span className="font-medium">Επίσημα</span>
-            <span className="opacity-60">{pollerLabel}</span>
-          </div>
           <a href="/#/apotelesmata" target="_blank" rel="noreferrer"
             className="text-sm px-3 py-1.5 rounded-md border border-green-400 text-green-700 hover:bg-green-50 transition-colors">
             🌐 Public Page
@@ -337,24 +174,6 @@ export default function BallotResults() {
         onChange={e => setSearch(e.target.value)}
       />
 
-      {/* ── ΕΠΙΣΗΜΕΣ ΚΑΛΠΕΣ section ── */}
-      {offPendFiltered.length > 0 && (
-        <div className="rounded-2xl border-2 border-indigo-300 bg-indigo-50 p-4">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="text-base font-bold text-indigo-800">🏛️ Επίσημες Κάλπες</span>
-            <span className="text-xs bg-indigo-200 text-indigo-800 rounded-full px-2 py-0.5 font-bold">
-              {offPendFiltered.length} νέες
-            </span>
-            <span className="text-xs text-indigo-500 ml-1">από results.elections.moi.gov.cy</span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-            {offPendFiltered.map(r => (
-              <OfficialCard key={r.id} result={r} {...cardProps} onEdit={() => setEditId(r.id)} />
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* ── Two-column: Ολοκληρωμένες | Εκκρεμείς ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
@@ -377,7 +196,6 @@ export default function BallotResults() {
                   ? <EditCard key={r.id} result={r} onClose={() => setEditId(null)} formatDate={formatDate} />
                   : <ApprovedCard key={r.id} result={r} {...cardProps}
                       onEdit={() => setEditId(r.id)}
-                      officialData={r.pollNum ? officialByPollNum[r.pollNum] : null}
                       isDuplicate={duplicatePollNums.has(Number(r.pollNum))}
                     />
               )}
@@ -404,8 +222,8 @@ export default function BallotResults() {
                   ? <EditCard key={r.id} result={r} onClose={() => setEditId(null)} formatDate={formatDate} />
                   : <PendingCard key={r.id} result={r} {...cardProps}
                       onEdit={() => setEditId(r.id)}
-                      officialData={r.pollNum ? officialByPollNum[r.pollNum] : null}
                       isDuplicate={duplicatePollNums.has(Number(r.pollNum))}
+                      isAlreadyApproved={approvedPollNums.has(Number(r.pollNum))}
                     />
               )}
             </div>
@@ -438,69 +256,18 @@ export default function BallotResults() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Official κάλπη card (indigo)
+// Pending card (yellow)
 // ─────────────────────────────────────────────────────────────────────────────
-function OfficialCard({ result: r, onApprove, onReject, onDelete, formatDate }) {
-  const votes = r.officialVotes || {}
-  const sorted = Object.entries(votes).sort((a, b) => b[1] - a[1]).slice(0, 6)
-
+function PendingCard({ result: r, isDuplicate, isAlreadyApproved, onApprove, onReject, onEdit, onDelete, formatDate }) {
+  const borderClass = isAlreadyApproved ? 'border-green-500' : isDuplicate ? 'border-orange-400' : 'border-yellow-300'
   return (
-    <div className="card overflow-hidden border-2 border-indigo-300 bg-white">
-      <div className="bg-indigo-600 text-white flex items-center justify-between px-3 py-2 text-xs">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-bold">🏛️ ΕΠΙΣΗΜΗ ΚΑΛΠΗ</span>
-          <span className="opacity-70">·</span>
-          <span>{r.centerName}</span>
-          {r.centerArea && <span className="opacity-70">{r.centerArea}</span>}
+    <div className={`card overflow-hidden border ${borderClass} bg-yellow-50`}>
+      {isAlreadyApproved && (
+        <div className="bg-green-600 text-white text-xs font-bold px-4 py-1.5 flex items-center gap-2">
+          ✅ ΗΔΗ ΕΓΚΕΚΡΙΜΕΝΗ — Η κάλπη #{r.pollNum} έχει ήδη εγκριθεί!
         </div>
-        <button onClick={() => onDelete(r.id)} className="opacity-40 hover:opacity-80 transition-opacity ml-2">🗑️</button>
-      </div>
-      <div className="px-3 py-3">
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <span className="badge bg-indigo-100 text-indigo-700">{r.pollName}</span>
-          {r.pollNum && <span className="text-xs text-gray-400">#{r.pollNum}</span>}
-          <span className="text-xs text-gray-400 ml-auto">{formatDate(r.timestamp)}</span>
-        </div>
-        {/* Σύνολο */}
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-xs text-gray-500">Σύνολο:</span>
-          <span className="text-lg font-bold text-indigo-700">{r.synolo ?? '—'}</span>
-        </div>
-        {/* Top candidates/parties */}
-        {sorted.length > 0 ? (
-          <div className="space-y-1">
-            {sorted.map(([name, votes]) => (
-              <div key={name} className="flex justify-between text-xs">
-                <span className="text-gray-600 truncate max-w-[160px]" title={name}>{name}</span>
-                <span className="font-bold text-gray-800 ml-2">{votes}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-xs text-gray-400 italic">Δεν υπάρχουν αποτελέσματα ακόμα</p>
-        )}
-        <div className="flex gap-2 mt-3 flex-wrap">
-          <button onClick={() => onApprove(r.id)}
-            className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 transition-colors">
-            ✅ Έγκριση
-          </button>
-          <button onClick={() => onReject(r.id)}
-            className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white text-xs font-bold rounded-lg hover:bg-red-600 transition-colors">
-            ❌ Απόρριψη
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Pending card (yellow) — with optional official side-by-side
-// ─────────────────────────────────────────────────────────────────────────────
-function PendingCard({ result: r, officialData, isDuplicate, onApprove, onReject, onEdit, onDelete, formatDate }) {
-  return (
-    <div className={`card overflow-hidden border ${isDuplicate ? 'border-orange-400' : 'border-yellow-300'} bg-yellow-50`}>
-      {isDuplicate && (
+      )}
+      {!isAlreadyApproved && isDuplicate && (
         <div className="bg-orange-500 text-white text-xs font-bold px-4 py-1.5 flex items-center gap-2">
           ⚠️ ΔΙΠΛΟΤΥΠΟ — Υπάρχει ήδη καταχώρηση για την κάλπη #{r.pollNum}
         </div>
@@ -523,11 +290,7 @@ function PendingCard({ result: r, officialData, isDuplicate, onApprove, onReject
           <span className="badge bg-blue-100 text-blue-700">{r.pollName} #{r.pollNum}</span>
         </div>
 
-        {officialData ? (
-          <CompareGrid agentResult={r} officialData={officialData} />
-        ) : (
-          <VoteGrid result={r} />
-        )}
+        <VoteGrid result={r} />
 
         {r.comments && (
           <div className="text-sm text-gray-500 bg-gray-50 rounded-lg px-3 py-2 mb-3">
@@ -556,7 +319,7 @@ function PendingCard({ result: r, officialData, isDuplicate, onApprove, onReject
 // ─────────────────────────────────────────────────────────────────────────────
 // Approved card (green/red) — with optional official side-by-side
 // ─────────────────────────────────────────────────────────────────────────────
-function ApprovedCard({ result: r, officialData, isDuplicate, onReset, onEdit, onDelete, formatDate }) {
+function ApprovedCard({ result: r, isDuplicate, onReset, onEdit, onDelete, formatDate }) {
   const pos      = nikolettaPosition(r)
   const isFirst  = pos === 0
   const isSecond = pos === 1
@@ -590,11 +353,7 @@ function ApprovedCard({ result: r, officialData, isDuplicate, onReset, onEdit, o
           <span className="text-xs text-gray-400 ml-auto">{formatDate(r.approvedAt || r.timestamp)}</span>
         </div>
 
-        {officialData ? (
-          <CompareGrid agentResult={r} officialData={officialData} highlight />
-        ) : (
-          <VoteGrid result={r} highlight />
-        )}
+        <VoteGrid result={r} highlight />
 
         {r.comments && (
           <div className="text-sm text-gray-500 bg-white bg-opacity-60 rounded-lg px-3 py-2 mb-3">
@@ -617,52 +376,7 @@ function ApprovedCard({ result: r, officialData, isDuplicate, onReset, onEdit, o
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Side-by-side comparison grid
-// ─────────────────────────────────────────────────────────────────────────────
-function CompareGrid({ agentResult: r, officialData, highlight }) {
-  const officialVotes = officialData?.officialVotes || {}
-  const topOfficial   = Object.entries(officialVotes)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-
-  return (
-    <div className="grid grid-cols-2 gap-3 mb-3">
-      {/* Agent column */}
-      <div>
-        <div className="text-xs font-bold text-gray-500 mb-1.5 flex items-center gap-1">
-          👤 <span>Πράκτορας</span>
-        </div>
-        <VoteGrid result={r} highlight={highlight} compact />
-      </div>
-
-      {/* Official column */}
-      <div>
-        <div className="text-xs font-bold text-indigo-600 mb-1.5 flex items-center gap-1">
-          🏛️ <span>Επίσημα</span>
-        </div>
-        <div className="rounded-lg bg-indigo-50 border border-indigo-200 p-2 space-y-1">
-          <div className="flex justify-between text-xs mb-1.5">
-            <span className="text-indigo-500 font-medium">Σύνολο</span>
-            <span className="font-bold text-indigo-800">{officialData?.synolo ?? '—'}</span>
-          </div>
-          {topOfficial.length > 0 ? (
-            topOfficial.map(([name, votes]) => (
-              <div key={name} className="flex justify-between text-xs">
-                <span className="text-gray-600 truncate max-w-[110px] text-[11px]" title={name}>{name}</span>
-                <span className="font-bold text-gray-800 ml-1 text-xs">{votes}</span>
-              </div>
-            ))
-          ) : (
-            <p className="text-[11px] text-gray-400 italic">Χωρίς επίσημα</p>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Vote grid (agent results)
+// Vote grid
 // ─────────────────────────────────────────────────────────────────────────────
 function VoteGrid({ result: r, highlight, compact }) {
   const pos = highlight ? nikolettaPosition(r) : -1
