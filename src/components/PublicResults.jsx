@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
-import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore'
+import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import confetti from 'canvas-confetti'
 
@@ -40,10 +40,11 @@ export default function PublicResults() {
       query(
         collection(db, 'ballot_results'),
         where('status', '==', 'approved'),
-        orderBy('approvedAt', 'desc')
       ),
       snap => {
-        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        const docs = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (b.approvedAt?.seconds || 0) - (a.approvedAt?.seconds || 0))
         const prevIds = prevIdsRef.current
         const newIds  = docs.map(d => d.id).filter(id => !prevIds.has(id))
         prevIdsRef.current = new Set(docs.map(d => d.id))
@@ -53,7 +54,8 @@ export default function PublicResults() {
           const newest = docs.find(d => d.id === newIds[0])
           if (newest) setCountdown({ result: newest, n: 3 })
         }
-      }
+      },
+      err => console.error('PublicResults error:', err)
     )
     return unsub
   }, [])
