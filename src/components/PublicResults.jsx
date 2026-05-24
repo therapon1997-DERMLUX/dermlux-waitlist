@@ -133,15 +133,19 @@ export default function PublicResults() {
 
   // ── Forecasting ──────────────────────────────────────────────────────────────
   const forecast = useMemo(() => {
-    if (approved.length < 3) return null   // need at least 3 data points
+    if (approved.length < 1) return null
 
-    // Voters accounted for so far
-    const reportedVoters = approved.reduce((s, r) => s + (POLL_VOTERS_MAP[r.pollNum] || 0), 0)
-    if (reportedVoters === 0 || totalSynolo === 0) return null
+    // pollNum may be stored as string in Firestore — handle both
+    const reportedVoters = approved.reduce((s, r) => s + (POLL_VOTERS_MAP[Number(r.pollNum)] || POLL_VOTERS_MAP[r.pollNum] || 0), 0)
+    if (totalSynolo === 0) return null
+    // fallback: if pollNum lookup failed, estimate from average
+    const effectiveReported = reportedVoters > 0
+      ? reportedVoters
+      : approved.length * Math.round(TOTAL_VOTERS / 122)
 
-    const pctComplete  = (reportedVoters / TOTAL_VOTERS) * 100
-    const turnout      = totalSynolo / reportedVoters
-    const pendingVoters = TOTAL_VOTERS - reportedVoters
+    const pctComplete   = (effectiveReported / TOTAL_VOTERS) * 100
+    const turnout       = totalSynolo / effectiveReported
+    const pendingVoters = Math.max(TOTAL_VOTERS - effectiveReported, 0)
     const expectedExtra = pendingVoters * turnout
 
     // Predicted final votes per candidate
