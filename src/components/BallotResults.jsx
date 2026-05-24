@@ -205,6 +205,21 @@ export default function BallotResults() {
     results.filter(r => r.isOfficial && (!r.status || r.status === 'pending'))
   , [results])
 
+  // Duplicate detection: pollNums that appear more than once across non-rejected agent results
+  const duplicatePollNums = useMemo(() => {
+    const counts = {}
+    agentResults
+      .filter(r => r.status !== 'rejected' && r.pollNum)
+      .forEach(r => { counts[r.pollNum] = (counts[r.pollNum] || 0) + 1 })
+    return new Set(Object.keys(counts).filter(k => counts[k] > 1).map(Number))
+  }, [agentResults])
+
+  // Progress: how many of 122 we've received (approved + pending)
+  const TOTAL_POLLS = 122
+  const receivedCount  = agentResults.filter(r => r.status !== 'rejected').length
+  const remainingCount = Math.max(TOTAL_POLLS - receivedCount, 0)
+  const pctDone = Math.round((approved.length / TOTAL_POLLS) * 100)
+
   const filterList = list => {
     if (!search) return list
     const s = search.toLowerCase()
@@ -290,6 +305,30 @@ export default function BallotResults() {
         </div>
       </div>
 
+      {/* ── Progress bar ── */}
+      <div className="rounded-xl bg-white border border-gray-200 px-4 py-3">
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <div className="flex items-center gap-3 text-sm flex-wrap">
+            <span className="font-bold text-gray-700">Πρόοδος Κάλπων</span>
+            <span className="text-green-600 font-semibold">✅ {approved.length} εγκεκριμένες</span>
+            <span className="text-yellow-600 font-semibold">⏳ {pending.length} εκκρεμείς</span>
+            <span className="text-gray-400">🔲 {remainingCount} αναμένονται ακόμα</span>
+          </div>
+          <span className="text-sm font-bold text-gray-500">{approved.length} / {TOTAL_POLLS} ({pctDone}%)</span>
+        </div>
+        <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden flex">
+          <div className="h-full bg-green-500 transition-all duration-700"
+            style={{ width: `${(approved.length / TOTAL_POLLS) * 100}%` }} />
+          <div className="h-full bg-yellow-300 transition-all duration-700"
+            style={{ width: `${(pending.length / TOTAL_POLLS) * 100}%` }} />
+        </div>
+        {duplicatePollNums.size > 0 && (
+          <div className="mt-2 text-xs text-orange-600 font-semibold flex items-center gap-1">
+            ⚠️ {duplicatePollNums.size} διπλοεγγεγραμμένες κάλπες: #{[...duplicatePollNums].sort((a,b)=>a-b).join(', #')}
+          </div>
+        )}
+      </div>
+
       {/* ── Search ── */}
       <input
         className="input w-full sm:w-72"
@@ -339,6 +378,7 @@ export default function BallotResults() {
                   : <ApprovedCard key={r.id} result={r} {...cardProps}
                       onEdit={() => setEditId(r.id)}
                       officialData={r.pollNum ? officialByPollNum[r.pollNum] : null}
+                      isDuplicate={duplicatePollNums.has(Number(r.pollNum))}
                     />
               )}
             </div>
@@ -365,6 +405,7 @@ export default function BallotResults() {
                   : <PendingCard key={r.id} result={r} {...cardProps}
                       onEdit={() => setEditId(r.id)}
                       officialData={r.pollNum ? officialByPollNum[r.pollNum] : null}
+                      isDuplicate={duplicatePollNums.has(Number(r.pollNum))}
                     />
               )}
             </div>
@@ -456,9 +497,14 @@ function OfficialCard({ result: r, onApprove, onReject, onDelete, formatDate }) 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pending card (yellow) — with optional official side-by-side
 // ─────────────────────────────────────────────────────────────────────────────
-function PendingCard({ result: r, officialData, onApprove, onReject, onEdit, onDelete, formatDate }) {
+function PendingCard({ result: r, officialData, isDuplicate, onApprove, onReject, onEdit, onDelete, formatDate }) {
   return (
-    <div className="card overflow-hidden border border-yellow-300 bg-yellow-50">
+    <div className={`card overflow-hidden border ${isDuplicate ? 'border-orange-400' : 'border-yellow-300'} bg-yellow-50`}>
+      {isDuplicate && (
+        <div className="bg-orange-500 text-white text-xs font-bold px-4 py-1.5 flex items-center gap-2">
+          ⚠️ ΔΙΠΛΟΤΥΠΟ — Υπάρχει ήδη καταχώρηση για την κάλπη #{r.pollNum}
+        </div>
+      )}
       <div className="bg-yellow-100 text-yellow-900 flex items-center justify-between px-4 py-2 text-sm">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-bold">⏳ Εκκρεμεί</span>
@@ -510,18 +556,23 @@ function PendingCard({ result: r, officialData, onApprove, onReject, onEdit, onD
 // ─────────────────────────────────────────────────────────────────────────────
 // Approved card (green/red) — with optional official side-by-side
 // ─────────────────────────────────────────────────────────────────────────────
-function ApprovedCard({ result: r, officialData, onReset, onEdit, onDelete, formatDate }) {
+function ApprovedCard({ result: r, officialData, isDuplicate, onReset, onEdit, onDelete, formatDate }) {
   const pos      = nikolettaPosition(r)
   const isFirst  = pos === 0
   const isSecond = pos === 1
 
-  const borderColor = isFirst ? 'border-green-400' : isSecond ? 'border-red-400'  : 'border-gray-300'
+  const borderColor = isDuplicate ? 'border-orange-400' : isFirst ? 'border-green-400' : isSecond ? 'border-red-400'  : 'border-gray-300'
   const bgColor     = isFirst ? 'bg-green-50'      : isSecond ? 'bg-red-50'       : 'bg-gray-50'
   const headerBg    = isFirst ? 'bg-green-600 text-white' : isSecond ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700'
   const badge       = isFirst ? '🟢 1η Νικολέττα' : isSecond ? '🔴 2η Νικολέττα' : '⚪ —'
 
   return (
     <div className={`card overflow-hidden border ${borderColor} ${bgColor}`}>
+      {isDuplicate && (
+        <div className="bg-orange-500 text-white text-xs font-bold px-4 py-1.5 flex items-center gap-2">
+          ⚠️ ΔΙΠΛΟΤΥΠΟ — Υπάρχει ήδη καταχώρηση για την κάλπη #{r.pollNum}
+        </div>
+      )}
       <div className={`flex items-center justify-between px-4 py-2 text-sm ${headerBg}`}>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-bold">{badge}</span>
