@@ -3,8 +3,6 @@ import { collection, onSnapshot, query, where, getDocs } from 'firebase/firestor
 import { db } from '../firebase/config'
 import confetti from 'canvas-confetti'
 import { POLL_LOOKUP, ALL_CENTERS } from '../data/electionData'
-import OfficialPartyResults from './OfficialPartyResults'
-
 // ── Brand palette ──────────────────────────────────────────────────────────────
 const NAVY    = '#1B4080'
 const TEAL    = '#45C0AC'
@@ -362,9 +360,6 @@ export default function PublicResults() {
 
       {/* ── Forecast banner ── */}
       {forecast && <ForecastBanner forecast={forecast} />}
-
-      {/* ── Official party results ── */}
-      <OfficialPartyResults />
 
       {/* ── Leaderboard ── */}
       <div style={{ maxWidth: 1200, margin: '28px auto 0', padding: '0 20px' }}>
