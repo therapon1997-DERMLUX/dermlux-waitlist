@@ -571,6 +571,20 @@ function ApprovedRow({ result: r }) {
           </div>
         )}
       </div>
+      {(r.lefka != null || r.akyra != null) && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+          {r.lefka != null && (
+            <div style={{ fontSize: 11, background: 'rgba(255,255,255,.08)', borderRadius: 6, padding: '2px 8px', color: 'rgba(255,255,255,.45)' }}>
+              Λευκά: <strong style={{ color: 'rgba(255,255,255,.7)' }}>{r.lefka}</strong>
+            </div>
+          )}
+          {r.akyra != null && (
+            <div style={{ fontSize: 11, background: 'rgba(255,255,255,.08)', borderRadius: 6, padding: '2px 8px', color: 'rgba(255,255,255,.45)' }}>
+              Άκυρα: <strong style={{ color: 'rgba(255,255,255,.7)' }}>{r.akyra}</strong>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
