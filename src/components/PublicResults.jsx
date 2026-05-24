@@ -179,9 +179,10 @@ export default function PublicResults() {
     [...CANDIDATES].sort((a, b) => totals[b.key] - totals[a.key]),
   [totals])
 
-  const nikolettaFirst = ranked[0]?.key === 'nikoletta' && totals.nikoletta > 0
-  const maxVotes       = Math.max(...Object.values(totals), 1)
-  const totalSynolo    = approved.reduce((s, r) => s + (r.synolo || 0), 0)
+  const nikolettaFirst     = ranked[0]?.key === 'nikoletta' && totals.nikoletta > 0
+  const maxVotes           = Math.max(...Object.values(totals), 1)
+  const totalSynolo        = approved.reduce((s, r) => s + (r.synolo || 0), 0)
+  const totalCandidateVotes = Object.values(totals).reduce((s, v) => s + v, 0)
 
   // ── Forecasting ──────────────────────────────────────────────────────────────
   const forecast = useMemo(() => {
@@ -391,11 +392,17 @@ export default function PublicResults() {
                   <span style={{ flex: 1, fontWeight: 'bold', fontSize: isFirst ? 20 : 15, transition: 'font-size .4s' }}>
                     {c.label}
                   </span>
-                  <span style={{ fontSize: isFirst ? 32 : 22, fontWeight: 'bold', color: c.color,
-                    minWidth: 64, textAlign: 'right',
-                    textShadow: isFirst ? `0 0 12px ${c.glow}` : 'none', transition: 'all .4s' }}>
-                    {votes.toLocaleString('el-GR')}
-                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+                    <span style={{ fontSize: isFirst ? 32 : 22, fontWeight: 'bold', color: c.color,
+                      textShadow: isFirst ? `0 0 12px ${c.glow}` : 'none', transition: 'all .4s', lineHeight: 1 }}>
+                      {votes.toLocaleString('el-GR')}
+                    </span>
+                    {totalCandidateVotes > 0 && (
+                      <span style={{ fontSize: isFirst ? 13 : 11, color: c.color, opacity: 0.7, fontWeight: 'bold' }}>
+                        {((votes / totalCandidateVotes) * 100).toFixed(1)}%
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div style={{ background: 'rgba(255,255,255,.1)', borderRadius: 6, height: isFirst ? 10 : 6, overflow: 'hidden' }}>
                   <div style={{
