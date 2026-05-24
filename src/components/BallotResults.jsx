@@ -13,7 +13,11 @@ const VOTE_CANDIDATES = [
   { key: 'karseras',  label: 'Καρσεράς' },
   { key: 'giorgos',   label: 'Γιώργος' },
 ]
-const ALL_CANDIDATES = [{ key: 'synolo', label: 'Σύνολο' }, ...VOTE_CANDIDATES]
+const EXTRA_CANDIDATES = [
+  { key: 'lefka', label: 'Λευκά' },
+  { key: 'akyra', label: 'Άκυρα' },
+]
+const ALL_CANDIDATES = [{ key: 'synolo', label: 'Σύνολο' }, ...VOTE_CANDIDATES, ...EXTRA_CANDIDATES]
 
 function nikolettaPosition(r) {
   return [...VOTE_CANDIDATES]
@@ -614,34 +618,47 @@ function VoteGrid({ result: r, highlight, compact }) {
   const cols = compact ? 'grid-cols-2 gap-1' : 'grid-cols-3 sm:grid-cols-6 gap-2'
 
   return (
-    <div className={`grid ${cols} mb-3`}>
-      <div className={`rounded-lg p-2 text-center bg-blue-50 border border-blue-200 ${compact ? 'col-span-2' : ''}`}>
-        <div className="text-xs font-medium mb-1 text-blue-600">Σύνολο</div>
-        <div className="text-xl font-bold text-blue-700">
-          {r.synolo ?? <span className="text-gray-300 text-sm">—</span>}
-        </div>
-      </div>
-      {VOTE_CANDIDATES.map((c, i) => {
-        const isNiko = c.key === 'nikoletta'
-        const isTop  = highlight && i === pos && pos === 0
-        const isLow  = highlight && isNiko && pos > 0
-        return (
-          <div key={c.key} className={`rounded-lg p-2 text-center border ${
-            isTop ? 'bg-green-100 border-green-400' :
-            isLow ? 'bg-red-100 border-red-300' :
-                    'bg-gray-50 border-gray-200'
-          }`}>
-            <div className={`text-xs font-medium mb-1 ${
-              isTop ? 'text-green-700' : isLow ? 'text-red-600' : 'text-gray-500'
-            }`}>{c.label}</div>
-            <div className={`text-xl font-bold ${
-              isTop ? 'text-green-800' : isLow ? 'text-red-700' : 'text-gray-800'
-            }`}>
-              {r[c.key] ?? <span className="text-gray-300 text-sm">—</span>}
-            </div>
+    <div className="mb-3">
+      <div className={`grid ${cols}`}>
+        <div className={`rounded-lg p-2 text-center bg-blue-50 border border-blue-200 ${compact ? 'col-span-2' : ''}`}>
+          <div className="text-xs font-medium mb-1 text-blue-600">Σύνολο</div>
+          <div className="text-xl font-bold text-blue-700">
+            {r.synolo ?? <span className="text-gray-300 text-sm">—</span>}
           </div>
-        )
-      })}
+        </div>
+        {VOTE_CANDIDATES.map((c, i) => {
+          const isNiko = c.key === 'nikoletta'
+          const isTop  = highlight && i === pos && pos === 0
+          const isLow  = highlight && isNiko && pos > 0
+          return (
+            <div key={c.key} className={`rounded-lg p-2 text-center border ${
+              isTop ? 'bg-green-100 border-green-400' :
+              isLow ? 'bg-red-100 border-red-300' :
+                      'bg-gray-50 border-gray-200'
+            }`}>
+              <div className={`text-xs font-medium mb-1 ${
+                isTop ? 'text-green-700' : isLow ? 'text-red-600' : 'text-gray-500'
+              }`}>{c.label}</div>
+              <div className={`text-xl font-bold ${
+                isTop ? 'text-green-800' : isLow ? 'text-red-700' : 'text-gray-800'
+              }`}>
+                {r[c.key] ?? <span className="text-gray-300 text-sm">—</span>}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {/* Λευκά / Άκυρα */}
+      {(r.lefka != null || r.akyra != null) && (
+        <div className="flex gap-2 mt-1.5">
+          {EXTRA_CANDIDATES.map(c => r[c.key] != null && (
+            <div key={c.key} className="rounded-md px-2 py-1 bg-gray-100 border border-gray-200 text-xs flex items-center gap-1.5">
+              <span className="text-gray-400">{c.label}:</span>
+              <span className="font-bold text-gray-600">{r[c.key]}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

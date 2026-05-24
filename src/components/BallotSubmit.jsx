@@ -10,6 +10,8 @@ const CANDIDATES = [
   { key: 'koupparis',  label: 'Κούππαρης' },
   { key: 'karseras',   label: 'Καρσεράς' },
   { key: 'giorgos',    label: 'Γιώργος' },
+  { key: 'lefka',      label: 'Λευκά' },
+  { key: 'akyra',      label: 'Άκυρα' },
 ]
 
 const EMPTY_VOTES = Object.fromEntries(CANDIDATES.map(c => [c.key, '']))
