@@ -67,7 +67,7 @@ async function fetchPaphosPartyResults() {
     .map(p => ({
       id:    p[0],
       votes: p[1] ?? 0,
-      pct:   typeof p[2] === 'number' ? +(p[2] * 100).toFixed(2) : 0,
+      pct:   typeof p[2] === 'number' ? +p[2].toFixed(1) : 0,
     }))
     .filter(p => p.votes > 0)
     .sort((a, b) => b.votes - a.votes)
@@ -94,7 +94,7 @@ async function fetchPaphosPartyResults() {
     validBallots:  r[9]  ?? 0,
     blankBallots:  r[5]  ?? 0,
     invalidBallots:r[7]  ?? 0,
-    completion:    typeof r[13] === 'number' ? +(r[13] * 100).toFixed(1) : 0,
+    completion:    typeof r[13] === 'number' ? +r[13].toFixed(1) : 0,
     boxesCounted:  r[17] ?? 0,
     boxesTotal:    r[18] ?? 0,
     fetchedAt:     new Date(),
