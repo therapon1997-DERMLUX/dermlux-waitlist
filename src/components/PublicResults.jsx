@@ -2,7 +2,9 @@ import { useEffect, useState, useMemo, useRef } from 'react'
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import confetti from 'canvas-confetti'
+import { POLL_LOOKUP, ALL_CENTERS } from '../data/electionData'
 
+// ── Brand palette ──────────────────────────────────────────────────────────────
 const NAVY    = '#1B4080'
 const TEAL    = '#45C0AC'
 const LAVENDER= '#A99DC8'
@@ -10,7 +12,7 @@ const GREEN   = '#22c55e'
 const RED     = '#ef4444'
 
 const CANDIDATES = [
-  { key: 'nikoletta', label: 'Νικολέττα',  color: TEAL,       glow: TEAL },
+  { key: 'nikoletta', label: 'Νικολέττα',  color: TEAL,      glow: TEAL },
   { key: 'pazaros',   label: 'Χ.Πάζαρος', color: '#5B8CCC',  glow: '#5B8CCC' },
   { key: 'koupparis', label: 'Κούππαρης',  color: '#56B87A',  glow: '#56B87A' },
   { key: 'karseras',  label: 'Καρσεράς',   color: '#E8965A',  glow: '#E8965A' },
@@ -19,6 +21,20 @@ const CANDIDATES = [
 
 const RANK_MEDALS = ['🥇', '🥈', '🥉', '4ος', '5ος']
 
+// ── Build flat list of all 122 polls from electionData ─────────────────────────
+const CENTER_MAP = Object.fromEntries(ALL_CENTERS.map(c => [c.aa, { name: c.name, area: c.area }]))
+
+const ALL_POLLS = []
+for (const [aa, polls] of Object.entries(POLL_LOOKUP)) {
+  const center = CENTER_MAP[aa]
+  if (!center) continue
+  for (const poll of polls) {
+    ALL_POLLS.push({ pollNum: poll.num, pollName: poll.name, centerName: center.name, centerArea: center.area })
+  }
+}
+ALL_POLLS.sort((a, b) => a.pollNum - b.pollNum)
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function nikolettaPos(r) {
   return [...CANDIDATES]
     .map(c => ({ key: c.key, v: r[c.key] ?? 0 }))
@@ -36,9 +52,10 @@ function fireConfetti() {
   })()
 }
 
+// ── Component ─────────────────────────────────────────────────────────────────
 export default function PublicResults() {
-  const [approved, setApproved] = useState([])
-  const [pending,  setPending]  = useState([])
+  const [approved,  setApproved]  = useState([])
+  const [submitted, setSubmitted] = useState([])   // pending in Firestore (received, not yet approved)
   const [countdown, setCountdown] = useState(null)
   const [newCard,   setNewCard]   = useState(null)
   const prevIdsRef  = useRef(new Set())
@@ -67,15 +84,11 @@ export default function PublicResults() {
     return unsub
   }, [])
 
-  // ── Pending listener ──
+  // ── Submitted (pending) listener — to show orange dot on right column ──
   useEffect(() => {
     const unsub = onSnapshot(
       query(collection(db, 'ballot_results'), where('status', '==', 'pending')),
-      snap => setPending(
-        snap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0))
-      ),
+      snap => setSubmitted(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
       err => console.error('pending listener:', err)
     )
     return unsub
@@ -115,6 +128,14 @@ export default function PublicResults() {
     prevLeaderRef.current = ranked[0]?.key
   }, [approved.length]) // eslint-disable-line
 
+  // ── Build right column: all 122 polls minus approved ones ──
+  const approvedPollNums   = useMemo(() => new Set(approved.map(r => r.pollNum)),   [approved])
+  const submittedPollNums  = useMemo(() => new Set(submitted.map(r => r.pollNum)),  [submitted])
+
+  const pendingPolls = useMemo(() =>
+    ALL_POLLS.filter(p => !approvedPollNums.has(p.pollNum)),
+  [approvedPollNums])
+
   return (
     <div style={{ minHeight: '100vh', background: NAVY, fontFamily: "'Arial', sans-serif", color: 'white' }}>
 
@@ -122,8 +143,8 @@ export default function PublicResults() {
         @keyframes popIn   { from { transform:scale(1.6); opacity:0 } to { transform:scale(1); opacity:1 } }
         @keyframes slideUp { from { transform:translateY(50px); opacity:0 } to { transform:translateY(0); opacity:1 } }
         @keyframes shimmer { 0% { background-position:-200% center } 100% { background-position:200% center } }
-        @keyframes fadeIn  { from { opacity:0; transform:translateY(12px) } to { opacity:1; transform:translateY(0) } }
-        @keyframes pulse   { 0%,100% { opacity:1 } 50% { opacity:.55 } }
+        @keyframes fadeIn  { from { opacity:0; transform:translateY(10px) } to { opacity:1; transform:translateY(0) } }
+        @keyframes pulse   { 0%,100% { opacity:1 } 50% { opacity:.4 } }
       `}</style>
 
       {/* ── Countdown overlay ── */}
@@ -185,7 +206,7 @@ export default function PublicResults() {
         borderBottom: `3px solid ${TEAL}`,
         padding: '24px 20px 20px',
       }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
           <div style={{ flexShrink: 0 }}>
             <img src="/dermlux-waitlist/nikoletta.png" alt="Νικολέττα"
               style={{ width: 90, height: 90, borderRadius: '50%', objectFit: 'cover', objectPosition: 'top center',
@@ -202,11 +223,11 @@ export default function PublicResults() {
               <span style={{ background: 'rgba(69,192,172,.15)', border: `1px solid ${TEAL}`, borderRadius: 20, padding: '3px 12px', fontSize: 12, color: TEAL }}>
                 🔴 LIVE
               </span>
-              <span style={{ background: 'rgba(255,255,255,.08)', borderRadius: 20, padding: '3px 12px', fontSize: 12 }}>
-                ✅ {approved.length} ολοκληρωμέν{approved.length === 1 ? 'η' : 'ες'}
+              <span style={{ background: 'rgba(34,197,94,.15)', borderRadius: 20, padding: '3px 12px', fontSize: 12, color: GREEN }}>
+                ✅ {approved.length} / 122 ολοκληρωμένες
               </span>
               <span style={{ background: 'rgba(255,255,255,.08)', borderRadius: 20, padding: '3px 12px', fontSize: 12 }}>
-                ⏳ {pending.length} αναμον{pending.length === 1 ? 'ή' : 'ή'}
+                ⏳ {pendingPolls.length} εκκρεμείς
               </span>
               {totalSynolo > 0 && (
                 <span style={{ background: 'rgba(255,255,255,.08)', borderRadius: 20, padding: '3px 12px', fontSize: 12 }}>
@@ -231,7 +252,7 @@ export default function PublicResults() {
       )}
 
       {/* ── Leaderboard ── */}
-      <div style={{ maxWidth: 1100, margin: '28px auto 0', padding: '0 20px' }}>
+      <div style={{ maxWidth: 1200, margin: '28px auto 0', padding: '0 20px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {ranked.map((c, i) => {
             const votes   = totals[c.key]
@@ -240,9 +261,7 @@ export default function PublicResults() {
             const isNiko  = c.key === 'nikoletta'
             return (
               <div key={c.key} style={{
-                background: isFirst
-                  ? 'linear-gradient(135deg, rgba(255,255,255,.12), rgba(255,255,255,.06))'
-                  : 'rgba(255,255,255,.05)',
+                background: isFirst ? 'linear-gradient(135deg, rgba(255,255,255,.12), rgba(255,255,255,.06))' : 'rgba(255,255,255,.05)',
                 borderRadius: 12,
                 border: isFirst ? `1px solid ${c.color}` : '1px solid rgba(255,255,255,.08)',
                 padding: isFirst ? '16px 20px' : '12px 16px',
@@ -283,8 +302,10 @@ export default function PublicResults() {
       </div>
 
       {/* ── Two-column ballot area ── */}
-      <div style={{ maxWidth: 1100, margin: '36px auto 60px', padding: '0 20px',
-        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+      <div style={{
+        maxWidth: 1200, margin: '36px auto 60px', padding: '0 20px',
+        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 28,
+      }}>
 
         {/* ── LEFT: Ολοκληρωμένες ── */}
         <div>
@@ -294,79 +315,76 @@ export default function PublicResults() {
           </div>
 
           {approved.length === 0 ? (
-            <div style={{ opacity: .25, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>
-              Καμία ακόμα…
+            <div style={{ opacity: .2, fontSize: 14, textAlign: 'center', paddingTop: 60 }}>
+              Αναμονή πρώτων αποτελεσμάτων…
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {approved.map(r => <ApprovedBallotRow key={r.id} result={r} />)}
+              {approved.map(r => <ApprovedRow key={r.id} result={r} />)}
             </div>
           )}
         </div>
 
-        {/* ── RIGHT: Pending ── */}
+        {/* ── RIGHT: Εκκρεμείς (all 122 - approved) ── */}
         <div>
           <div style={{ fontSize: 11, fontWeight: 'bold', letterSpacing: 3, textTransform: 'uppercase',
             opacity: .5, marginBottom: 14 }}>
-            ⏳ Εκκρεμείς ({pending.length})
+            ⏳ Εκκρεμείς ({pendingPolls.length} / 122)
           </div>
 
-          {pending.length === 0 ? (
-            <div style={{ opacity: .25, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>
-              Αναμονή νέων καλπών…
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {pending.map(r => <PendingBallotRow key={r.id} result={r} />)}
-            </div>
-          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {pendingPolls.map(p => (
+              <PendingRow
+                key={p.pollNum}
+                poll={p}
+                hasSubmission={submittedPollNums.has(p.pollNum)}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </div>
   )
 }
 
-// ── Approved ballot row (green if Νικολέττα 1st, red if 2nd) ──────────────────
-function ApprovedBallotRow({ result: r }) {
+// ── Approved row: green if Νικολέττα 1st, red if 2nd ─────────────────────────
+function ApprovedRow({ result: r }) {
   const pos      = nikolettaPos(r)
   const isFirst  = pos === 0
   const isSecond = pos === 1
 
-  const borderColor = isFirst  ? `${GREEN}60` : isSecond ? `${RED}60` : 'rgba(255,255,255,.08)'
-  const bgColor     = isFirst  ? 'rgba(34,197,94,.1)' : isSecond ? 'rgba(239,68,68,.1)' : 'rgba(255,255,255,.04)'
-  const dotColor    = isFirst  ? GREEN : isSecond ? RED : '#888'
-  const badge       = isFirst  ? '🟢 1η' : isSecond ? '🔴 2η' : '⚪'
+  const border = isFirst ? `${GREEN}50` : isSecond ? `${RED}50` : 'rgba(255,255,255,.08)'
+  const bg     = isFirst ? 'rgba(34,197,94,.1)' : isSecond ? 'rgba(239,68,68,.1)' : 'rgba(255,255,255,.04)'
+  const badge  = isFirst ? '🟢 1η' : isSecond ? '🔴 2η' : '⚪'
+  const nikoColor = isFirst ? GREEN : isSecond ? RED : TEAL
 
   return (
-    <div style={{
-      background: bgColor, borderRadius: 10,
-      border: `1px solid ${borderColor}`,
-      padding: '10px 14px',
-      animation: 'fadeIn .4s ease',
-    }}>
+    <div style={{ background: bg, borderRadius: 10, border: `1px solid ${border}`,
+      padding: '10px 14px', animation: 'fadeIn .4s ease' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 13, fontWeight: 'bold' }}>{r.centerName}</span>
-        <span style={{ fontSize: 11, opacity: .45 }}>{r.centerArea}</span>
+        <span style={{ fontSize: 11, opacity: .4 }}>{r.centerArea}</span>
         <span style={{ background: `${TEAL}20`, border: `1px solid ${TEAL}40`,
           color: TEAL, borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 'bold' }}>
           {r.pollName} #{r.pollNum}
         </span>
-        <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 'bold', color: dotColor }}>{badge}</span>
+        <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 'bold',
+          color: isFirst ? GREEN : isSecond ? RED : '#888' }}>{badge}</span>
       </div>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
         {CANDIDATES.map(c => r[c.key] != null && (
           <div key={c.key} style={{ textAlign: 'center', minWidth: 40 }}>
-            <div style={{ fontSize: 10, opacity: .45, marginBottom: 2 }}>{c.label}</div>
+            <div style={{ fontSize: 10, opacity: .4, marginBottom: 2 }}>{c.label}</div>
             <div style={{ fontWeight: 'bold', fontSize: 16,
-              color: c.key === 'nikoletta' ? (isFirst ? GREEN : isSecond ? RED : c.color) : c.color }}>
+              color: c.key === 'nikoletta' ? nikoColor : c.color }}>
               {r[c.key]}
             </div>
           </div>
         ))}
         {r.synolo != null && (
           <div style={{ textAlign: 'center', minWidth: 40, marginLeft: 'auto' }}>
-            <div style={{ fontSize: 10, opacity: .45, marginBottom: 2 }}>Σύνολο</div>
-            <div style={{ fontWeight: 'bold', fontSize: 16, opacity: .6 }}>{r.synolo}</div>
+            <div style={{ fontSize: 10, opacity: .4, marginBottom: 2 }}>Σύνολο</div>
+            <div style={{ fontWeight: 'bold', fontSize: 16, opacity: .5 }}>{r.synolo}</div>
           </div>
         )}
       </div>
@@ -374,25 +392,40 @@ function ApprovedBallotRow({ result: r }) {
   )
 }
 
-// ── Pending ballot row (no vote counts shown) ──────────────────────────────────
-function PendingBallotRow({ result: r }) {
+// ── Pending row: compact, one line, orange dot if submitted to Firestore ───────
+function PendingRow({ poll: p, hasSubmission }) {
   return (
     <div style={{
-      background: 'rgba(255,255,255,.04)', borderRadius: 10,
-      border: '1px solid rgba(255,200,50,.2)',
-      padding: '10px 14px',
+      background: hasSubmission ? 'rgba(251,191,36,.06)' : 'rgba(255,255,255,.03)',
+      borderRadius: 8,
+      border: hasSubmission ? '1px solid rgba(251,191,36,.3)' : '1px solid rgba(255,255,255,.06)',
+      padding: '7px 12px',
+      display: 'flex', alignItems: 'center', gap: 8,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b',
-          flexShrink: 0, animation: 'pulse 1.5s ease-in-out infinite' }} />
-        <span style={{ fontSize: 13, fontWeight: 'bold' }}>{r.centerName}</span>
-        <span style={{ fontSize: 11, opacity: .45 }}>{r.centerArea}</span>
-        <span style={{ background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.12)',
-          color: 'rgba(255,255,255,.6)', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 'bold' }}>
-          {r.pollName} #{r.pollNum}
+      {/* Status dot */}
+      <span style={{
+        width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+        background: hasSubmission ? '#fbbf24' : 'rgba(255,255,255,.2)',
+        animation: hasSubmission ? 'pulse 1.5s ease-in-out infinite' : 'none',
+      }} />
+      {/* Poll number */}
+      <span style={{ fontSize: 11, color: 'rgba(255,255,255,.35)', minWidth: 20 }}>#{p.pollNum}</span>
+      {/* Center name */}
+      <span style={{ fontSize: 12, fontWeight: hasSubmission ? 'bold' : 'normal',
+        color: hasSubmission ? 'rgba(255,255,255,.85)' : 'rgba(255,255,255,.45)',
+        flex: 1 }}>
+        {p.centerName}
+      </span>
+      {/* Poll name */}
+      <span style={{ fontSize: 10, color: 'rgba(255,255,255,.25)', whiteSpace: 'nowrap' }}>
+        {p.pollName}
+      </span>
+      {/* Submitted badge */}
+      {hasSubmission && (
+        <span style={{ fontSize: 10, color: '#fbbf24', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+          παραλήφθηκε
         </span>
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: '#f59e0b', opacity: .7 }}>αναμονή…</span>
-      </div>
+      )}
     </div>
   )
 }
