@@ -1,5 +1,5 @@
-import { useEffect, useState, useMemo, useRef } from 'react'
-import { collection, onSnapshot, query, where } from 'firebase/firestore'
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
+import { collection, onSnapshot, query, where, getDocs } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import confetti from 'canvas-confetti'
 import { POLL_LOOKUP, ALL_CENTERS } from '../data/electionData'
@@ -63,20 +63,27 @@ function fireConfetti() {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function PublicResults() {
-  const [approved,  setApproved]  = useState([])
-  const [submitted, setSubmitted] = useState([])   // pending in Firestore (received, not yet approved)
-  const [countdown, setCountdown] = useState(null)
-  const [newCard,   setNewCard]   = useState(null)
-  const prevIdsRef  = useRef(new Set())
-  const initialLoad = useRef(true)
+  const [approved,   setApproved]   = useState([])
+  const [submitted,  setSubmitted]  = useState([])   // pending in Firestore (received, not yet approved)
+  const [countdown,  setCountdown]  = useState(null)
+  const [newCard,    setNewCard]    = useState(null)
+  const [connected,  setConnected]  = useState(true)
+  const prevIdsRef   = useRef(new Set())
+  const initialLoad  = useRef(true)
+  const unsubApprRef = useRef(null)
+  const unsubPendRef = useRef(null)
 
-  // ── Approved listener ──
-  useEffect(() => {
-    const unsub = onSnapshot(
+  // ── Subscribe helper ────────────────────────────────────────────────────
+  const subscribe = useCallback(() => {
+    // Approved
+    if (unsubApprRef.current) unsubApprRef.current()
+    unsubApprRef.current = onSnapshot(
       query(collection(db, 'ballot_results'), where('status', '==', 'approved')),
       snap => {
+        setConnected(true)
         const docs = snap.docs
           .map(d => ({ id: d.id, ...d.data() }))
+          .filter(d => !d.isOfficial)
           .sort((a, b) => (b.approvedAt?.seconds || 0) - (a.approvedAt?.seconds || 0))
         const prevIds = prevIdsRef.current
         const newIds  = docs.map(d => d.id).filter(id => !prevIds.has(id))
@@ -88,20 +95,38 @@ export default function PublicResults() {
           if (newest) setCountdown({ result: newest, n: 3 })
         }
       },
-      err => console.error('approved listener:', err)
+      err => { console.error('approved listener:', err); setConnected(false) }
     )
-    return unsub
-  }, [])
 
-  // ── Submitted (pending) listener — to show orange dot on right column ──
-  useEffect(() => {
-    const unsub = onSnapshot(
+    // Pending
+    if (unsubPendRef.current) unsubPendRef.current()
+    unsubPendRef.current = onSnapshot(
       query(collection(db, 'ballot_results'), where('status', '==', 'pending')),
       snap => setSubmitted(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
       err => console.error('pending listener:', err)
     )
-    return unsub
   }, [])
+
+  // ── Initial subscription ─────────────────────────────────────────────────
+  useEffect(() => {
+    subscribe()
+    return () => {
+      if (unsubApprRef.current) unsubApprRef.current()
+      if (unsubPendRef.current) unsubPendRef.current()
+    }
+  }, [subscribe])
+
+  // ── Re-subscribe when page becomes visible (fixes bfcache / tab-switch staleness) ──
+  useEffect(() => {
+    function onVisible() {
+      if (!document.hidden) {
+        initialLoad.current = false   // don't suppress new-ballot animation on re-focus
+        subscribe()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [subscribe])
 
   // ── Countdown tick ──
   useEffect(() => {
@@ -274,8 +299,10 @@ export default function PublicResults() {
               ΑΠΟΤΕΛΕΣΜΑΤΑ ΕΚΛΟΓΩΝ
             </h1>
             <div style={{ marginTop: 10, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <span style={{ background: 'rgba(69,192,172,.15)', border: `1px solid ${TEAL}`, borderRadius: 20, padding: '3px 12px', fontSize: 12, color: TEAL }}>
-                🔴 LIVE
+              <span style={{ background: connected ? 'rgba(69,192,172,.15)' : 'rgba(239,68,68,.15)',
+                border: `1px solid ${connected ? TEAL : RED}`, borderRadius: 20, padding: '3px 12px',
+                fontSize: 12, color: connected ? TEAL : RED }}>
+                {connected ? '🔴 LIVE' : '⚠️ Αποσυνδεδεμένο'}
               </span>
               <span style={{ background: 'rgba(34,197,94,.15)', borderRadius: 20, padding: '3px 12px', fontSize: 12, color: GREEN }}>
                 ✅ {approved.length} / 122 ολοκληρωμένες
@@ -404,63 +431,34 @@ export default function PublicResults() {
   )
 }
 
-// ── Forecast banner ───────────────────────────────────────────────────────────
+// ── Forecast banner — compact, percentages only ───────────────────────────────
 function ForecastBanner({ forecast: f }) {
-  const { rankedForecast, predictedTotal, pctComplete, turnout, confidence, confidenceColor, totalSynolo } = f
-  const maxPredicted = rankedForecast[0]?.predicted || 1
-  const nikoFirst    = rankedForecast[0]?.key === 'nikoletta'
+  const { rankedForecast, pctComplete, confidence, confidenceColor, totalSynolo } = f
+  const nikoFirst = rankedForecast[0]?.key === 'nikoletta'
 
   return (
-    <div style={{
-      maxWidth: 1200, margin: '24px auto 0', padding: '0 20px',
-    }}>
+    <div style={{ maxWidth: 1200, margin: '16px auto 0', padding: '0 20px' }}>
       <div style={{
         background: 'rgba(255,255,255,.04)',
-        border: `1px solid ${nikoFirst ? 'rgba(69,192,172,.3)' : 'rgba(239,68,68,.2)'}`,
-        borderRadius: 16,
-        padding: '20px 24px',
-        backdropFilter: 'blur(8px)',
+        border: `1px solid ${nikoFirst ? 'rgba(69,192,172,.25)' : 'rgba(239,68,68,.2)'}`,
+        borderRadius: 12,
+        padding: '12px 18px',
       }}>
-
-        {/* Header row */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, letterSpacing: 3, textTransform: 'uppercase',
-              color: TEAL, fontWeight: 'bold', marginBottom: 4 }}>
-              🔮 Πρόβλεψη Τελικού Αποτελέσματος
-            </div>
-            <div style={{ fontSize: 12, opacity: .45 }}>
-              Βασίζεται στο μοτίβο των {Math.round(pctComplete)}% καταμετρημένων ψηφοφόρων
-              · Συμμετοχή: ~{Math.round(turnout * 100)}%
-              · Εκτιμώμενο σύνολο ψήφων: ~{predictedTotal.toLocaleString('el-GR')}
-            </div>
-          </div>
-          {/* Confidence pill */}
-          <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center',
-            background: 'rgba(255,255,255,.05)', borderRadius: 12, padding: '8px 16px',
-            border: `1px solid ${confidenceColor}40`,
-            minWidth: 100,
-          }}>
-            <div style={{ fontSize: 9, opacity: .5, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 4 }}>
-              Εμπιστοσύνη
-            </div>
-            <div style={{ fontSize: 15, fontWeight: 'bold', color: confidenceColor }}>
-              {confidence}
-            </div>
-            <div style={{ fontSize: 11, opacity: .5, marginTop: 2 }}>{Math.round(pctComplete)}% σε</div>
-          </div>
-        </div>
-
-        {/* Progress bar — % reported */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, opacity: .4, marginBottom: 5 }}>
-            <span>Καταμετρήθηκε</span>
-            <span>{Math.round(pctComplete)}% ({Math.round(pctComplete * 1.22)} / 122 κάλπες εκτιμητικά)</span>
-          </div>
-          <div style={{ background: 'rgba(255,255,255,.08)', borderRadius: 6, height: 6, overflow: 'hidden' }}>
+        {/* Title row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 10, letterSpacing: 2, color: TEAL, fontWeight: 'bold', textTransform: 'uppercase' }}>
+            🔮 Πρόβλεψη
+          </span>
+          <span style={{ fontSize: 10, opacity: .4 }}>
+            {Math.round(pctComplete)}% σε · εμπιστοσύνη:
+          </span>
+          <span style={{ fontSize: 10, fontWeight: 'bold', color: confidenceColor }}>
+            {confidence}
+          </span>
+          {/* Progress bar */}
+          <div style={{ flex: 1, minWidth: 80, background: 'rgba(255,255,255,.08)', borderRadius: 4, height: 4, overflow: 'hidden' }}>
             <div style={{
-              height: '100%', borderRadius: 6,
+              height: '100%', borderRadius: 4,
               width: `${Math.min(pctComplete, 100)}%`,
               background: `linear-gradient(90deg, ${TEAL}, ${confidenceColor})`,
               transition: 'width .7s ease',
@@ -468,56 +466,37 @@ function ForecastBanner({ forecast: f }) {
           </div>
         </div>
 
-        {/* Predicted ranking bars */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* Candidates as horizontal pills */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           {rankedForecast.map((c, i) => {
-            const pct   = maxPredicted > 0 ? (c.predicted / maxPredicted) * 100 : 0
-            const isNiko = c.key === 'nikoletta'
+            const sharePct = totalSynolo > 0 ? Math.round((c.current / totalSynolo) * 100) : 0
             const isTop  = i === 0
-            const barColor = isTop
-              ? (isNiko ? GREEN : RED)
-              : (isNiko && !isTop ? RED : c.color)
-
+            const isNiko = c.key === 'nikoletta'
+            const barColor = isTop ? (isNiko ? GREEN : RED) : (isNiko && !isTop ? RED : c.color)
             return (
-              <div key={c.key}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 5 }}>
-                  <span style={{ fontSize: isTop ? 18 : 14, minWidth: 28, lineHeight: 1 }}>
-                    {['🥇','🥈','🥉','4ος','5ος'][i]}
-                  </span>
-                  {isNiko && (
-                    <img src="/dermlux-waitlist/nikoletta.png" alt=""
-                      style={{ width: 22, height: 22, borderRadius: '50%',
-                        objectFit: 'cover', objectPosition: 'top center',
-                        border: `1.5px solid ${TEAL}`, flexShrink: 0 }} />
-                  )}
-                  <span style={{ flex: 1, fontSize: isTop ? 15 : 13, fontWeight: isTop ? 'bold' : 'normal',
-                    opacity: isTop ? 1 : .7 }}>
-                    {c.label}
-                  </span>
-                  <span style={{ fontSize: isTop ? 22 : 16, fontWeight: 'bold', color: barColor,
-                    minWidth: 70, textAlign: 'right' }}>
-                    ~{c.predicted.toLocaleString('el-GR')}
-                  </span>
-                  <span style={{ fontSize: 11, opacity: .35, minWidth: 48, textAlign: 'right' }}>
-                    ({totalSynolo > 0 ? Math.round((c.current / totalSynolo) * 100) : 0}% τώρα)
-                  </span>
-                </div>
-                <div style={{ background: 'rgba(255,255,255,.07)', borderRadius: 4, height: isTop ? 8 : 5, overflow: 'hidden' }}>
-                  <div style={{
-                    height: '100%', borderRadius: 4,
-                    width: `${pct}%`,
-                    background: barColor,
-                    opacity: isTop ? 1 : .6,
-                    transition: 'width .7s ease',
-                  }} />
-                </div>
+              <div key={c.key} style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                background: isTop ? `${barColor}18` : 'rgba(255,255,255,.04)',
+                border: `1px solid ${isTop ? barColor + '50' : 'rgba(255,255,255,.08)'}`,
+                borderRadius: 20, padding: '4px 10px',
+              }}>
+                <span style={{ fontSize: 12, lineHeight: 1 }}>{['🥇','🥈','🥉','4ος','5ος'][i]}</span>
+                {isNiko && (
+                  <img src="/dermlux-waitlist/nikoletta.png" alt=""
+                    style={{ width: 18, height: 18, borderRadius: '50%',
+                      objectFit: 'cover', objectPosition: 'top center',
+                      border: `1px solid ${TEAL}`, flexShrink: 0 }} />
+                )}
+                <span style={{ fontSize: isTop ? 12 : 11, fontWeight: isTop ? 'bold' : 'normal',
+                  opacity: isTop ? 1 : .7 }}>
+                  {c.label}
+                </span>
+                <span style={{ fontSize: isTop ? 15 : 13, fontWeight: 'bold', color: barColor }}>
+                  {sharePct}%
+                </span>
               </div>
             )
           })}
-        </div>
-
-        <div style={{ marginTop: 14, fontSize: 10, opacity: .25, textAlign: 'center' }}>
-          Η πρόβλεψη είναι εκτίμηση και ενημερώνεται σε πραγματικό χρόνο · Δεν αντικαθιστά τα επίσημα αποτελέσματα
         </div>
       </div>
     </div>
