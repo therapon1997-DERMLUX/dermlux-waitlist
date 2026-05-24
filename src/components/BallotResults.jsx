@@ -205,11 +205,6 @@ export default function BallotResults() {
     results.filter(r => r.isOfficial && (!r.status || r.status === 'pending'))
   , [results])
 
-  // pollNums that are already approved
-  const approvedPollNums = useMemo(() =>
-    new Set(approved.map(r => Number(r.pollNum)))
-  , [approved])
-
   // Duplicate detection: pollNums that appear more than once across non-rejected agent results
   const duplicatePollNums = useMemo(() => {
     const counts = {}
@@ -411,7 +406,6 @@ export default function BallotResults() {
                       onEdit={() => setEditId(r.id)}
                       officialData={r.pollNum ? officialByPollNum[r.pollNum] : null}
                       isDuplicate={duplicatePollNums.has(Number(r.pollNum))}
-                      isAlreadyApproved={approvedPollNums.has(Number(r.pollNum))}
                     />
               )}
             </div>
@@ -503,16 +497,10 @@ function OfficialCard({ result: r, onApprove, onReject, onDelete, formatDate }) 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pending card (yellow) — with optional official side-by-side
 // ─────────────────────────────────────────────────────────────────────────────
-function PendingCard({ result: r, officialData, isDuplicate, isAlreadyApproved, onApprove, onReject, onEdit, onDelete, formatDate }) {
-  const borderClass = isAlreadyApproved ? 'border-green-500' : isDuplicate ? 'border-orange-400' : 'border-yellow-300'
+function PendingCard({ result: r, officialData, isDuplicate, onApprove, onReject, onEdit, onDelete, formatDate }) {
   return (
-    <div className={`card overflow-hidden border ${borderClass} bg-yellow-50`}>
-      {isAlreadyApproved && (
-        <div className="bg-green-600 text-white text-xs font-bold px-4 py-1.5 flex items-center gap-2">
-          ✅ ΗΔΗ ΕΓΚΕΚΡΙΜΕΝΗ — Η κάλπη #{r.pollNum} έχει ήδη εγκριθεί!
-        </div>
-      )}
-      {!isAlreadyApproved && isDuplicate && (
+    <div className={`card overflow-hidden border ${isDuplicate ? 'border-orange-400' : 'border-yellow-300'} bg-yellow-50`}>
+      {isDuplicate && (
         <div className="bg-orange-500 text-white text-xs font-bold px-4 py-1.5 flex items-center gap-2">
           ⚠️ ΔΙΠΛΟΤΥΠΟ — Υπάρχει ήδη καταχώρηση για την κάλπη #{r.pollNum}
         </div>
