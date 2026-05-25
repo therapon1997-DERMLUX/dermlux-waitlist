@@ -33,6 +33,7 @@ export default function Navbar() {
             <span className="font-bold text-lg tracking-wide">Nikoletta 2026</span>
             <div className="flex gap-1">
               {userProfile?.role !== 'ekloges' && <Link to="/" className={linkClass('/')}>Dashboard</Link>}
+              {userProfile?.role !== 'ekloges' && <Link to="/medical" className={linkClass('/medical')}>Ασθενείς</Link>}
               {isAdmin && <Link to="/admin" className={linkClass('/admin')}>Admin</Link>}
               {isAdmin && <Link to="/email" className={linkClass('/email')}>Email</Link>}
               {isAdmin && <Link to="/votes" className={linkClass('/votes')}>Ψηφοφόροι</Link>}
