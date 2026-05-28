@@ -9,6 +9,7 @@ const TABS = [
   { key: 'ekloges',      label: '🗳️ Εκλογές' },
   { key: 'psifofori',    label: '👥 Ψηφοφόροι' },
   { key: 'apotelesmata', label: '📊 Αποτελέσματα' },
+  { key: 'epafes',       label: '📋 Βάση Επαφών' },
 ]
 
 export default function ElectionArchive() {
@@ -85,6 +86,14 @@ export default function ElectionArchive() {
         {activeTab === 'ekloges'      && <EklogikáKentra />}
         {activeTab === 'psifofori'    && <VoteContacts />}
         {activeTab === 'apotelesmata' && <BallotResults />}
+        {activeTab === 'epafes'       && (
+          <iframe
+            src="/dermlux-waitlist/epafes.html"
+            title="Βάση Επαφών 2026"
+            className="w-full border-0"
+            style={{ height: 'calc(100vh - 105px)' }}
+          />
+        )}
       </div>
     </div>
   )
