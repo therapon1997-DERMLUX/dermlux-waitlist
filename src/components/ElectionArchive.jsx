@@ -16,7 +16,7 @@ export default function ElectionArchive() {
   const [input, setInput] = useState('')
   const [unlocked, setUnlocked] = useState(false)
   const [error, setError] = useState(false)
-  const [activeTab, setActiveTab] = useState('ekloges')
+  const [activeTab, setActiveTab] = useState('epafes')
 
   function handleSubmit(e) {
     e.preventDefault()
