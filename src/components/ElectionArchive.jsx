@@ -90,7 +90,7 @@ export default function ElectionArchive() {
         {activeTab === 'apotelesmata' && <BallotResults />}
         {activeTab === 'epafes'       && (
           <iframe
-            src="/dermlux-waitlist/epafes.html?v=3"
+            src="/dermlux-waitlist/epafes.html?v=4"
             title="Βάση Επαφών 2026"
             className="w-full border-0"
             style={{ height: '100%', minHeight: 'calc(100vh - 56px - 64px)' }}
