@@ -7,9 +7,8 @@ import EmailMarketing from './components/email/EmailMarketing'
 import VoteContacts from './components/VoteContacts'
 import Navbar from './components/Navbar'
 import EklogikáKentra from './components/ekloges/EklogikáKentra'
-import BallotSubmit from './components/BallotSubmit'
 import BallotResults from './components/BallotResults'
-import PublicResults from './components/PublicResults'
+import ElectionArchive from './components/ElectionArchive'
 import MedicalRecords from './components/medical/MedicalRecords'
 import PatientProfile from './components/medical/PatientProfile'
 
@@ -48,9 +47,8 @@ export default function App() {
           <Route path="/email" element={<AdminRoute><EmailMarketing /></AdminRoute>} />
           <Route path="/votes" element={<AdminRoute><VoteContacts /></AdminRoute>} />
           <Route path="/ekloges" element={<EklogesRoute><EklogikáKentra /></EklogesRoute>} />
-          <Route path="/kaipes" element={<BallotSubmit />} />
-          <Route path="/apotelesmata" element={<PublicResults />} />
           <Route path="/ballot-results" element={<AdminRoute><BallotResults /></AdminRoute>} />
+          <Route path="/election-archive" element={<ProtectedRoute><ElectionArchive /></ProtectedRoute>} />
           <Route path="/medical" element={<ProtectedRoute><MedicalRecords /></ProtectedRoute>} />
           <Route path="/medical/:id" element={<ProtectedRoute><PatientProfile /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />

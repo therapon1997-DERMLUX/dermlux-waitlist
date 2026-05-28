@@ -48,6 +48,7 @@ export default function Navbar() {
                   )}
                 </Link>
               )}
+              {isAdmin && <Link to="/election-archive" className={linkClass('/election-archive')}>📁 Εκλογές 2026</Link>}
             </div>
           </div>
 
