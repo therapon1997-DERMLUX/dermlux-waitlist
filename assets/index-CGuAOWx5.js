@@ -4145,66 +4145,56 @@ Content-Type: `+c.contentType+`\r
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <title>DermLux — Everything your skin needs, in one place.</title>
 </head>
-<body style="margin:0;padding:0;background-color:#EEEBE0;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;">
+<body style="margin:0;padding:0;background-color:#f0ece4;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;">
 
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#EEEBE0;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f0ece4;">
 <tr><td align="center" style="padding:0;">
 
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;">
 
 
 <!-- ══════════════════════════════════════════════════════
-     1. HEADER — #161616, 170px, logo centred
+     1. HEADER — #161616 dark, logo + DermLux text + subtitle
 ════════════════════════════════════════════════════════ -->
 <tr>
-  <td style="background-color:#161616;height:170px;text-align:center;vertical-align:middle;padding:0;">
+  <td style="background-color:#161616;padding:28px 40px 26px;text-align:center;">
     <img src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/698edc30cdeae666002ae63e/e891fda18_logoderm.png"
-         alt="DermLux" width="125" height="112"
-         style="display:block;margin:0 auto;width:125px;height:112px;">
+         alt="DermLux" width="72" height="72"
+         style="display:block;margin:0 auto 10px;width:72px;height:72px;">
+    <div style="font-family:Georgia,'Times New Roman',serif;font-size:28px;font-weight:400;color:#EEEBE0;letter-spacing:5px;margin-bottom:6px;">DermLux</div>
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:8px;color:#666666;letter-spacing:3px;text-transform:uppercase;">Laser &nbsp;&middot;&nbsp; Medical Aesthetics</div>
   </td>
 </tr>
 
 
 <!-- ══════════════════════════════════════════════════════
-     2. HERO — 600×476, warm brown gradient baked in
+     2. HERO — 600×476, gradient + text baked into image
 ════════════════════════════════════════════════════════ -->
 <tr>
   <td style="padding:0;line-height:0;">
     <img src="https://therapon1997-dermlux.github.io/dermlux-waitlist/email-images/hero-gradient.jpeg"
-         alt="DermLux" width="600" height="476"
+         alt="Everything your skin needs, in one place." width="600" height="476"
          style="display:block;width:100%;max-width:600px;">
   </td>
 </tr>
 
 
 <!-- ══════════════════════════════════════════════════════
-     3. HERO TEXT — #372E21, flush with gradient bottom
+     3. GREETING — white, clean, no dark section
 ════════════════════════════════════════════════════════ -->
 <tr>
-  <td style="background-color:#372E21;padding:26px 40px 38px;">
-    <div style="font-family:Arial,Helvetica,sans-serif;font-size:8px;color:#9D845F;letter-spacing:3px;text-transform:uppercase;margin-bottom:14px;">Skin &nbsp;&middot;&nbsp; Hair &nbsp;&middot;&nbsp; Aesthetics</div>
-    <div style="font-family:Georgia,'Times New Roman',serif;font-size:27px;font-style:italic;font-weight:400;color:#EEEBE0;line-height:1.35;margin-bottom:12px;">Everything your skin needs,<br>in one place.</div>
-    <div style="font-family:Georgia,'Times New Roman',serif;font-size:13px;font-style:italic;color:#9D845F;line-height:1.75;">Three things we do exceptionally well,<br>all under medical expertise.</div>
-  </td>
-</tr>
-
-
-<!-- ══════════════════════════════════════════════════════
-     4. GREETING — white
-════════════════════════════════════════════════════════ -->
-<tr>
-  <td style="background-color:#ffffff;padding:44px 44px 12px;">
+  <td style="background-color:#ffffff;padding:44px 44px 16px;">
     <p style="margin:0 0 14px;font-family:Georgia,'Times New Roman',serif;font-size:16px;font-weight:700;color:#161616;">Hi {{name}},</p>
     <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.9;color:#555555;">From a single glow-boosting facial to long-term laser plans and doctor-led injectables, DermLux brings it all together across our five clinics in Cyprus.</p>
   </td>
 </tr>
 <tr>
-  <td style="background-color:#ffffff;height:32px;"></td>
+  <td style="background-color:#ffffff;height:36px;"></td>
 </tr>
 
 
 <!-- ══════════════════════════════════════════════════════
-     5. SERVICE TABS — Figma PNG graphics (exact match)
+     4. SERVICE TABS — exact Figma PNG graphics
 ════════════════════════════════════════════════════════ -->
 <tr>
   <td style="padding:0;line-height:0;">
@@ -4232,7 +4222,7 @@ Content-Type: `+c.contentType+`\r
 
 
 <!-- ══════════════════════════════════════════════════════
-     6. TREATMENT PHOTOS — real DermLux photos, 200×300, pink gradient overlay
+     5. TREATMENT PHOTOS — real photos, 200×300, pink gradient overlay
 ════════════════════════════════════════════════════════ -->
 <tr>
   <td style="padding:0;line-height:0;">
@@ -4240,12 +4230,12 @@ Content-Type: `+c.contentType+`\r
       <tr>
         <td width="200" style="padding:0;line-height:0;">
           <img src="https://therapon1997-dermlux.github.io/dermlux-waitlist/email-images/facial-overlay.jpeg"
-               alt="Facials &amp; Skin Glow" width="200" height="300"
+               alt="Facials" width="200" height="300"
                style="display:block;width:200px;height:300px;">
         </td>
         <td width="200" style="padding:0;line-height:0;">
           <img src="https://therapon1997-dermlux.github.io/dermlux-waitlist/email-images/laser-overlay.jpeg"
-               alt="Laser Hair Removal" width="200" height="300"
+               alt="Laser" width="200" height="300"
                style="display:block;width:200px;height:300px;">
         </td>
         <td width="200" style="padding:0;line-height:0;">
@@ -4260,21 +4250,21 @@ Content-Type: `+c.contentType+`\r
 
 
 <!-- ══════════════════════════════════════════════════════
-     7. TREATMENT CONTENT — 3 columns, coloured backgrounds
+     6. TREATMENT CONTENT — 3 columns, coloured backgrounds
 ════════════════════════════════════════════════════════ -->
 <tr>
   <td style="padding:0;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
       <tr valign="top">
 
-        <!-- Facials — light mauve #F7F1F5 -->
+        <!-- Facials — #F7F1F5 light mauve -->
         <td width="200" style="background-color:#F7F1F5;padding:28px 18px 32px;vertical-align:top;">
           <div style="font-family:Arial,Helvetica,sans-serif;font-size:6.5px;font-weight:700;color:#B392A4;letter-spacing:2.5px;text-transform:uppercase;margin-bottom:16px;">Popular Treatments</div>
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;"><span style="color:#B392A4;margin-right:7px;">&#8226;</span>Premium Deep Cleansing</td></tr>
-            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;"><span style="color:#B392A4;margin-right:7px;">&#8226;</span>Hydration Facial</td></tr>
-            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;"><span style="color:#B392A4;margin-right:7px;">&#8226;</span>Vampire Facial</td></tr>
-            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;"><span style="color:#B392A4;margin-right:7px;">&#8226;</span>Advanced Diamond Facial</td></tr>
+            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;">&#8250;&nbsp;&nbsp;Premium Deep Cleansing</td></tr>
+            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;">&#8250;&nbsp;&nbsp;Hydration Facial</td></tr>
+            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;">&#8250;&nbsp;&nbsp;Vampire Facial</td></tr>
+            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;">&#8250;&nbsp;&nbsp;Advanced Diamond Facial</td></tr>
           </table>
           <div style="margin-top:24px;">
             <a href="https://dermluxclinics.com/EmailPublicBookingForm"
@@ -4284,31 +4274,31 @@ Content-Type: `+c.contentType+`\r
           </div>
         </td>
 
-        <!-- Laser — light gray #F5F5F5 -->
+        <!-- Laser — #F5F5F5 light gray -->
         <td width="200" style="background-color:#F5F5F5;padding:28px 18px 32px;vertical-align:top;">
           <div style="font-family:Arial,Helvetica,sans-serif;font-size:6.5px;font-weight:700;color:#B392A4;letter-spacing:2.5px;text-transform:uppercase;margin-bottom:16px;">What We Offer</div>
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;"><span style="color:#B392A4;margin-right:7px;">&#8226;</span>All areas, face and body</td></tr>
-            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;"><span style="color:#B392A4;margin-right:7px;">&#8226;</span>6+ session bundles</td></tr>
-            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;"><span style="color:#B392A4;margin-right:7px;">&#8226;</span>Suitable for all skin types</td></tr>
-            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;"><span style="color:#B392A4;margin-right:7px;">&#8226;</span>Women's &amp; men's treatments</td></tr>
+            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;">&#8250;&nbsp;&nbsp;All areas, face and body</td></tr>
+            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;">&#8250;&nbsp;&nbsp;6+ session bundles, better value</td></tr>
+            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;">&#8250;&nbsp;&nbsp;Suitable for all skin types</td></tr>
+            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;">&#8250;&nbsp;&nbsp;Women's &amp; men's treatments</td></tr>
           </table>
           <div style="margin-top:24px;">
             <a href="https://dermluxclinics.com/EmailPublicBookingForm"
                style="display:block;background-color:#161616;color:#ffffff;text-decoration:none;font-family:Arial,Helvetica,sans-serif;font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;padding:13px 6px;text-align:center;">
-              EXPLORE LASER &rarr;
+              EXPLORE LASER PLANS &rarr;
             </a>
           </div>
         </td>
 
-        <!-- Injectables — light slate #EDEDF0 -->
+        <!-- Injectables — #EDEDF0 light slate -->
         <td width="200" style="background-color:#EDEDF0;padding:28px 18px 32px;vertical-align:top;">
           <div style="font-family:Arial,Helvetica,sans-serif;font-size:6.5px;font-weight:700;color:#B392A4;letter-spacing:2.5px;text-transform:uppercase;margin-bottom:16px;">Treatments</div>
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;"><span style="color:#B392A4;margin-right:7px;">&#8226;</span>Botox</td></tr>
-            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;"><span style="color:#B392A4;margin-right:7px;">&#8226;</span>Dermal Fillers</td></tr>
-            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;"><span style="color:#B392A4;margin-right:7px;">&#8226;</span>Skin Boosters</td></tr>
-            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;"><span style="color:#B392A4;margin-right:7px;">&#8226;</span>Polynucleotides</td></tr>
+            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;">&#8250;&nbsp;&nbsp;Botox</td></tr>
+            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;">&#8250;&nbsp;&nbsp;Dermal Fillers</td></tr>
+            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;">&#8250;&nbsp;&nbsp;Skin Boosters</td></tr>
+            <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#333333;padding:5px 0;">&#8250;&nbsp;&nbsp;Polynucleotides</td></tr>
           </table>
           <div style="margin-top:24px;">
             <a href="https://dermluxclinics.com/EmailPublicBookingForm"
@@ -4325,13 +4315,13 @@ Content-Type: `+c.contentType+`\r
 
 
 <!-- ══════════════════════════════════════════════════════
-     8. PRE-SUMMER GLOW PROMO BANNER
+     7. PRE-SUMMER GLOW PROMO
 ════════════════════════════════════════════════════════ -->
 <tr>
   <td style="padding:0;line-height:0;">
     <a href="https://dermluxclinics.com/EmailPublicBookingForm" style="display:block;line-height:0;">
       <img src="https://therapon1997-dermlux.github.io/dermlux-waitlist/email-images/promo-preglow.png"
-           alt="Pre-summer Glow — 1 Session — From €170 Now €125" width="600"
+           alt="Pre-summer Glow — From €170 Now €125" width="600"
            style="display:block;width:100%;max-width:600px;">
     </a>
   </td>
@@ -4339,7 +4329,7 @@ Content-Type: `+c.contentType+`\r
 
 
 <!-- ══════════════════════════════════════════════════════
-     9. CONSULTATION — DermLux clinic photo + text
+     8. CONSULTATION — clinic photo left, text right
 ════════════════════════════════════════════════════════ -->
 <tr>
   <td style="padding:0;line-height:0;">
@@ -4350,9 +4340,9 @@ Content-Type: `+c.contentType+`\r
                alt="DermLux Clinic" width="300" height="220"
                style="display:block;width:300px;height:220px;object-fit:cover;">
         </td>
-        <td width="300" style="background-color:#EEEBE0;padding:32px 26px;vertical-align:middle;line-height:normal;">
-          <div style="font-family:Georgia,'Times New Roman',serif;font-size:16px;font-style:italic;color:#161616;line-height:1.55;margin-bottom:14px;">Not sure where<br>to start? That's<br>what we're here for.</div>
-          <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#9D845F;line-height:1.85;">Book a fully redeemable consultation and we'll guide you to the right treatment.</div>
+        <td width="300" style="background-color:#f0ece4;padding:32px 26px;vertical-align:middle;line-height:normal;">
+          <div style="font-family:Georgia,'Times New Roman',serif;font-size:17px;font-style:italic;color:#161616;line-height:1.5;margin-bottom:16px;">Not sure where to start? That's what we're here for.</div>
+          <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#c4874a;line-height:1.85;">Book a full redeemable consultation and we'll guide you to the right treatment.</div>
         </td>
       </tr>
     </table>
@@ -4361,23 +4351,23 @@ Content-Type: `+c.contentType+`\r
 
 
 <!-- ══════════════════════════════════════════════════════
-     10. MAIN CTA — dark background
+     9. MAIN CTA — dark background
 ════════════════════════════════════════════════════════ -->
 <tr>
   <td style="background-color:#161616;padding:42px 40px 46px;text-align:center;">
-    <div style="font-family:Arial,Helvetica,sans-serif;font-size:7.5px;color:#9D845F;letter-spacing:3.5px;text-transform:uppercase;margin-bottom:24px;">Book or ask us anything</div>
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:7.5px;color:#888888;letter-spacing:3.5px;text-transform:uppercase;margin-bottom:24px;">Book or ask us anything</div>
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center">
       <tr>
         <td style="padding-right:8px;">
           <a href="https://dermluxclinics.com/EmailPublicBookingForm"
-             style="display:inline-block;background-color:#EEEBE0;color:#161616;text-decoration:none;font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;padding:16px 26px;">
+             style="display:inline-block;background-color:#EEEBE0;color:#161616;text-decoration:none;font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;padding:16px 26px;">
             FILL IN A FORM
           </a>
         </td>
         <td style="padding-left:8px;">
           <a href="https://wa.me/35797718967"
-             style="display:inline-block;background-color:#25D366;color:#ffffff;text-decoration:none;font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;padding:16px 26px;">
-            WHATSAPP US
+             style="display:inline-block;background-color:#25D366;color:#ffffff;text-decoration:none;font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;padding:16px 26px;">
+            &#10003; WHATSAPP US
           </a>
         </td>
       </tr>
@@ -4387,16 +4377,16 @@ Content-Type: `+c.contentType+`\r
 
 
 <!-- ══════════════════════════════════════════════════════
-     11. FOOTER
+     10. FOOTER
 ════════════════════════════════════════════════════════ -->
 <tr>
-  <td style="background-color:#0F0F0F;padding:26px 40px;text-align:center;">
-    <p style="margin:0 0 8px;font-family:Arial,Helvetica,sans-serif;font-size:10.5px;color:#9D845F;line-height:1.7;">5 clinics across Cyprus &nbsp;&middot;&nbsp; Medical expertise &nbsp;&middot;&nbsp; Visible results.</p>
-    <p style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:9.5px;color:#444444;line-height:1.6;">You're receiving this because you subscribed to DermLux updates.</p>
+  <td style="background-color:#111111;padding:26px 40px;text-align:center;">
+    <p style="margin:0 0 8px;font-family:Arial,Helvetica,sans-serif;font-size:10.5px;color:#888888;line-height:1.7;">5 clinics across Cyprus, medical expertise, visible results.</p>
+    <p style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:9.5px;color:#444444;line-height:1.6;">You've been subscribed to DermLux updates.</p>
     <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:9.5px;">
-      <a href="{{unsubscribe_url}}" style="color:#666666;text-decoration:underline;">Unsubscribe</a>
+      <a href="{{unsubscribe_url}}" style="color:#555555;text-decoration:underline;">Unsubscribe</a>
       <span style="color:#333333;margin:0 10px;">|</span>
-      <a href="https://dermluxclinics.com" style="color:#666666;text-decoration:underline;">dermluxclinics.com</a>
+      <a href="https://dermluxclinics.com" style="color:#555555;text-decoration:underline;">View in browser</a>
     </p>
   </td>
 </tr>
