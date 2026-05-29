@@ -11,6 +11,7 @@ import BallotResults from './components/BallotResults'
 import ElectionArchive from './components/ElectionArchive'
 import MedicalRecords from './components/medical/MedicalRecords'
 import PatientProfile from './components/medical/PatientProfile'
+import UnsubscribePage from './components/email/UnsubscribePage'
 
 function ProtectedRoute({ children }) {
   const { currentUser, userProfile } = useAuth()
@@ -51,6 +52,7 @@ export default function App() {
           <Route path="/election-archive" element={<ProtectedRoute><ElectionArchive /></ProtectedRoute>} />
           <Route path="/medical" element={<ProtectedRoute><MedicalRecords /></ProtectedRoute>} />
           <Route path="/medical/:id" element={<ProtectedRoute><PatientProfile /></ProtectedRoute>} />
+          <Route path="/unsubscribe" element={<UnsubscribePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
