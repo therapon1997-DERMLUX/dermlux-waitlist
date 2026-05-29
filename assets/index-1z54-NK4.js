@@ -4154,19 +4154,19 @@ Content-Type: `+c.contentType+`\r
 
 
 <!-- ══════════════════════════════════════════════════════
-     1. HEADER — #161616 dark, logo + DermLux text + subtitle
+     1. HEADER — extracted pixel-perfect from Figma PDF
 ════════════════════════════════════════════════════════ -->
 <tr>
-  <td style="background-color:#161616;padding:24px 40px 22px;text-align:center;">
-    <img src="https://therapon1997-dermlux.github.io/dermlux-waitlist/email-images/logo-full.png"
-         alt="DermLux — Laser &amp; Medical Aesthetics" width="120" height="109"
-         style="display:block;margin:0 auto;width:120px;height:109px;">
+  <td style="padding:0;line-height:0;">
+    <img src="https://therapon1997-dermlux.github.io/dermlux-waitlist/email-images/header-dermlux.jpeg"
+         alt="DermLux — Laser &amp; Medical Aesthetics" width="600" height="170"
+         style="display:block;width:100%;max-width:600px;">
   </td>
 </tr>
 
 
 <!-- ══════════════════════════════════════════════════════
-     2. HERO — 600×476, gradient + text baked into image
+     2. HERO — extracted pixel-perfect from Figma PDF
 ════════════════════════════════════════════════════════ -->
 <tr>
   <td style="padding:0;line-height:0;">
