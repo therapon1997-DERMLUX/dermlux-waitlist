@@ -7,12 +7,14 @@ import CampaignSendModal from './CampaignSendModal'
 const STATUS_STYLE = {
   draft:   'bg-gray-100 text-gray-600',
   sending: 'bg-blue-100 text-blue-700',
+  partial: 'bg-orange-100 text-orange-700',
   sent:    'bg-green-100 text-green-700',
   failed:  'bg-red-100 text-red-600',
 }
 const STATUS_LABEL = {
   draft:   'Draft',
   sending: 'Αποστολή…',
+  partial: 'Μερική Αποστολή',
   sent:    'Στάλθηκε',
   failed:  'Σφάλμα',
 }
@@ -77,8 +79,8 @@ export default function CampaignsTab() {
                 </span>
               </div>
 
-              {/* Stats (only for sent campaigns) */}
-              {c.status === 'sent' && c.stats && (
+              {/* Stats (for sent and partial campaigns) */}
+              {(c.status === 'sent' || c.status === 'partial') && c.stats && (
                 <div className="grid grid-cols-4 gap-3 text-center border-t pt-3">
                   <StatBox label="Στάλθηκαν" value={c.stats.sent ?? c.stats.total ?? 0} />
                   <StatBox label="Ανοίχθηκαν" value={pct(c.stats.opened, c.stats.sent)} highlight />
@@ -119,6 +121,17 @@ export default function CampaignsTab() {
                       onClick={() => handleDelete(c)}>
                       Διαγραφή
                     </button>
+                  </>
+                )}
+                {c.status === 'partial' && (
+                  <>
+                    <button className="btn-primary text-xs"
+                      onClick={() => setSendCampaign(c)}>
+                      ▶️ Συνέχεια Αποστολής
+                    </button>
+                    <div className="text-xs text-orange-600 self-center ml-1">
+                      {(c.stats?.total ?? 0) - (c.stats?.sent ?? 0)} εναπομένουν
+                    </div>
                   </>
                 )}
                 {c.status === 'sent' && (
