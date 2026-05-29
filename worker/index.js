@@ -42,7 +42,7 @@ export default {
       if (url.pathname === '/unsubscribe' && request.method === 'POST') {
         return await unsubscribeContact(request, env, json)
       }
-      if (url.pathname === '/webhook' && request.method === 'POST') {
+      if ((url.pathname === '/webhook' || url.pathname === '/resend-webhook') && request.method === 'POST') {
         return await handleWebhook(request, env, json)
       }
       return json({ error: 'Not found' }, 404)
