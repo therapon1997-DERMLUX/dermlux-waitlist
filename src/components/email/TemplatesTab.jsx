@@ -2,20 +2,41 @@ import { useState, useEffect } from 'react'
 import { collection, onSnapshot, orderBy, query, doc, deleteDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import templateHtml from '../../../email-templates/dermlux-skin-hair-aesthetics.html?raw'
+import template3colHtml from '../../../email-templates/dermlux-email-2-3col.html?raw'
+import templateSummerHtml from '../../../email-templates/dermlux-summer-preglow.html?raw'
 import CreateCampaignModal from './CreateCampaignModal'
 import FigImporter from './FigImporter'
 
 const HERO_THUMB = 'https://therapon1997-dermlux.github.io/dermlux-waitlist/email-images/hero-gradient.jpeg'
+const SUMMER_THUMB = 'https://therapon1997-dermlux.github.io/dermlux-waitlist/email-images/summer-hero.jpeg'
 
-// Built-in template (cannot be deleted)
-const BUILTIN = {
-  id: '__builtin__',
-  name: 'DermLux — Skin, Hair & Aesthetics',
-  description: 'Κύριο newsletter με facials, laser, injectables, promo banner και CTA.',
-  htmlBody: templateHtml,
-  thumbUrl: HERO_THUMB,
-  builtin: true,
-}
+// Built-in templates (cannot be deleted)
+const BUILTINS = [
+  {
+    id: '__builtin__',
+    name: 'DermLux — Skin, Hair & Aesthetics (με Promo)',
+    description: 'Κύριο newsletter με facials, laser, injectables, promo banner Pre-summer Glow και CTA.',
+    htmlBody: templateHtml,
+    thumbUrl: HERO_THUMB,
+    builtin: true,
+  },
+  {
+    id: '__builtin_3col__',
+    name: 'DermLux — Skin, Hair & Aesthetics (3 στήλες)',
+    description: 'Newsletter 3 στηλών με facials, laser, injectables και CTA. Χωρίς promo banner.',
+    htmlBody: template3colHtml,
+    thumbUrl: HERO_THUMB,
+    builtin: true,
+  },
+  {
+    id: '__builtin_summer__',
+    name: 'DermLux — Summer Preglow Campaign',
+    description: 'Εποχικό email για το πρόγραμμα Pre-summer Glow (€125). Με τιμή, λίστα θεραπειών και urgency notice.',
+    htmlBody: templateSummerHtml,
+    thumbUrl: SUMMER_THUMB,
+    builtin: true,
+  },
+]
 
 export default function TemplatesTab() {
   const [firestoreTpls, setFirestoreTpls] = useState([])
@@ -32,7 +53,7 @@ export default function TemplatesTab() {
     return unsub
   }, [])
 
-  const allTemplates = [BUILTIN, ...firestoreTpls]
+  const allTemplates = [...BUILTINS, ...firestoreTpls]
 
   async function handleDelete(tpl) {
     await deleteDoc(doc(db, 'email_templates', tpl.id))
