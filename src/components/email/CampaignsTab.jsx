@@ -30,6 +30,31 @@ export default function CampaignsTab() {
   const [showCreate, setShowCreate] = useState(false)
   const [editCampaign, setEditCampaign] = useState(null)
   const [sendCampaign, setSendCampaign] = useState(null)
+  const [testSend, setTestSend]   = useState(null) // { campaign, email, status }
+
+  async function handleTestSend(campaign) {
+    const email = window.prompt('Αποστολή test σε email:')
+    if (!email || !email.includes('@')) return
+    setTestSend({ campaign, email, status: 'sending' })
+    try {
+      const workerUrl = import.meta.env.VITE_WORKER_URL
+      const res = await fetch(`${workerUrl}/send-campaign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          campaignId: `test_${campaign.id}`,
+          campaign,
+          contacts: [{ id: 'test', name: 'Test', email }],
+        }),
+      })
+      const data = await res.json()
+      const ok = data.results?.[0]?.status === 'sent'
+      setTestSend({ campaign, email, status: ok ? 'done' : 'error' })
+    } catch {
+      setTestSend({ campaign, email, status: 'error' })
+    }
+    setTimeout(() => setTestSend(null), 4000)
+  }
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -106,7 +131,7 @@ export default function CampaignsTab() {
               )}
 
               {/* Actions */}
-              <div className="flex gap-2 pt-1 border-t">
+              <div className="flex gap-2 pt-1 border-t flex-wrap">
                 {c.status === 'draft' && (
                   <>
                     <button className="btn-primary text-xs"
@@ -116,10 +141,6 @@ export default function CampaignsTab() {
                     <button className="btn-secondary text-xs"
                       onClick={() => { setEditCampaign(c); setShowCreate(true) }}>
                       ✏️ Επεξεργασία
-                    </button>
-                    <button className="text-xs text-red-400 hover:text-red-600 ml-auto"
-                      onClick={() => handleDelete(c)}>
-                      Διαγραφή
                     </button>
                   </>
                 )}
@@ -140,6 +161,17 @@ export default function CampaignsTab() {
                     📋 Αντιγραφή ως Draft
                   </button>
                 )}
+                <button className="btn-secondary text-xs"
+                  onClick={() => handleTestSend(c)}
+                  disabled={testSend?.campaign?.id === c.id && testSend.status === 'sending'}>
+                  {testSend?.campaign?.id === c.id && testSend.status === 'sending' ? '⏳ Αποστολή…' : '🧪 Test Send'}
+                </button>
+                {c.status === 'draft' && (
+                  <button className="text-xs text-red-400 hover:text-red-600 ml-auto"
+                    onClick={() => handleDelete(c)}>
+                    Διαγραφή
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -157,6 +189,15 @@ export default function CampaignsTab() {
           campaign={sendCampaign}
           onClose={() => setSendCampaign(null)}
         />
+      )}
+
+      {/* Test send toast */}
+      {testSend && testSend.status !== 'sending' && (
+        <div className={`fixed bottom-6 right-6 px-5 py-3 rounded-lg shadow-lg text-white text-sm z-50 ${testSend.status === 'done' ? 'bg-green-600' : 'bg-red-600'}`}>
+          {testSend.status === 'done'
+            ? `✅ Test email στάλθηκε στο ${testSend.email}`
+            : `❌ Αποτυχία αποστολής στο ${testSend.email}`}
+        </div>
       )}
     </div>
   )
