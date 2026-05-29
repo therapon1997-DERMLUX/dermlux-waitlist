@@ -2,10 +2,12 @@ import { useState } from 'react'
 import ContactsTab from './ContactsTab'
 import CampaignsTab from './CampaignsTab'
 import MetricsTab from './MetricsTab'
+import TemplatesTab from './TemplatesTab'
 
 const TABS = [
   { id: 'contacts',  label: '👥 Επαφές' },
   { id: 'campaigns', label: '📧 Καμπάνιες' },
+  { id: 'templates', label: '🎨 Templates' },
   { id: 'metrics',   label: '📊 Μετρικά' },
 ]
 
@@ -41,6 +43,7 @@ export default function EmailMarketing() {
       {/* Content */}
       {tab === 'contacts'  && <ContactsTab />}
       {tab === 'campaigns' && <CampaignsTab />}
+      {tab === 'templates' && <TemplatesTab />}
       {tab === 'metrics'   && <MetricsTab />}
     </div>
   )
