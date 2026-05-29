@@ -30,12 +30,12 @@ export default function CampaignsTab() {
   const [showCreate, setShowCreate] = useState(false)
   const [editCampaign, setEditCampaign] = useState(null)
   const [sendCampaign, setSendCampaign] = useState(null)
-  const [testSend, setTestSend]   = useState(null) // { campaign, email, status }
+  const [testSendModal, setTestSendModal] = useState(null) // campaign
+  const [testResult, setTestResult]       = useState(null) // { status, msg }
 
-  async function handleTestSend(campaign) {
-    const email = window.prompt('Αποστολή test σε email:')
-    if (!email || !email.includes('@')) return
-    setTestSend({ campaign, email, status: 'sending' })
+  async function submitTestSend(campaign, name, email) {
+    setTestSendModal(null)
+    setTestResult({ status: 'sending', msg: `Αποστολή στο ${email}…` })
     try {
       const workerUrl = import.meta.env.VITE_WORKER_URL
       const res = await fetch(`${workerUrl}/send-campaign`, {
@@ -44,16 +44,20 @@ export default function CampaignsTab() {
         body: JSON.stringify({
           campaignId: `test_${campaign.id}`,
           campaign,
-          contacts: [{ id: 'test', name: 'Test', email }],
+          contacts: [{ id: 'test', name: name || 'Test', email }],
         }),
       })
       const data = await res.json()
-      const ok = data.results?.[0]?.status === 'sent'
-      setTestSend({ campaign, email, status: ok ? 'done' : 'error' })
-    } catch {
-      setTestSend({ campaign, email, status: 'error' })
+      const result = data.results?.[0]
+      if (result?.status === 'sent') {
+        setTestResult({ status: 'done', msg: `✅ Εστάλη στο ${email}` })
+      } else {
+        setTestResult({ status: 'error', msg: `❌ Σφάλμα: ${result?.error || JSON.stringify(data)}` })
+      }
+    } catch (e) {
+      setTestResult({ status: 'error', msg: `❌ ${e.message}` })
     }
-    setTimeout(() => setTestSend(null), 4000)
+    setTimeout(() => setTestResult(null), 6000)
   }
 
   useEffect(() => {
@@ -162,9 +166,9 @@ export default function CampaignsTab() {
                   </button>
                 )}
                 <button className="btn-secondary text-xs"
-                  onClick={() => handleTestSend(c)}
-                  disabled={testSend?.campaign?.id === c.id && testSend.status === 'sending'}>
-                  {testSend?.campaign?.id === c.id && testSend.status === 'sending' ? '⏳ Αποστολή…' : '🧪 Test Send'}
+                  onClick={() => setTestSendModal(c)}
+                  disabled={testResult?.status === 'sending'}>
+                  🧪 Test Send
                 </button>
                 {c.status === 'draft' && (
                   <button className="text-xs text-red-400 hover:text-red-600 ml-auto"
@@ -191,14 +195,50 @@ export default function CampaignsTab() {
         />
       )}
 
-      {/* Test send toast */}
-      {testSend && testSend.status !== 'sending' && (
-        <div className={`fixed bottom-6 right-6 px-5 py-3 rounded-lg shadow-lg text-white text-sm z-50 ${testSend.status === 'done' ? 'bg-green-600' : 'bg-red-600'}`}>
-          {testSend.status === 'done'
-            ? `✅ Test email στάλθηκε στο ${testSend.email}`
-            : `❌ Αποτυχία αποστολής στο ${testSend.email}`}
+      {/* Test send modal */}
+      {testSendModal && (
+        <TestSendModal
+          campaign={testSendModal}
+          onClose={() => setTestSendModal(null)}
+          onSend={(name, email) => submitTestSend(testSendModal, name, email)}
+        />
+      )}
+
+      {/* Result toast */}
+      {testResult && (
+        <div className={`fixed bottom-6 right-6 px-5 py-3 rounded-lg shadow-lg text-white text-sm z-50 max-w-sm ${testResult.status === 'done' ? 'bg-green-600' : testResult.status === 'error' ? 'bg-red-600' : 'bg-blue-600'}`}>
+          {testResult.msg}
         </div>
       )}
+    </div>
+  )
+}
+
+function TestSendModal({ campaign, onClose, onSend }) {
+  const [name,  setName]  = useState('')
+  const [email, setEmail] = useState('')
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm space-y-4">
+        <div className="font-semibold text-gray-900">🧪 Test Send — {campaign.name}</div>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Όνομα (για {'{{name}}'})</label>
+            <input className="input w-full" placeholder="π.χ. Μαρία" value={name} onChange={e => setName(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Email *</label>
+            <input className="input w-full" type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} />
+          </div>
+        </div>
+        <div className="flex gap-2 pt-1">
+          <button className="btn-secondary flex-1" onClick={onClose}>Ακύρωση</button>
+          <button className="btn-primary flex-1" disabled={!email.includes('@')}
+            onClick={() => onSend(name, email)}>
+            Αποστολή Test
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
