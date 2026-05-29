@@ -4157,12 +4157,10 @@ Content-Type: `+c.contentType+`\r
      1. HEADER — #161616 dark, logo + DermLux text + subtitle
 ════════════════════════════════════════════════════════ -->
 <tr>
-  <td style="background-color:#161616;padding:28px 40px 26px;text-align:center;">
-    <img src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/698edc30cdeae666002ae63e/e891fda18_logoderm.png"
-         alt="DermLux" width="72" height="72"
-         style="display:block;margin:0 auto 10px;width:72px;height:72px;">
-    <div style="font-family:Georgia,'Times New Roman',serif;font-size:28px;font-weight:400;color:#EEEBE0;letter-spacing:5px;margin-bottom:6px;">DermLux</div>
-    <div style="font-family:Arial,Helvetica,sans-serif;font-size:8px;color:#666666;letter-spacing:3px;text-transform:uppercase;">Laser &nbsp;&middot;&nbsp; Medical Aesthetics</div>
+  <td style="background-color:#161616;padding:24px 40px 22px;text-align:center;">
+    <img src="https://therapon1997-dermlux.github.io/dermlux-waitlist/email-images/logo-full.png"
+         alt="DermLux — Laser &amp; Medical Aesthetics" width="120" height="109"
+         style="display:block;margin:0 auto;width:120px;height:109px;">
   </td>
 </tr>
 
