@@ -4,7 +4,7 @@ import {
   doc, updateDoc, writeBatch, serverTimestamp, increment, Timestamp,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import { contactDocId, isActiveContact } from '../../utils/emailValidation'
+import { contactDocId, isActiveContact, isValidEmail } from '../../utils/emailValidation'
 
 const WORKER_URL = import.meta.env.VITE_WORKER_URL
 const BATCH_SIZE = 100
@@ -35,7 +35,7 @@ export default function CampaignSendModal({ campaign, onClose }) {
         )
         const active = contactsSnap.docs
           .map(d => ({ id: d.id, ...d.data() }))
-          .filter(c => isActiveContact(c.status))
+          .filter(c => isActiveContact(c.status) && isValidEmail(c.email))
 
         // 2. Who already received THIS campaign
         const sendsSnap = await getDocs(

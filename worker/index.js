@@ -342,8 +342,8 @@ async function sendAutoBatch(campaign, token, project, env, now) {
   })
   const sentEmails = new Set(sends.map(s => s.email))
 
-  // 3. Remaining contacts not yet sent to
-  const remaining = activeContacts.filter(c => c.email && !sentEmails.has(c.email))
+  // 3. Remaining contacts not yet sent to (must have valid email)
+  const remaining = activeContacts.filter(c => fsValidEmail(c.email) && !sentEmails.has(c.email))
   const batch     = remaining.slice(0, BATCH_SIZE)
   const afterThis = remaining.length - batch.length
 
@@ -508,6 +508,11 @@ function fsParseFields(fields) {
     else if (v.mapValue      !== undefined) out[k] = fsParseFields(v.mapValue.fields)
   }
   return out
+}
+
+function fsValidEmail(email) {
+  if (!email || typeof email !== 'string') return false
+  return /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(email.trim())
 }
 
 // Mirror of frontend contactDocId — btoa is available in Cloudflare Workers
