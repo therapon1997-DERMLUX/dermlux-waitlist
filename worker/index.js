@@ -81,8 +81,8 @@ async function sendCampaign(request, env, json) {
       subject: campaign.subject,
       html,
       tags: [
-        { name: 'campaign_id', value: String(campaignId).slice(0, 64) },
-        { name: 'contact_id',  value: String(contact.id).slice(0, 64) },
+        { name: 'campaign_id', value: String(campaignId).slice(0, 64).replace(/[^a-zA-Z0-9_-]/g, '_') },
+        { name: 'contact_id',  value: String(contact.id).slice(0, 64).replace(/[^a-zA-Z0-9_-]/g, '_') },
       ],
     }
   })
@@ -340,9 +340,9 @@ async function sendAutoBatch(campaign, token, project, env, now) {
       },
     },
   })
-  const sentEmails = new Set(sends.map(s => s.email))
+  const sentEmails = new Set(sends.filter(s => s.status !== 'failed').map(s => s.email))
 
-  // 3. Remaining contacts not yet sent to (must have valid email)
+  // 3. Remaining contacts: exclude only successful sends (failed ones are retried)
   const remaining = activeContacts.filter(c => fsValidEmail(c.email) && !sentEmails.has(c.email))
   const batch     = remaining.slice(0, BATCH_SIZE)
   const afterThis = remaining.length - batch.length
@@ -367,8 +367,8 @@ async function sendAutoBatch(campaign, token, project, env, now) {
       subject: campaign.subject,
       html,
       tags: [
-        { name: 'campaign_id', value: String(campaign.id).slice(0, 64) },
-        { name: 'contact_id',  value: String(contact.id).slice(0, 64) },
+        { name: 'campaign_id', value: String(campaign.id).slice(0, 64).replace(/[^a-zA-Z0-9_-]/g, '_') },
+        { name: 'contact_id',  value: String(contact.id).slice(0, 64).replace(/[^a-zA-Z0-9_-]/g, '_') },
       ],
     }
   })

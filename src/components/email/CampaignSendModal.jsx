@@ -37,11 +37,15 @@ export default function CampaignSendModal({ campaign, onClose }) {
           .map(d => ({ id: d.id, ...d.data() }))
           .filter(c => isActiveContact(c.status) && isValidEmail(c.email))
 
-        // 2. Who already received THIS campaign
+        // 2. Who already SUCCESSFULLY received THIS campaign (failed sends are retried)
         const sendsSnap = await getDocs(
           query(collection(db, 'email_sends'), where('campaignId', '==', campaign.id))
         )
-        const sentEmails = new Set(sendsSnap.docs.map(d => d.data().email))
+        const sentEmails = new Set(
+          sendsSnap.docs
+            .filter(d => d.data().status !== 'failed')
+            .map(d => d.data().email)
+        )
 
         // 3. Only contacts not yet sent to
         const rem = active.filter(c => !sentEmails.has(c.email))
