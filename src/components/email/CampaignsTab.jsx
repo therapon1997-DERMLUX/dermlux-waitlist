@@ -46,6 +46,7 @@ export default function CampaignsTab() {
   const [sendCampaign, setSendCampaign] = useState(null)
   const [testSendModal, setTestSendModal] = useState(null) // campaign
   const [testResult, setTestResult]       = useState(null) // { status, msg }
+  const [triggerResult, setTriggerResult] = useState(null) // { status, msg }
   const [, setTick] = useState(0) // for countdown re-renders
 
   // Countdown ticker — refreshes every 30s while any campaign is in auto mode
@@ -67,6 +68,33 @@ export default function CampaignsTab() {
       status:      'auto',
       nextBatchAt: Timestamp.fromMillis(Date.now() + 7200000),
     })
+  }
+
+  async function handleTriggerNow(campaign) {
+    setTriggerResult({ status: 'sending', msg: 'Αποστολή batch…' })
+    try {
+      const workerUrl = import.meta.env.VITE_WORKER_URL
+      const res  = await fetch(`${workerUrl}/trigger-auto`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const data = await res.json()
+      const entry = data.report?.find(r => r.id === campaign.id)
+      if (!entry) {
+        setTriggerResult({ status: 'error', msg: '❌ Η καμπάνια δεν βρέθηκε — βεβαιώσου ότι autoSend=true' })
+      } else if (entry.action === 'sent') {
+        setTriggerResult({ status: 'done', msg: `✅ Στάλθηκαν ${entry.sent} emails · Εναπομένουν: ${entry.remaining}` })
+      } else if (entry.action === 'waiting') {
+        setTriggerResult({ status: 'error', msg: `⏳ Πρέπει να περιμένεις ${entry.waitMins} λεπτά ακόμα` })
+      } else if (entry.action === 'error') {
+        setTriggerResult({ status: 'error', msg: `❌ ${entry.error}` })
+      } else {
+        setTriggerResult({ status: 'done', msg: `ℹ️ ${entry.action}` })
+      }
+    } catch (e) {
+      setTriggerResult({ status: 'error', msg: `❌ ${e.message}` })
+    }
+    setTimeout(() => setTriggerResult(null), 8000)
   }
 
   async function submitTestSend(campaign, name, email) {
@@ -137,6 +165,7 @@ export default function CampaignsTab() {
               onSend={() => setSendCampaign(c)}
               onEdit={() => { setEditCampaign(c); setShowCreate(true) }}
               onPause={() => handlePause(c)}
+              onTriggerNow={() => handleTriggerNow(c)}
               onResumeAuto={() => handleResumeAuto(c)}
               onClone={() => { setEditCampaign({ ...c, name: c.name + ' (αντίγραφο)', status: 'draft' }); setShowCreate(true) }}
               onTest={() => setTestSendModal(c)}
@@ -168,10 +197,17 @@ export default function CampaignsTab() {
         />
       )}
 
-      {/* Result toast */}
+      {/* Test result toast */}
       {testResult && (
         <div className={`fixed bottom-6 right-6 px-5 py-3 rounded-lg shadow-lg text-white text-sm z-50 max-w-sm ${testResult.status === 'done' ? 'bg-green-600' : testResult.status === 'error' ? 'bg-red-600' : 'bg-blue-600'}`}>
           {testResult.msg}
+        </div>
+      )}
+
+      {/* Trigger result toast */}
+      {triggerResult && (
+        <div className={`fixed bottom-20 right-6 px-5 py-3 rounded-lg shadow-lg text-white text-sm z-50 max-w-sm ${triggerResult.status === 'done' ? 'bg-purple-600' : triggerResult.status === 'error' ? 'bg-red-600' : 'bg-purple-400'}`}>
+          {triggerResult.msg}
         </div>
       )}
     </div>
@@ -229,7 +265,7 @@ function CampaignsSkeleton() {
   )
 }
 
-function CampaignCard({ c, testResult, onSend, onEdit, onPause, onResumeAuto, onClone, onTest, onDelete }) {
+function CampaignCard({ c, testResult, onSend, onEdit, onPause, onResumeAuto, onTriggerNow, onClone, onTest, onDelete }) {
   const statusBorder = {
     draft:   'border-l-gray-200',
     sending: 'border-l-blue-400',
@@ -316,7 +352,12 @@ function CampaignCard({ c, testResult, onSend, onEdit, onPause, onResumeAuto, on
             </>
           )}
           {c.status === 'auto' && (
-            <button className="btn-secondary text-xs" onClick={onPause}>⏸ Παύση</button>
+            <>
+              <button className="btn-primary text-xs bg-purple-600 hover:bg-purple-700 border-purple-600" onClick={onTriggerNow}>
+                ▶ Στείλε Τώρα
+              </button>
+              <button className="btn-secondary text-xs" onClick={onPause}>⏸ Παύση</button>
+            </>
           )}
           {c.status === 'partial' && (
             <>

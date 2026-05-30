@@ -51,6 +51,13 @@ export default {
       if ((url.pathname === '/webhook' || url.pathname === '/resend-webhook') && request.method === 'POST') {
         return await handleWebhook(request, env, json)
       }
+      // Manual trigger endpoint — lets the UI force-run auto-send immediately
+      if (url.pathname === '/trigger-auto' && request.method === 'POST') {
+        if (origin !== ALLOWED_ORIGIN) return json({ error: 'Forbidden' }, 403)
+        console.log('Manual trigger-auto called from', origin)
+        const report = await runAutoSend(env)
+        return json({ ok: true, report })
+      }
       return json({ error: 'Not found' }, 404)
     } catch (e) {
       console.error('Worker error:', e)
@@ -329,6 +336,7 @@ async function runAutoSend(env) {
   const token   = await getFirebaseToken(env)
   const project = env.FIREBASE_PROJECT_ID
   const now     = new Date()
+  const report  = []
 
   // Find all campaigns with autoSend: true
   const campaigns = await fsQuery(token, project, {
@@ -342,27 +350,37 @@ async function runAutoSend(env) {
     },
   })
 
+  console.log(`runAutoSend: found ${campaigns.length} auto-send campaign(s)`)
+
   for (const campaign of campaigns) {
-    if (campaign.status === 'sent') continue
+    if (campaign.status === 'sent') {
+      report.push({ id: campaign.id, action: 'skipped', reason: 'already sent' })
+      continue
+    }
 
     // Only fire if nextBatchAt is in the past (or missing)
     const nextAt = campaign.nextBatchAt ? new Date(campaign.nextBatchAt) : new Date(0)
     if (nextAt > now) {
-      console.log(`Campaign ${campaign.id}: next batch at ${nextAt.toISOString()}, skipping`)
+      const waitMins = Math.round((nextAt - now) / 60000)
+      console.log(`Campaign ${campaign.id}: next batch at ${nextAt.toISOString()}, waiting ${waitMins}m`)
+      report.push({ id: campaign.id, action: 'waiting', nextBatchAt: nextAt.toISOString(), waitMins })
       continue
     }
 
     console.log(`Campaign ${campaign.id}: running auto batch`)
     try {
-      await sendAutoBatch(campaign, token, project, env, now)
+      const batchReport = await sendAutoBatch(campaign, token, project, env, now)
+      report.push({ id: campaign.id, action: 'sent', ...batchReport })
     } catch (e) {
       console.error(`Campaign ${campaign.id}: auto batch failed:`, e)
-      // Mark campaign with error so user can see it in UI
       await fsPatch(token, project, 'email_campaigns', campaign.id, {
         autoSendError: { stringValue: e.message },
       }).catch(() => {})
+      report.push({ id: campaign.id, action: 'error', error: e.message })
     }
   }
+
+  return report
 }
 
 async function sendAutoBatch(campaign, token, project, env, now) {
@@ -520,6 +538,8 @@ async function sendAutoBatch(campaign, token, project, env, now) {
     nextBatchAt:   { timestampValue: nextBatchAt },
     autoSendError: { nullValue: null },
   })
+
+  return { sent: sentCount, failed: failedCount, remaining: afterThis, nextBatchAt }
 }
 
 // ─── Firestore REST helpers ───────────────────────────────────────────────────
