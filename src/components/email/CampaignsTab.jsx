@@ -119,120 +119,29 @@ export default function CampaignsTab() {
       </div>
 
       {loading ? (
-        <div className="text-center py-20 text-gray-400">Φόρτωση…</div>
+        <CampaignsSkeleton />
       ) : campaigns.length === 0 ? (
-        <div className="text-center py-20 text-gray-400">
-          <div className="text-4xl mb-3">📧</div>
-          <div className="mb-4">Δεν υπάρχουν καμπάνιες ακόμα</div>
+        <div className="text-center py-24">
+          <div className="text-5xl mb-4">📧</div>
+          <div className="font-semibold text-gray-600 mb-1">Δεν υπάρχουν καμπάνιες ακόμα</div>
+          <div className="text-sm text-gray-400 mb-5">Δημιούργησε την πρώτη σου καμπάνια για να ξεκινήσεις</div>
           <button className="btn-primary" onClick={() => setShowCreate(true)}>+ Νέα Καμπάνια</button>
         </div>
       ) : (
         <div className="space-y-3">
           {campaigns.map(c => (
-            <div key={c.id} className="card p-5 space-y-3">
-              {/* Header */}
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="font-semibold text-gray-900">{c.name}</div>
-                  <div className="text-sm text-gray-500 mt-0.5">{c.subject}</div>
-                  <div className="text-xs text-gray-400 mt-0.5">
-                    Από: {c.fromName} &lt;{c.fromEmail}&gt;
-                  </div>
-                </div>
-                <span className={`badge text-xs shrink-0 ${STATUS_STYLE[c.status] || STATUS_STYLE.draft}`}>
-                  {STATUS_LABEL[c.status] || c.status}
-                </span>
-              </div>
-
-              {/* Stats (for sent and partial campaigns) */}
-              {(c.status === 'sent' || c.status === 'partial') && c.stats && (
-                <div className="grid grid-cols-4 gap-3 text-center border-t pt-3">
-                  <StatBox label="Στάλθηκαν" value={c.stats.sent ?? c.stats.total ?? 0} />
-                  <StatBox label="Ανοίχθηκαν" value={pct(c.stats.opened, c.stats.sent)} highlight />
-                  <StatBox label="Κλικ" value={pct(c.stats.clicked, c.stats.sent)} />
-                  <StatBox label="Opt-out" value={c.stats.unsubscribed ?? 0} />
-                </div>
-              )}
-
-              {/* Sending / auto progress */}
-              {(c.status === 'sending' || c.status === 'auto') && c.stats && (
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs text-gray-500">
-                    {c.status === 'auto' ? (
-                      <span>
-                        Επόμενο batch σε:{' '}
-                        <span className="font-semibold text-purple-700">
-                          {formatCountdown(c.nextBatchAt)}
-                        </span>
-                      </span>
-                    ) : (
-                      <span>Αποστολή σε εξέλιξη…</span>
-                    )}
-                    <span>{c.stats.sent ?? 0} / {c.stats.total ?? '?'}</span>
-                  </div>
-                  <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${c.status === 'auto' ? 'bg-purple-500' : 'bg-blue-500'}`}
-                      style={{ width: `${c.stats.total ? Math.round(((c.stats.sent ?? 0) / c.stats.total) * 100) : 0}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Actions */}
-              <div className="flex gap-2 pt-1 border-t flex-wrap">
-                {c.status === 'draft' && (
-                  <>
-                    <button className="btn-primary text-xs"
-                      onClick={() => setSendCampaign(c)}>
-                      📤 Αποστολή
-                    </button>
-                    <button className="btn-secondary text-xs"
-                      onClick={() => { setEditCampaign(c); setShowCreate(true) }}>
-                      ✏️ Επεξεργασία
-                    </button>
-                  </>
-                )}
-                {c.status === 'auto' && (
-                  <button className="btn-secondary text-xs"
-                    onClick={() => handlePause(c)}>
-                    ⏸ Παύση Αυτόματης
-                  </button>
-                )}
-                {c.status === 'partial' && (
-                  <>
-                    <button className="btn-primary text-xs"
-                      onClick={() => handleResumeAuto(c)}>
-                      🤖 Συνέχεια Αυτόματα
-                    </button>
-                    <button className="btn-secondary text-xs"
-                      onClick={() => setSendCampaign(c)}>
-                      ▶️ Χειροκίνητα
-                    </button>
-                    <div className="text-xs text-orange-600 self-center ml-1">
-                      {(c.stats?.total ?? 0) - (c.stats?.sent ?? 0)} εναπομένουν
-                    </div>
-                  </>
-                )}
-                {c.status === 'sent' && (
-                  <button className="btn-secondary text-xs"
-                    onClick={() => { setEditCampaign({ ...c, name: c.name + ' (αντίγραφο)', status: 'draft' }); setShowCreate(true) }}>
-                    📋 Αντιγραφή ως Draft
-                  </button>
-                )}
-                <button className="btn-secondary text-xs"
-                  onClick={() => setTestSendModal(c)}
-                  disabled={testResult?.status === 'sending'}>
-                  🧪 Test Send
-                </button>
-                {c.status === 'draft' && (
-                  <button className="text-xs text-red-400 hover:text-red-600 ml-auto"
-                    onClick={() => handleDelete(c)}>
-                    Διαγραφή
-                  </button>
-                )}
-              </div>
-            </div>
+            <CampaignCard
+              key={c.id}
+              c={c}
+              testResult={testResult}
+              onSend={() => setSendCampaign(c)}
+              onEdit={() => { setEditCampaign(c); setShowCreate(true) }}
+              onPause={() => handlePause(c)}
+              onResumeAuto={() => handleResumeAuto(c)}
+              onClone={() => { setEditCampaign({ ...c, name: c.name + ' (αντίγραφο)', status: 'draft' }); setShowCreate(true) }}
+              onTest={() => setTestSendModal(c)}
+              onDelete={() => handleDelete(c)}
+            />
           ))}
         </div>
       )}
@@ -298,11 +207,140 @@ function TestSendModal({ campaign, onClose, onSend }) {
   )
 }
 
-function StatBox({ label, value, highlight }) {
+function CampaignsSkeleton() {
   return (
-    <div>
-      <div className={`text-lg font-bold ${highlight ? 'text-blue-600' : 'text-gray-800'}`}>{value}</div>
-      <div className="text-xs text-gray-400">{label}</div>
+    <div className="space-y-3 animate-pulse">
+      {[...Array(3)].map((_, i) => (
+        <div key={i} className="card p-5 space-y-4">
+          <div className="flex justify-between items-start">
+            <div className="space-y-2 flex-1">
+              <div className="h-4 bg-gray-200 rounded-full w-2/5" />
+              <div className="h-3 bg-gray-100 rounded-full w-3/5" />
+            </div>
+            <div className="h-6 bg-gray-100 rounded-full w-24 ml-4" />
+          </div>
+          <div className="grid grid-cols-4 gap-3">
+            {[...Array(4)].map((_, j) => <div key={j} className="h-10 bg-gray-100 rounded-xl" />)}
+          </div>
+          <div className="h-8 bg-gray-100 rounded-xl" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function CampaignCard({ c, testResult, onSend, onEdit, onPause, onResumeAuto, onClone, onTest, onDelete }) {
+  const statusBorder = {
+    draft:   'border-l-gray-200',
+    sending: 'border-l-blue-400',
+    auto:    'border-l-purple-500',
+    partial: 'border-l-orange-400',
+    sent:    'border-l-emerald-500',
+    failed:  'border-l-red-400',
+  }
+
+  const remaining = (c.stats?.total ?? 0) - (c.stats?.sent ?? 0)
+  const progress  = c.stats?.total ? Math.round(((c.stats?.sent ?? 0) / c.stats.total) * 100) : 0
+
+  return (
+    <div className={`card border-l-4 ${statusBorder[c.status] || statusBorder.draft} overflow-hidden`}>
+      <div className="p-5 space-y-4">
+
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="font-semibold text-gray-900 truncate">{c.name}</div>
+            <div className="text-sm text-gray-500 mt-0.5 truncate">{c.subject}</div>
+            <div className="text-xs text-gray-400 mt-0.5">
+              {c.fromName} &lt;{c.fromEmail}&gt;
+            </div>
+          </div>
+          <span className={`text-xs font-medium px-2.5 py-1 rounded-full shrink-0 ${STATUS_STYLE[c.status] || STATUS_STYLE.draft}`}>
+            {STATUS_LABEL[c.status] || c.status}
+          </span>
+        </div>
+
+        {/* Stats for sent / partial / auto */}
+        {c.stats && (c.status === 'sent' || c.status === 'partial' || c.status === 'auto') && (
+          <div className="grid grid-cols-4 gap-2 text-center">
+            {[
+              { label: 'Εστάλη',     value: c.stats.sent ?? 0,                         bold: true },
+              { label: 'Ανοίχθηκαν', value: pct(c.stats.opened,  c.stats.sent),        color: 'text-blue-600' },
+              { label: 'Κλικ',       value: pct(c.stats.clicked, c.stats.sent),        color: 'text-indigo-600' },
+              { label: 'Opt-out',    value: c.stats.unsubscribed ?? 0,                 color: 'text-orange-500' },
+            ].map(({ label, value, bold, color }) => (
+              <div key={label} className="bg-gray-50 rounded-xl py-2.5 px-1">
+                <div className={`text-base font-bold ${color || 'text-gray-800'}`}>{value}</div>
+                <div className="text-xs text-gray-400 mt-0.5">{label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Progress bar (sending / auto / partial) */}
+        {(c.status === 'sending' || c.status === 'auto' || c.status === 'partial') && c.stats?.total > 0 && (
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs text-gray-500">
+              {c.status === 'auto' ? (
+                <span>
+                  Επόμενο batch:{' '}
+                  <span className={`font-semibold ${formatCountdown(c.nextBatchAt).startsWith('⚠') ? 'text-red-600' : 'text-purple-700'}`}>
+                    {formatCountdown(c.nextBatchAt)}
+                  </span>
+                </span>
+              ) : c.status === 'sending' ? (
+                <span className="text-blue-600 font-medium">Αποστολή σε εξέλιξη…</span>
+              ) : (
+                <span className="text-orange-600">{remaining > 0 ? `${remaining} εναπομένουν` : 'Σε παύση'}</span>
+              )}
+              <span className="font-semibold">{c.stats.sent ?? 0} / {c.stats.total} · {progress}%</span>
+            </div>
+            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  c.status === 'auto' ? 'bg-purple-500' :
+                  c.status === 'sending' ? 'bg-blue-500' : 'bg-orange-400'
+                }`}
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex gap-2 flex-wrap items-center border-t pt-3">
+          {c.status === 'draft' && (
+            <>
+              <button className="btn-primary text-xs" onClick={onSend}>📤 Αποστολή</button>
+              <button className="btn-secondary text-xs" onClick={onEdit}>✏️ Επεξεργασία</button>
+            </>
+          )}
+          {c.status === 'auto' && (
+            <button className="btn-secondary text-xs" onClick={onPause}>⏸ Παύση</button>
+          )}
+          {c.status === 'partial' && (
+            <>
+              <button className="btn-primary text-xs" onClick={onResumeAuto}>🤖 Συνέχεια Αυτόματα</button>
+              <button className="btn-secondary text-xs" onClick={onSend}>▶️ Χειροκίνητα</button>
+            </>
+          )}
+          {c.status === 'sent' && (
+            <button className="btn-secondary text-xs" onClick={onClone}>📋 Αντιγραφή ως Draft</button>
+          )}
+          <button
+            className="btn-secondary text-xs"
+            onClick={onTest}
+            disabled={testResult?.status === 'sending'}
+          >
+            🧪 Test
+          </button>
+          {c.status === 'draft' && (
+            <button className="text-xs text-red-400 hover:text-red-600 ml-auto transition-colors" onClick={onDelete}>
+              Διαγραφή
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

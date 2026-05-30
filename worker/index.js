@@ -232,27 +232,34 @@ async function handleWebhook(request, env, json) {
   const contactId  = fields.contactId?.stringValue
 
   const now = new Date().toISOString()
-  let sendUpdate  = {}
-  let statField   = null
+  // Current status of the email_sends doc — used to deduplicate events.
+  // Resend can fire the same event multiple times; we only increment campaign
+  // stats on the FIRST occurrence of each event type.
+  const currentSendStatus = fields.status?.stringValue || 'sent'
+
+  let sendUpdate    = {}
+  let statField     = null   // null = don't increment
   let contactStatus = null
 
   switch (type) {
     case 'email.opened':
-      sendUpdate  = { status: { stringValue: 'opened' }, openedAt: { timestampValue: now } }
-      statField   = 'opened'
+      sendUpdate = { status: { stringValue: 'opened' }, openedAt: { timestampValue: now } }
+      // Only count first open (status was 'sent'); ignore repeat opens
+      statField  = currentSendStatus === 'sent' ? 'opened' : null
       break
     case 'email.clicked':
-      sendUpdate  = { status: { stringValue: 'clicked' }, clickedAt: { timestampValue: now } }
-      statField   = 'clicked'
+      sendUpdate = { status: { stringValue: 'clicked' }, clickedAt: { timestampValue: now } }
+      // Count first click only
+      statField  = currentSendStatus !== 'clicked' ? 'clicked' : null
       break
     case 'email.bounced':
-      sendUpdate  = { status: { stringValue: 'bounced' }, bouncedAt: { timestampValue: now } }
-      statField   = 'bounced'
+      sendUpdate = { status: { stringValue: 'bounced' }, bouncedAt: { timestampValue: now } }
+      statField  = currentSendStatus !== 'bounced' ? 'bounced' : null
       contactStatus = 'bounced'
       break
     case 'email.complained':
-      sendUpdate  = { status: { stringValue: 'complained' } }
-      statField   = 'unsubscribed'
+      sendUpdate = { status: { stringValue: 'complained' } }
+      statField  = 'unsubscribed'   // always record spam complaints
       contactStatus = 'complained'
       break
     default:
