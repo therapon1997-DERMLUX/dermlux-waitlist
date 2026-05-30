@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { collection, onSnapshot, query, orderBy, doc, deleteDoc } from 'firebase/firestore'
+import { collection, onSnapshot, query, orderBy, doc, deleteDoc, updateDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import CreateCampaignModal from './CreateCampaignModal'
 import CampaignSendModal from './CampaignSendModal'
@@ -8,6 +8,7 @@ const STATUS_STYLE = {
   draft:   'bg-gray-100 text-gray-600',
   sending: 'bg-blue-100 text-blue-700',
   partial: 'bg-orange-100 text-orange-700',
+  auto:    'bg-purple-100 text-purple-700',
   sent:    'bg-green-100 text-green-700',
   failed:  'bg-red-100 text-red-600',
 }
@@ -15,6 +16,7 @@ const STATUS_LABEL = {
   draft:   'Draft',
   sending: 'Αποστολή…',
   partial: 'Μερική Αποστολή',
+  auto:    '🤖 Αυτόματη',
   sent:    'Στάλθηκε',
   failed:  'Σφάλμα',
 }
@@ -22,6 +24,17 @@ const STATUS_LABEL = {
 function pct(a, b) {
   if (!b) return '—'
   return Math.round((a / b) * 100) + '%'
+}
+
+function formatCountdown(nextBatchAt) {
+  if (!nextBatchAt) return ''
+  const next = nextBatchAt.toDate ? nextBatchAt.toDate() : new Date(nextBatchAt)
+  const diff = next - Date.now()
+  if (diff <= 0) return 'Σε λίγο…'
+  const hours = Math.floor(diff / 3600000)
+  const mins  = Math.floor((diff % 3600000) / 60000)
+  if (hours > 0) return `${hours}ω ${mins}λ`
+  return `${mins} λεπτά`
 }
 
 export default function CampaignsTab() {
@@ -32,6 +45,20 @@ export default function CampaignsTab() {
   const [sendCampaign, setSendCampaign] = useState(null)
   const [testSendModal, setTestSendModal] = useState(null) // campaign
   const [testResult, setTestResult]       = useState(null) // { status, msg }
+  const [, setTick] = useState(0) // for countdown re-renders
+
+  // Countdown ticker — refreshes every 30s while any campaign is in auto mode
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 30000)
+    return () => clearInterval(id)
+  }, [])
+
+  async function handlePause(campaign) {
+    await updateDoc(doc(db, 'email_campaigns', campaign.id), {
+      autoSend: false,
+      status:   'partial',
+    })
+  }
 
   async function submitTestSend(campaign, name, email) {
     setTestSendModal(null)
@@ -118,16 +145,25 @@ export default function CampaignsTab() {
                 </div>
               )}
 
-              {/* Sending progress */}
-              {c.status === 'sending' && c.stats && (
+              {/* Sending / auto progress */}
+              {(c.status === 'sending' || c.status === 'auto') && c.stats && (
                 <div className="space-y-1">
                   <div className="flex justify-between text-xs text-gray-500">
-                    <span>Αποστολή σε εξέλιξη…</span>
+                    {c.status === 'auto' ? (
+                      <span>
+                        Επόμενο batch σε:{' '}
+                        <span className="font-semibold text-purple-700">
+                          {formatCountdown(c.nextBatchAt)}
+                        </span>
+                      </span>
+                    ) : (
+                      <span>Αποστολή σε εξέλιξη…</span>
+                    )}
                     <span>{c.stats.sent ?? 0} / {c.stats.total ?? '?'}</span>
                   </div>
                   <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-blue-500 rounded-full transition-all"
+                      className={`h-full rounded-full transition-all ${c.status === 'auto' ? 'bg-purple-500' : 'bg-blue-500'}`}
                       style={{ width: `${c.stats.total ? Math.round(((c.stats.sent ?? 0) / c.stats.total) * 100) : 0}%` }}
                     />
                   </div>
@@ -147,6 +183,12 @@ export default function CampaignsTab() {
                       ✏️ Επεξεργασία
                     </button>
                   </>
+                )}
+                {c.status === 'auto' && (
+                  <button className="btn-secondary text-xs"
+                    onClick={() => handlePause(c)}>
+                    ⏸ Παύση Αυτόματης
+                  </button>
                 )}
                 {c.status === 'partial' && (
                   <>

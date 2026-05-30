@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   collection, getDocs, query, where,
-  doc, updateDoc, writeBatch, serverTimestamp, increment,
+  doc, updateDoc, writeBatch, serverTimestamp, increment, Timestamp,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { contactDocId, isActiveContact } from '../../utils/emailValidation'
@@ -24,6 +24,7 @@ export default function CampaignSendModal({ campaign, onClose }) {
   const [sentCount, setSentCount]   = useState(0)
   const [failCount, setFailCount]   = useState(0)
   const [error, setError]           = useState('')
+  const [isAutoMode, setIsAutoMode] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -64,13 +65,14 @@ export default function CampaignSendModal({ campaign, onClose }) {
     .replaceAll('{{name}}', 'Αγαπητέ Πελάτη')
     .replaceAll('{{unsubscribe_url}}', '#')
 
-  async function handleSend() {
+  async function handleSend(autoMode = false) {
     if (!WORKER_URL || WORKER_URL.includes('YOUR-SUBDOMAIN')) {
       setError('Το VITE_WORKER_URL δεν έχει οριστεί.')
       return
     }
     setStep('sending')
     setError('')
+    setIsAutoMode(autoMode)
 
     const isFirstBatch = campaign.status === 'draft'
 
@@ -138,12 +140,18 @@ export default function CampaignSendModal({ campaign, onClose }) {
       }
 
       // Update campaign stats (always increment, never overwrite)
-      const isDone = afterThis === 0
-      await updateDoc(doc(db, 'email_campaigns', campaign.id), {
-        status:         isDone ? 'sent' : 'partial',
+      const isDone    = afterThis === 0
+      const newStatus = isDone ? 'sent' : (autoMode ? 'auto' : 'partial')
+      const statsUpdate = {
+        status:         newStatus,
         'stats.sent':   increment(totalSent),
         'stats.failed': increment(totalFailed),
-      })
+      }
+      if (autoMode && !isDone) {
+        statsUpdate.autoSend     = true
+        statsUpdate.nextBatchAt  = Timestamp.fromMillis(Date.now() + 2 * 60 * 60 * 1000)
+      }
+      await updateDoc(doc(db, 'email_campaigns', campaign.id), statsUpdate)
 
       setStep('done')
     } catch (e) {
@@ -181,12 +189,13 @@ export default function CampaignSendModal({ campaign, onClose }) {
 
   // ── Done (batch finished) ─────────────────────────────────────────────────────
   if (step === 'done') {
+    const autoRunning = isAutoMode && afterThis > 0
     return (
-      <ModalShell onClose={onClose} title={afterThis === 0 ? 'Αποστολή Ολοκληρώθηκε' : 'Batch Στάλθηκε'}>
+      <ModalShell onClose={onClose} title={afterThis === 0 ? 'Αποστολή Ολοκληρώθηκε' : autoRunning ? 'Αυτόματη Αποστολή Ξεκίνησε' : 'Batch Στάλθηκε'}>
         <div className="text-center py-6 space-y-4">
-          <div className="text-5xl">{afterThis === 0 ? '✅' : '⏸️'}</div>
-          <div className={`text-lg font-semibold ${afterThis === 0 ? 'text-green-700' : 'text-blue-700'}`}>
-            {afterThis === 0 ? 'Η καμπάνια ολοκληρώθηκε!' : `${sentCount} emails στάλθηκαν`}
+          <div className="text-5xl">{afterThis === 0 ? '✅' : autoRunning ? '🤖' : '⏸️'}</div>
+          <div className={`text-lg font-semibold ${afterThis === 0 ? 'text-green-700' : autoRunning ? 'text-purple-700' : 'text-blue-700'}`}>
+            {afterThis === 0 ? 'Η καμπάνια ολοκληρώθηκε!' : autoRunning ? `Στάλθηκαν ${sentCount} emails — συνεχίζει αυτόματα` : `${sentCount} emails στάλθηκαν`}
           </div>
 
           <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm space-y-1.5">
@@ -202,13 +211,20 @@ export default function CampaignSendModal({ campaign, onClose }) {
             )}
             <div className="flex justify-between border-t pt-1.5">
               <span className="text-gray-500">Εναπομένουν</span>
-              <span className={`font-semibold ${afterThis > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+              <span className={`font-semibold ${afterThis > 0 ? (autoRunning ? 'text-purple-600' : 'text-orange-600') : 'text-gray-400'}`}>
                 {afterThis}
               </span>
             </div>
           </div>
 
-          {afterThis > 0 && (
+          {autoRunning && (
+            <div className="bg-purple-50 border border-purple-200 rounded-lg px-4 py-3 text-sm text-purple-800">
+              Τα επόμενα <strong>{Math.min(afterThis, BATCH_SIZE)} emails</strong> θα αποσταλούν αυτόματα σε <strong>2 ώρες</strong>.
+              Μπορείτε να κλείσετε τη σελίδα.
+            </div>
+          )}
+
+          {!autoRunning && afterThis > 0 && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-800">
               Επιστρέψτε αργότερα και πατήστε <strong>"Συνέχεια Αποστολής"</strong> για να στείλετε τα επόμενα {Math.min(afterThis, BATCH_SIZE)} emails.
             </div>
@@ -285,11 +301,18 @@ export default function CampaignSendModal({ campaign, onClose }) {
               👁 Προεπισκόπηση
             </button>
             <button
+              onClick={() => setStep('autoConfirm')}
+              className={`flex-1 py-2 rounded-md font-medium transition-colors ${
+                step === 'autoConfirm' ? 'bg-white shadow-sm text-purple-700' : 'text-gray-500 hover:text-gray-700'
+              }`}>
+              🤖 Αυτόματη
+            </button>
+            <button
               onClick={() => setStep('confirm')}
               className={`flex-1 py-2 rounded-md font-medium transition-colors ${
                 step === 'confirm' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
               }`}>
-              📤 Αποστολή
+              📤 Χειροκίνητη
             </button>
           </div>
         </div>
@@ -340,6 +363,65 @@ export default function CampaignSendModal({ campaign, onClose }) {
               </div>
             </>
           )}
+
+          {/* ── AUTO CONFIRM ── */}
+          {step === 'autoConfirm' && (() => {
+            const totalContacts = remaining.length + alreadySent
+            const batches       = Math.ceil(remaining.length / BATCH_SIZE)
+            const hoursTotal    = (batches - 1) * 2
+            return (
+              <div className="space-y-4">
+                <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 space-y-3 text-sm">
+                  <div className="font-semibold text-purple-800">🤖 Πλάνο Αυτόματης Αποστολής</div>
+                  <div className="grid grid-cols-2 gap-2 text-center pt-1">
+                    <div className="bg-white rounded-lg p-2 border border-purple-100">
+                      <div className="text-xl font-bold text-purple-700">{remaining.length}</div>
+                      <div className="text-xs text-gray-500">Εναπομένουσες επαφές</div>
+                    </div>
+                    <div className="bg-white rounded-lg p-2 border border-purple-100">
+                      <div className="text-xl font-bold text-purple-700">{batches}</div>
+                      <div className="text-xs text-gray-500">Batches × 100</div>
+                    </div>
+                    <div className="bg-white rounded-lg p-2 border border-purple-100">
+                      <div className="text-xl font-bold text-purple-700">2ω</div>
+                      <div className="text-xs text-gray-500">Μεταξύ batches</div>
+                    </div>
+                    <div className="bg-white rounded-lg p-2 border border-purple-100">
+                      <div className="text-xl font-bold text-purple-700">~{hoursTotal}ω</div>
+                      <div className="text-xs text-gray-500">Εκτιμ. ολοκλήρωση</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-800 space-y-1">
+                  <div>Το <strong>πρώτο batch (100 emails)</strong> θα σταλεί τώρα αμέσως.</div>
+                  <div>Τα επόμενα θα αποστέλλονται <strong>αυτόματα κάθε 2 ώρες</strong> μέσω του server.</div>
+                  <div className="text-blue-600">Δεν χρειάζεται να κρατάτε τη σελίδα ανοιχτή.</div>
+                </div>
+
+                {alreadySent > 0 && (
+                  <div className="text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+                    Συνέχεια — {alreadySent} επαφές έχουν ήδη λάβει αυτό το email
+                  </div>
+                )}
+
+                {error && (
+                  <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                    ⚠️ {error}
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-1">
+                  <button className="btn-secondary flex-1" onClick={() => setStep('preview')}>
+                    ← Πίσω
+                  </button>
+                  <button className="btn-primary flex-1 bg-purple-600 hover:bg-purple-700" onClick={() => handleSend(true)}>
+                    🤖 Εκκίνηση Αυτόματης
+                  </button>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* ── CONFIRM ── */}
           {step === 'confirm' && (
