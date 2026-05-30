@@ -33,15 +33,15 @@ export default function CreateCampaignModal({ campaign, onClose }) {
         fromName:  fromName.trim(),
         fromEmail: fromEmail.trim(),
         htmlBody,
-        status:    'draft',
         updatedAt: serverTimestamp(),
-        stats: { total: 0, sent: 0, failed: 0, opened: 0, clicked: 0, bounced: 0, unsubscribed: 0 },
       }
       if (isEdit) {
         await updateDoc(doc(db, 'email_campaigns', campaign.id), data)
       } else {
         await addDoc(collection(db, 'email_campaigns'), {
           ...data,
+          status:    'draft',
+          stats: { total: 0, sent: 0, failed: 0, opened: 0, clicked: 0, bounced: 0, unsubscribed: 0 },
           createdAt: serverTimestamp(),
           createdBy: currentUser.uid,
           sentAt: null,

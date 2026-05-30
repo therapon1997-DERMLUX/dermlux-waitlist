@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { collection, onSnapshot, query, orderBy, doc, deleteDoc, updateDoc } from 'firebase/firestore'
+import { collection, onSnapshot, query, orderBy, doc, deleteDoc, updateDoc, Timestamp } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import CreateCampaignModal from './CreateCampaignModal'
 import CampaignSendModal from './CampaignSendModal'
@@ -30,6 +30,7 @@ function formatCountdown(nextBatchAt) {
   if (!nextBatchAt) return ''
   const next = nextBatchAt.toDate ? nextBatchAt.toDate() : new Date(nextBatchAt)
   const diff = next - Date.now()
+  if (diff <= -1800000) return '⚠️ Καθυστέρηση'
   if (diff <= 0) return 'Σε λίγο…'
   const hours = Math.floor(diff / 3600000)
   const mins  = Math.floor((diff % 3600000) / 60000)
@@ -57,6 +58,14 @@ export default function CampaignsTab() {
     await updateDoc(doc(db, 'email_campaigns', campaign.id), {
       autoSend: false,
       status:   'partial',
+    })
+  }
+
+  async function handleResumeAuto(campaign) {
+    await updateDoc(doc(db, 'email_campaigns', campaign.id), {
+      autoSend:    true,
+      status:      'auto',
+      nextBatchAt: Timestamp.fromMillis(Date.now() + 7200000),
     })
   }
 
@@ -193,8 +202,12 @@ export default function CampaignsTab() {
                 {c.status === 'partial' && (
                   <>
                     <button className="btn-primary text-xs"
+                      onClick={() => handleResumeAuto(c)}>
+                      🤖 Συνέχεια Αυτόματα
+                    </button>
+                    <button className="btn-secondary text-xs"
                       onClick={() => setSendCampaign(c)}>
-                      ▶️ Συνέχεια Αποστολής
+                      ▶️ Χειροκίνητα
                     </button>
                     <div className="text-xs text-orange-600 self-center ml-1">
                       {(c.stats?.total ?? 0) - (c.stats?.sent ?? 0)} εναπομένουν

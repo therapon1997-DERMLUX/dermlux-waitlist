@@ -11,20 +11,24 @@
  *   FIREBASE_PROJECT_ID   — e.g. dermlux-waitlist
  *   FIREBASE_CLIENT_EMAIL — service account email
  *   FIREBASE_PRIVATE_KEY  — service account private key (with literal \n)
+ *   RESEND_WEBHOOK_SECRET — from Resend dashboard → Webhooks → signing secret
  */
 
-const APP_URL   = 'https://therapon1997-dermlux.github.io/dermlux-waitlist'
-const BATCH_SIZE = 100
+const APP_URL          = 'https://therapon1997-dermlux.github.io/dermlux-waitlist'
+const ALLOWED_ORIGIN   = 'https://therapon1997-dermlux.github.io'
+const BATCH_SIZE       = 100
 const AUTO_INTERVAL_MS = 2 * 60 * 60 * 1000  // 2 hours
 
 export default {
   async fetch(request, env) {
-    const url = new URL(request.url)
+    const url    = new URL(request.url)
+    const origin = request.headers.get('Origin') || ''
 
     const cors = {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin':  origin === ALLOWED_ORIGIN ? ALLOWED_ORIGIN : '',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
+      'Vary': 'Origin',
     }
 
     if (request.method === 'OPTIONS') {
@@ -47,14 +51,9 @@ export default {
       if ((url.pathname === '/webhook' || url.pathname === '/resend-webhook') && request.method === 'POST') {
         return await handleWebhook(request, env, json)
       }
-      if (url.pathname === '/ping-resend') {
-        const key = env.RESEND_API_KEY || ''
-        const allKeys = Object.keys(env)
-        return json({ allEnvKeys: allKeys, keyPresent: !!key, keyPrefix: key.slice(0, 6), keyLength: key.length })
-      }
       return json({ error: 'Not found' }, 404)
     } catch (e) {
-      console.error(e)
+      console.error('Worker error:', e)
       return json({ error: e.message }, 500)
     }
   },
@@ -150,6 +149,7 @@ async function unsubscribeContact(request, env, json) {
 
   if (!res.ok) {
     const err = await res.text()
+    console.error('Unsubscribe failed:', err)
     return json({ error: err }, 500)
   }
 
@@ -159,6 +159,36 @@ async function unsubscribeContact(request, env, json) {
 // ─── /webhook (Resend events) ─────────────────────────────────────────────────
 async function handleWebhook(request, env, json) {
   const body = await request.text()
+
+  // Verify Resend webhook signature (svix)
+  if (env.RESEND_WEBHOOK_SECRET) {
+    const svixId        = request.headers.get('svix-id')
+    const svixTimestamp = request.headers.get('svix-timestamp')
+    const svixSignature = request.headers.get('svix-signature')
+
+    if (!svixId || !svixTimestamp || !svixSignature) {
+      console.error('Webhook missing svix headers')
+      return json({ error: 'Missing signature headers' }, 400)
+    }
+
+    const toSign    = `${svixId}.${svixTimestamp}.${body}`
+    const keyBytes  = new TextEncoder().encode(env.RESEND_WEBHOOK_SECRET.replace(/^whsec_/, ''))
+    const msgBytes  = new TextEncoder().encode(toSign)
+
+    // Decode base64 secret
+    const rawKey = Uint8Array.from(atob(new TextDecoder().decode(keyBytes)), c => c.charCodeAt(0))
+    const cryptoKey = await crypto.subtle.importKey('raw', rawKey, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+    const sig = await crypto.subtle.sign('HMAC', cryptoKey, msgBytes)
+    const computedSig = 'v1,' + btoa(String.fromCharCode(...new Uint8Array(sig)))
+
+    const expectedSigs = svixSignature.split(' ')
+    const valid = expectedSigs.some(s => s === computedSig)
+    if (!valid) {
+      console.error('Webhook signature mismatch')
+      return json({ error: 'Invalid signature' }, 401)
+    }
+  }
+
   let event
   try { event = JSON.parse(body) } catch { return json({ ok: true }) }
 
@@ -310,9 +340,21 @@ async function runAutoSend(env) {
 
     // Only fire if nextBatchAt is in the past (or missing)
     const nextAt = campaign.nextBatchAt ? new Date(campaign.nextBatchAt) : new Date(0)
-    if (nextAt > now) continue
+    if (nextAt > now) {
+      console.log(`Campaign ${campaign.id}: next batch at ${nextAt.toISOString()}, skipping`)
+      continue
+    }
 
-    await sendAutoBatch(campaign, token, project, env, now)
+    console.log(`Campaign ${campaign.id}: running auto batch`)
+    try {
+      await sendAutoBatch(campaign, token, project, env, now)
+    } catch (e) {
+      console.error(`Campaign ${campaign.id}: auto batch failed:`, e)
+      // Mark campaign with error so user can see it in UI
+      await fsPatch(token, project, 'email_campaigns', campaign.id, {
+        autoSendError: { stringValue: e.message },
+      }).catch(() => {})
+    }
   }
 }
 
@@ -329,7 +371,7 @@ async function sendAutoBatch(campaign, token, project, env, now) {
     },
   })
 
-  // 2. Who already received this campaign
+  // 2. Who already received this campaign (exclude failed — they get retried)
   const sends      = await fsQuery(token, project, {
     from:  [{ collectionId: 'email_sends' }],
     where: {
@@ -342,12 +384,13 @@ async function sendAutoBatch(campaign, token, project, env, now) {
   })
   const sentEmails = new Set(sends.filter(s => s.status !== 'failed').map(s => s.email))
 
-  // 3. Remaining contacts: exclude only successful sends (failed ones are retried)
+  // 3. Remaining contacts (valid email, not yet sent)
   const remaining = activeContacts.filter(c => fsValidEmail(c.email) && !sentEmails.has(c.email))
   const batch     = remaining.slice(0, BATCH_SIZE)
   const afterThis = remaining.length - batch.length
 
   if (batch.length === 0) {
+    // Nothing left — mark as done (two separate calls to avoid same-doc batchWrite conflict)
     await fsPatch(token, project, 'email_campaigns', campaign.id, {
       status:   { stringValue: 'sent' },
       autoSend: { booleanValue: false },
@@ -359,7 +402,7 @@ async function sendAutoBatch(campaign, token, project, env, now) {
   const emails = batch.map(contact => {
     const unsub = `${APP_URL}/#/unsubscribe?c=${encodeURIComponent(contact.id)}`
     const html  = (campaign.htmlBody || '')
-      .replaceAll('{{name}}',          contact.name || 'Πελάτη')
+      .replaceAll('{{name}}',           contact.name || 'Πελάτη')
       .replaceAll('{{unsubscribe_url}}', unsub)
     return {
       from:    `${campaign.fromName} <${campaign.fromEmail}>`,
@@ -373,26 +416,29 @@ async function sendAutoBatch(campaign, token, project, env, now) {
     }
   })
 
-  const resRes  = await fetch('https://api.resend.com/emails/batch', {
+  const resRes = await fetch('https://api.resend.com/emails/batch', {
     method:  'POST',
     headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body:    JSON.stringify(emails),
   })
+  if (!resRes.ok) {
+    const errText = await resRes.text()
+    throw new Error(`Resend API error ${resRes.status}: ${errText}`)
+  }
   const resData = await resRes.json()
 
   const results = []
-  if (resRes.ok && Array.isArray(resData.data)) {
+  if (Array.isArray(resData.data)) {
     resData.data.forEach((item, i) => {
       results.push({
         email:    batch[i].email,
-        id:       batch[i].id,
         status:   item.id ? 'sent' : 'failed',
         resendId: item.id || null,
         error:    item.id ? null : JSON.stringify(item),
       })
     })
   } else {
-    batch.forEach(c => results.push({ email: c.email, id: c.id, status: 'failed', resendId: null, error: resData.message || 'Unknown' }))
+    batch.forEach(c => results.push({ email: c.email, status: 'failed', resendId: null, error: resData.message || 'Unknown' }))
   }
 
   const sentCount   = results.filter(r => r.status === 'sent').length
@@ -400,7 +446,7 @@ async function sendAutoBatch(campaign, token, project, env, now) {
   const nowIso      = now.toISOString()
   const nextBatchAt = new Date(now.getTime() + AUTO_INTERVAL_MS).toISOString()
 
-  // 5. Write email_sends docs to Firestore (in chunks of 500)
+  // 5. Write email_sends docs to Firestore (chunks of 500)
   const CHUNK = 500
   for (let i = 0; i < results.length; i += CHUNK) {
     const chunk  = results.slice(i, i + CHUNK)
@@ -422,7 +468,7 @@ async function sendAutoBatch(campaign, token, project, env, now) {
         },
       },
     }))
-    await fetch(
+    const bwRes = await fetch(
       `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents:batchWrite`,
       {
         method:  'POST',
@@ -430,40 +476,43 @@ async function sendAutoBatch(campaign, token, project, env, now) {
         body:    JSON.stringify({ writes }),
       }
     )
+    if (!bwRes.ok) {
+      console.error('email_sends batchWrite failed:', await bwRes.text())
+    }
   }
 
-  // 6. Update campaign: increment stats + set nextBatchAt + status
-  await fetch(
+  // 6. FIX: Two SEPARATE calls — Firestore batchWrite does not allow
+  //    transform + update on the same document in a single batch.
+  //    Call 1: atomically increment stats counters
+  const statsRes = await fetch(
     `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents:batchWrite`,
     {
       method:  'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        writes: [
-          {
-            transform: {
-              document: `projects/${project}/databases/(default)/documents/email_campaigns/${campaign.id}`,
-              fieldTransforms: [
-                { fieldPath: 'stats.sent',   increment: { integerValue: String(sentCount) } },
-                { fieldPath: 'stats.failed', increment: { integerValue: String(failedCount) } },
-              ],
-            },
+        writes: [{
+          transform: {
+            document: `projects/${project}/databases/(default)/documents/email_campaigns/${campaign.id}`,
+            fieldTransforms: [
+              { fieldPath: 'stats.sent',   increment: { integerValue: String(sentCount) } },
+              { fieldPath: 'stats.failed', increment: { integerValue: String(failedCount) } },
+            ],
           },
-          {
-            update: {
-              name:   `projects/${project}/databases/(default)/documents/email_campaigns/${campaign.id}`,
-              fields: {
-                status:       { stringValue: afterThis === 0 ? 'sent' : 'auto' },
-                autoSend:     { booleanValue: afterThis > 0 },
-                nextBatchAt:  { timestampValue: nextBatchAt },
-              },
-            },
-            updateMask: { fieldPaths: ['status', 'autoSend', 'nextBatchAt'] },
-          },
-        ],
+        }],
       }),
     }
   )
+  if (!statsRes.ok) {
+    console.error('Stats increment failed:', await statsRes.text())
+  }
+
+  // Call 2: update status, autoSend, nextBatchAt, clear any previous error
+  await fsPatch(token, project, 'email_campaigns', campaign.id, {
+    status:        { stringValue: afterThis === 0 ? 'sent' : 'auto' },
+    autoSend:      { booleanValue: afterThis > 0 },
+    nextBatchAt:   { timestampValue: nextBatchAt },
+    autoSendError: { nullValue: null },
+  })
 }
 
 // ─── Firestore REST helpers ───────────────────────────────────────────────────
@@ -477,6 +526,10 @@ async function fsQuery(token, project, structuredQuery) {
       body:    JSON.stringify({ structuredQuery }),
     }
   )
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(`Firestore query failed ${res.status}: ${err}`)
+  }
   const data = await res.json()
   return data
     .filter(d => d.document)
@@ -485,7 +538,7 @@ async function fsQuery(token, project, structuredQuery) {
 
 async function fsPatch(token, project, collection, id, fields) {
   const mask = Object.keys(fields).map(k => `updateMask.fieldPaths=${k}`).join('&')
-  await fetch(
+  const res = await fetch(
     `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/${collection}/${id}?${mask}`,
     {
       method:  'PATCH',
@@ -493,6 +546,9 @@ async function fsPatch(token, project, collection, id, fields) {
       body:    JSON.stringify({ fields }),
     }
   )
+  if (!res.ok) {
+    console.error(`fsPatch ${collection}/${id} failed:`, await res.text())
+  }
 }
 
 function fsParseFields(fields) {
