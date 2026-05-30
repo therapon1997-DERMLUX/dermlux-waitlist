@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { collection, onSnapshot, query, orderBy, where, getDocs } from 'firebase/firestore'
+import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -25,11 +25,12 @@ export default function MetricsTab() {
     const unsub = onSnapshot(
       query(
         collection(db, 'email_campaigns'),
-        where('status', 'in', ['sent', 'auto', 'partial']),
-        orderBy('sentAt', 'desc')
+        where('status', 'in', ['sent', 'auto', 'partial'])
       ),
       snap => {
-        setCampaigns(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        docs.sort((a, b) => (b.sentAt?.seconds || 0) - (a.sentAt?.seconds || 0))
+        setCampaigns(docs)
         setLoading(false)
       }
     )
