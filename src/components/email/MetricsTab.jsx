@@ -6,7 +6,7 @@ import {
 } from 'recharts'
 
 const BENCHMARKS = { open: 21, click: 2.6 }
-const WORKER_URL = 'https://empty-hall-968f.workers.dev'
+const WORKER_URL = import.meta.env.VITE_WORKER_URL
 
 function pct(a, b) { return (!b || !a) ? 0 : Math.round((a / b) * 100) }
 function fmt(n)    { return (n || 0).toLocaleString('el-GR') }
