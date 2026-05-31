@@ -63,10 +63,12 @@ export default function CampaignsTab() {
   }
 
   async function handleResumeAuto(campaign) {
+    // Set nextBatchAt to now so the cron picks it up within 15 minutes
     await updateDoc(doc(db, 'email_campaigns', campaign.id), {
-      autoSend:    true,
-      status:      'auto',
-      nextBatchAt: Timestamp.fromMillis(Date.now() + 7200000),
+      autoSend:      true,
+      status:        'auto',
+      nextBatchAt:   Timestamp.fromMillis(Date.now()),
+      autoSendError: null,
     })
   }
 
@@ -310,6 +312,17 @@ function CampaignCard({ c, testResult, onSend, onEdit, onPause, onResumeAuto, on
                 <div className="text-xs text-gray-400 mt-0.5">{label}</div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Auto-send error banner */}
+        {c.autoSendError && (
+          <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700 flex items-start gap-2">
+            <span className="shrink-0">⚠️</span>
+            <div>
+              <span className="font-semibold">Σφάλμα αυτόματης αποστολής: </span>
+              {c.autoSendError}
+            </div>
           </div>
         )}
 
