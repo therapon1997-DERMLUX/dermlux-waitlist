@@ -104,7 +104,7 @@ export default function CampaignsTab() {
     setTestResult({ status: 'sending', msg: `Αποστολή στο ${email}…` })
     try {
       const workerUrl = import.meta.env.VITE_WORKER_URL
-      const campaignId = `test_${campaign.id}`
+      const campaignId = campaign.id
       const contactId  = `test_${email.replace(/[^a-zA-Z0-9]/g, '_')}`
       const res = await fetch(`${workerUrl}/send-campaign`, {
         method: 'POST',
@@ -118,8 +118,8 @@ export default function CampaignsTab() {
       const data = await res.json()
       const result = data.results?.[0]
       if (result?.status === 'sent') {
-        // Save email_sends record so webhook can track opens/clicks
-        const sendId = `${campaignId}||${email}`
+        // Save email_sends record so webhook can track opens/clicks on the real campaign
+        const sendId = `${campaignId}||test||${email}`
         await setDoc(doc(db, 'email_sends', sendId), {
           campaignId,
           contactId,
