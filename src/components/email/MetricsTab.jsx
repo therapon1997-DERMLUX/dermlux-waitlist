@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { collection, getDocs, query, where } from 'firebase/firestore'
+import { collection, getDocs, query, where, orderBy } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -11,24 +11,35 @@ const WORKER_URL = import.meta.env.VITE_WORKER_URL
 function pct(a, b) { return (!b || !a) ? 0 : Math.round((a / b) * 100) }
 function fmt(n)    { return (n || 0).toLocaleString('el-GR') }
 
+function fmtDate(val) {
+  if (!val) return '—'
+  const d = val?.toDate ? val.toDate() : new Date(val)
+  return d.toLocaleDateString('el-GR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function MetricsTab() {
   const [campaigns,  setCampaigns]  = useState([])
+  const [testSends,  setTestSends]  = useState([])
   const [loading,    setLoading]    = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [selected,   setSelected]   = useState(null)
 
   async function load() {
     try {
-      const snap = await getDocs(
-        query(collection(db, 'email_campaigns'), where('status', 'in', ['sent', 'auto', 'partial']))
-      )
-      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const [campaignSnap, testSnap] = await Promise.all([
+        getDocs(query(collection(db, 'email_campaigns'), where('status', 'in', ['sent', 'auto', 'partial']))),
+        getDocs(query(collection(db, 'email_sends'), where('isTest', '==', true))),
+      ])
+      const docs = campaignSnap.docs.map(d => ({ id: d.id, ...d.data() }))
       docs.sort((a, b) =>
         (b.sentAt?.seconds || b.createdAt?.seconds || 0) -
         (a.sentAt?.seconds || a.createdAt?.seconds || 0)
       )
       setCampaigns(docs)
+      const tests = testSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      tests.sort((a, b) => (b.sentAt?.seconds || 0) - (a.sentAt?.seconds || 0))
+      setTestSends(tests)
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -142,6 +153,57 @@ export default function MetricsTab() {
             />
           ))}
         </div>
+      </div>
+
+      {/* Test Emails section */}
+      <div>
+        <div className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">🧪 Test Emails</div>
+        {testSends.length === 0 ? (
+          <div className="text-sm text-gray-400 text-center py-6 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+            Δεν υπάρχουν test emails ακόμα. Χρησιμοποίησε το 🧪 Test σε μια καμπάνια.
+          </div>
+        ) : (
+          <div className="card overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-4 py-2 font-medium text-gray-500 text-xs">Καμπάνια</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-500 text-xs">Email</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-500 text-xs">Στάλθηκε</th>
+                  <th className="text-center px-4 py-2 font-medium text-gray-500 text-xs">Άνοιγμα</th>
+                  <th className="text-center px-4 py-2 font-medium text-gray-500 text-xs">Κλικ</th>
+                  <th className="text-center px-4 py-2 font-medium text-gray-500 text-xs">Bounce</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {testSends.map(t => (
+                  <tr key={t.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-2 text-xs text-gray-700 font-medium max-w-[160px] truncate">
+                      {t.campaignName || t.campaignId}
+                    </td>
+                    <td className="px-4 py-2 text-xs text-gray-500">{t.email}</td>
+                    <td className="px-4 py-2 text-xs text-gray-400">{fmtDate(t.sentAt)}</td>
+                    <td className="px-4 py-2 text-center">
+                      {t.openedAt
+                        ? <span className="text-emerald-600 font-semibold text-xs">✓ {fmtDate(t.openedAt)}</span>
+                        : <span className="text-gray-300 text-xs">—</span>}
+                    </td>
+                    <td className="px-4 py-2 text-center">
+                      {t.clickedAt
+                        ? <span className="text-indigo-600 font-semibold text-xs">✓ {fmtDate(t.clickedAt)}</span>
+                        : <span className="text-gray-300 text-xs">—</span>}
+                    </td>
+                    <td className="px-4 py-2 text-center">
+                      {t.bouncedAt
+                        ? <span className="text-rose-500 font-semibold text-xs">✓</span>
+                        : <span className="text-gray-300 text-xs">—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Bar chart (only when multiple campaigns) */}
