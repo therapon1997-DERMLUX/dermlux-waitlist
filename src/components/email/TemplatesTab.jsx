@@ -4,6 +4,7 @@ import { db } from '../../firebase/config'
 import templateHtml from '../../../email-templates/dermlux-skin-hair-aesthetics.html?raw'
 import template3colHtml from '../../../email-templates/dermlux-email-2-3col.html?raw'
 import templateSummerHtml from '../../../email-templates/dermlux-summer-preglow.html?raw'
+import templateInjectablesHtml from '../../../email-templates/dermlux-injectables-offer.html?raw'
 import CreateCampaignModal from './CreateCampaignModal'
 import FigImporter from './FigImporter'
 
@@ -34,6 +35,14 @@ const BUILTINS = [
     description: 'Εποχικό email για το πρόγραμμα Pre-summer Glow (€125). Με τιμή, λίστα θεραπειών και urgency notice.',
     htmlBody: templateSummerHtml,
     thumbUrl: SUMMER_THUMB,
+    builtin: true,
+  },
+  {
+    id: '__builtin_injectables__',
+    name: 'DermLux — €50 off Injectables Offer',
+    description: '€50 έκπτωση σε κάθε injectable θεραπεία (Botox, Dermal Fillers, Skin Boosters, Polynucleotides). Ισχύει έως 30/06/2026.',
+    htmlBody: templateInjectablesHtml,
+    thumbUrl: HERO_THUMB,
     builtin: true,
   },
 ]
