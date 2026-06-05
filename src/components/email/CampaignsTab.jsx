@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { collection, onSnapshot, query, orderBy, doc, deleteDoc, updateDoc, Timestamp } from 'firebase/firestore'
+import { collection, onSnapshot, query, orderBy, doc, deleteDoc, updateDoc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import CreateCampaignModal from './CreateCampaignModal'
 import CampaignSendModal from './CampaignSendModal'
@@ -104,18 +104,35 @@ export default function CampaignsTab() {
     setTestResult({ status: 'sending', msg: `Αποστολή στο ${email}…` })
     try {
       const workerUrl = import.meta.env.VITE_WORKER_URL
+      const campaignId = `test_${campaign.id}`
+      const contactId  = `test_${email.replace(/[^a-zA-Z0-9]/g, '_')}`
       const res = await fetch(`${workerUrl}/send-campaign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          campaignId: `test_${campaign.id}`,
+          campaignId,
           campaign,
-          contacts: [{ id: 'test', name: name || 'Test', email }],
+          contacts: [{ id: contactId, name: name || 'Test', email }],
         }),
       })
       const data = await res.json()
       const result = data.results?.[0]
       if (result?.status === 'sent') {
+        // Save email_sends record so webhook can track opens/clicks
+        const sendId = `${campaignId}||${email}`
+        await setDoc(doc(db, 'email_sends', sendId), {
+          campaignId,
+          contactId,
+          email,
+          resendId:     result.resendId || null,
+          status:       'sent',
+          sentAt:       serverTimestamp(),
+          failedReason: null,
+          openedAt:     null,
+          clickedAt:    null,
+          bouncedAt:    null,
+          createdAt:    serverTimestamp(),
+        })
         setTestResult({ status: 'done', msg: `✅ Εστάλη στο ${email}` })
       } else {
         setTestResult({ status: 'error', msg: `❌ Σφάλμα: ${result?.error || JSON.stringify(data)}` })
