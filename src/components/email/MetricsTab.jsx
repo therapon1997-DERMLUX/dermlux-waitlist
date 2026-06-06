@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { collection, getDocs, query, where, orderBy } from 'firebase/firestore'
+import { collection, getDocs, onSnapshot, query, where, orderBy } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -206,6 +206,9 @@ export default function MetricsTab() {
         )}
       </div>
 
+      {/* Opt-out per campaign section */}
+      <OptOutSection campaigns={campaigns} />
+
       {/* Bar chart (only when multiple campaigns) */}
       {campaigns.length > 1 && (
         <div className="card p-5">
@@ -243,6 +246,84 @@ export default function MetricsTab() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Opt-out per campaign section ─────────────────────────────────────────────
+function OptOutSection({ campaigns }) {
+  const [optOuts, setOptOuts] = useState([])
+
+  useEffect(() => {
+    const unsub = onSnapshot(
+      query(collection(db, 'email_contacts'), where('status', '==', 'unsubscribed')),
+      snap => setOptOuts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    )
+    return unsub
+  }, [])
+
+  // Group by campaign
+  const byCampaign = useMemo(() => {
+    const map = {}
+    for (const c of optOuts) {
+      const key  = c.optOutCampaignId   || '__manual__'
+      const name = c.optOutCampaignName || (c.optOutSource === 'manual' ? 'Χειροκίνητα' : '—')
+      if (!map[key]) map[key] = { campaignId: key, campaignName: name, contacts: [] }
+      map[key].contacts.push(c)
+    }
+    return Object.values(map).sort((a, b) => b.contacts.length - a.contacts.length)
+  }, [optOuts])
+
+  if (optOuts.length === 0) return null
+
+  return (
+    <div>
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">🚫 Opt-outs ανά Καμπάνια</div>
+      <div className="card overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th className="text-left px-4 py-2 font-medium text-gray-500 text-xs">Καμπάνια</th>
+              <th className="text-right px-4 py-2 font-medium text-gray-500 text-xs">Opt-outs</th>
+              <th className="text-left px-4 py-2 font-medium text-gray-500 text-xs hidden md:table-cell">Επαφές</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {byCampaign.map(g => (
+              <tr key={g.campaignId} className="hover:bg-gray-50">
+                <td className="px-4 py-2.5">
+                  <span className="text-sm font-medium text-gray-800">{g.campaignName}</span>
+                  {g.campaignId === '__manual__' && (
+                    <span className="ml-2 text-xs text-gray-400 italic">χειροκίνητη ενέργεια</span>
+                  )}
+                </td>
+                <td className="px-4 py-2.5 text-right">
+                  <span className="text-rose-600 font-bold text-sm">{g.contacts.length}</span>
+                </td>
+                <td className="px-4 py-2.5 hidden md:table-cell">
+                  <div className="flex flex-wrap gap-1">
+                    {g.contacts.slice(0, 6).map(c => (
+                      <span key={c.id} className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full truncate max-w-[160px]">
+                        {c.name || c.email}
+                      </span>
+                    ))}
+                    {g.contacts.length > 6 && (
+                      <span className="text-xs text-gray-400">+{g.contacts.length - 6} ακόμα</span>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="bg-gray-50 border-t border-gray-200">
+            <tr>
+              <td className="px-4 py-2 text-xs text-gray-400">Σύνολο</td>
+              <td className="px-4 py-2 text-right text-xs font-bold text-rose-600">{optOuts.length}</td>
+              <td className="hidden md:table-cell" />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </div>
   )
 }

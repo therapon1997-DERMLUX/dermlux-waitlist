@@ -76,7 +76,7 @@ async function sendCampaign(request, env, json) {
 
   // Build email objects for Resend batch API (max 100 per call — caller already chunks)
   const emails = contacts.map(contact => {
-    const unsub = `${APP_URL}/#/unsubscribe?c=${encodeURIComponent(contact.id)}`
+    const unsub = `${APP_URL}/#/unsubscribe?c=${encodeURIComponent(contact.id)}&cid=${encodeURIComponent(campaignId)}&cn=${encodeURIComponent(campaign.name || '')}`
     const html = (campaign.htmlBody || '')
       .replaceAll('{{name}}', contact.name || 'Πελάτη')
       .replaceAll('{{unsubscribe_url}}', unsub)
@@ -130,27 +130,31 @@ async function sendCampaign(request, env, json) {
 
 // ─── /unsubscribe ─────────────────────────────────────────────────────────────
 async function unsubscribeContact(request, env, json) {
-  const { contactId } = await request.json()
+  const { contactId, campaignId, campaignName } = await request.json()
   if (!contactId) return json({ error: 'Missing contactId' }, 400)
 
   const token = await getFirebaseToken(env)
   const now   = new Date().toISOString()
   const project = env.FIREBASE_PROJECT_ID
 
+  const fields = {
+    status:               { stringValue: 'unsubscribed' },
+    unsubscribedAt:       { timestampValue: now },
+    updatedAt:            { timestampValue: now },
+    lastEvent:            { stringValue: 'unsubscribed' },
+    optOutCampaignId:     campaignId   ? { stringValue: campaignId }   : { nullValue: null },
+    optOutCampaignName:   campaignName ? { stringValue: campaignName } : { nullValue: null },
+    optOutSource:         { stringValue: campaignId ? 'email_link' : 'manual' },
+  }
+
+  const mask = Object.keys(fields).map(f => `updateMask.fieldPaths=${f}`).join('&')
+
   const res = await fetch(
-    `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/email_contacts/${contactId}` +
-    `?updateMask.fieldPaths=status&updateMask.fieldPaths=unsubscribedAt&updateMask.fieldPaths=updatedAt&updateMask.fieldPaths=lastEvent`,
+    `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/email_contacts/${contactId}?${mask}`,
     {
       method:  'PATCH',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fields: {
-          status:         { stringValue: 'unsubscribed' },
-          unsubscribedAt: { timestampValue: now },
-          updatedAt:      { timestampValue: now },
-          lastEvent:      { stringValue: 'unsubscribed' },
-        },
-      }),
+      body: JSON.stringify({ fields }),
     }
   )
 
@@ -158,6 +162,31 @@ async function unsubscribeContact(request, env, json) {
     const err = await res.text()
     console.error('Unsubscribe failed:', err)
     return json({ error: err }, 500)
+  }
+
+  // Also increment campaign unsubscribed stat
+  if (campaignId) {
+    try {
+      await fetch(
+        `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents:commit`,
+        {
+          method:  'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            writes: [{
+              transform: {
+                document: `projects/${project}/databases/(default)/documents/email_campaigns/${campaignId}`,
+                fieldTransforms: [
+                  { fieldPath: 'stats.unsubscribed', increment: { integerValue: '1' } },
+                ],
+              },
+            }],
+          }),
+        }
+      )
+    } catch (e) {
+      console.error('Failed to increment unsubscribed stat:', e)
+    }
   }
 
   return json({ success: true })
@@ -425,7 +454,7 @@ async function sendAutoBatch(campaign, token, project, env, now) {
 
   // 4. Send via Resend batch API
   const emails = batch.map(contact => {
-    const unsub = `${APP_URL}/#/unsubscribe?c=${encodeURIComponent(contact.id)}`
+    const unsub = `${APP_URL}/#/unsubscribe?c=${encodeURIComponent(contact.id)}&cid=${encodeURIComponent(campaign.id)}&cn=${encodeURIComponent(campaign.name || '')}`
     const html  = (campaign.htmlBody || '')
       .replaceAll('{{name}}',           contact.name || 'Πελάτη')
       .replaceAll('{{unsubscribe_url}}', unsub)

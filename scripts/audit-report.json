@@ -1,0 +1,849 @@
+{
+  "generated": "2026-06-06T07:02:04.471Z",
+  "total": 14778,
+  "issues": 123,
+  "internal": [
+    {
+      "id": "95666899_noemail.dermlux.local",
+      "email": "95666899@noemail.dermlux.local",
+      "name": "Σώτια Κυριάκου",
+      "status": "active"
+    },
+    {
+      "id": "97762758_noemail.dermlux.local",
+      "email": "97762758@noemail.dermlux.local",
+      "name": "Σώτια Κυριάκου",
+      "status": "active"
+    },
+    {
+      "id": "99108037_noemail.dermlux.local",
+      "email": "99108037@noemail.dermlux.local",
+      "name": "Tania Patricova",
+      "status": "active"
+    },
+    {
+      "id": "_dermluxlimassol_gmail.com",
+      "email": "δdermluxlimassol@gmail.com",
+      "name": "Κωνσταντίνα Ανδρέου",
+      "status": "active"
+    },
+    {
+      "id": "info_dermluxclinic.com",
+      "email": "info@dermluxclinic.com",
+      "name": "Αία Σούσακ",
+      "status": "active"
+    }
+  ],
+  "invalidFormat": [
+    {
+      "id": "20234585_std.neu.edu.tr",
+      "email": "20234585@std.neu.edu.tr",
+      "name": "IxhAr UllAh",
+      "status": "active",
+      "reason": "typo TLD/pattern"
+    },
+    {
+      "id": "2322377_cityu.ac.cy",
+      "email": "2322377@cityu.ac.cy",
+      "name": "Guru Preet Kaur",
+      "status": "active",
+      "reason": "typo TLD/pattern"
+    },
+    {
+      "id": "2718645_gmail.com",
+      "email": "2718645@gmail.com",
+      "name": "Trunov Aleksei",
+      "status": "active",
+      "reason": "typo TLD/pattern"
+    },
+    {
+      "id": "99_300305.net",
+      "email": "99@300305.net",
+      "name": "Leonidas",
+      "status": "active",
+      "reason": "typo TLD/pattern"
+    },
+    {
+      "id": "bW96aGRlbW9zaGZlZ2gwQGdtYWlsLmNvbg",
+      "email": "mozhdemoshfegh0@gmail.con",
+      "name": "Mάγια Μοσφέγκ",
+      "status": "active",
+      "reason": "typo TLD/pattern"
+    },
+    {
+      "id": "c2FqaWQzMzY2MDZAZ21haWwuY29u",
+      "email": "sajid336606@gmail.con",
+      "name": "Sajid nasir",
+      "status": "active",
+      "reason": "typo TLD/pattern"
+    },
+    {
+      "id": "cGF2bGluYV8ta0Bob3RtYWlsLmNvbg",
+      "email": "pavlina_-k@hotmail.con",
+      "name": "Παυλίνα Χριστοδουλίδου",
+      "status": "active",
+      "reason": "typo TLD/pattern"
+    },
+    {
+      "id": "dmljdG9yaWFuaWNvbGFvdUBnbWFpbC5jb24",
+      "email": "victorianicolaou@gmail.con",
+      "name": "Victoria Nicolaou",
+      "status": "active",
+      "reason": "typo TLD/pattern"
+    },
+    {
+      "id": "lea_skondric_hotmail.con",
+      "email": "lea_skondric@hotmail.con",
+      "name": "Lea ミ☆",
+      "status": "active",
+      "reason": "typo TLD/pattern"
+    },
+    {
+      "id": "mozhdemoshfegh0_gmail.con",
+      "email": "mozhdemoshfegh0@gmail.con",
+      "name": "Mάγια Μοσφέγκ",
+      "status": "active",
+      "reason": "typo TLD/pattern"
+    },
+    {
+      "id": "noman_7_hotmail.con",
+      "email": "noman_7@hotmail.con",
+      "name": "Numan Sakhi",
+      "status": "active",
+      "reason": "typo TLD/pattern"
+    },
+    {
+      "id": "olgakonomou2000_gmail.con",
+      "email": "olgakonomou2000@gmail.con",
+      "name": "Olga Konomou",
+      "status": "active",
+      "reason": "typo TLD/pattern"
+    },
+    {
+      "id": "pavlina_-k_hotmail.con",
+      "email": "pavlina_-k@hotmail.con",
+      "name": "Παυλίνα Χριστοδουλίδου",
+      "status": "active",
+      "reason": "typo TLD/pattern"
+    },
+    {
+      "id": "sajid336606_gmail.con",
+      "email": "sajid336606@gmail.con",
+      "name": "sajid nasir",
+      "status": "active",
+      "reason": "typo TLD/pattern"
+    },
+    {
+      "id": "srizasubba11_gmail.con",
+      "email": "srizasubba11@gmail.con",
+      "name": "Sriza Subba",
+      "status": "active",
+      "reason": "typo TLD/pattern"
+    },
+    {
+      "id": "victorianicolaou_gmail.con",
+      "email": "victorianicolaou@gmail.con",
+      "name": "Victoria  Nicolaou",
+      "status": "active",
+      "reason": "typo TLD/pattern"
+    }
+  ],
+  "noEmail": [],
+  "roleAddress": [
+    {
+      "id": "Y29udGFjdC5tYXJpYXBhdmxvdUBnbWFpbC5jb20",
+      "email": "contact.mariapavlou@gmail.com",
+      "name": "Μαρία Παύλου",
+      "status": "active"
+    },
+    {
+      "id": "b2ZmaWNlQGN5cHJ1c3Byb3BlcnR5bGFuZC5jb20",
+      "email": "office@cypruspropertyland.com",
+      "name": "Andri Doukanari Christodoulou",
+      "status": "active"
+    },
+    {
+      "id": "bWFpbEBqb2FuYS1nYXJjaWEuY29t",
+      "email": "mail@joana-garcia.com",
+      "name": "Joana Garcia",
+      "status": "active"
+    },
+    {
+      "id": "contact.mariapavlou_gmail.com",
+      "email": "contact.mariapavlou@gmail.com",
+      "name": "Μαρία Παύλου",
+      "status": "active"
+    },
+    {
+      "id": "info.marggraff_gmail.com",
+      "email": "info.marggraff@gmail.com",
+      "name": "Pete",
+      "status": "active"
+    },
+    {
+      "id": "info_aatbsi.com",
+      "email": "info@aatbsi.com",
+      "name": "Νάσος Αθανασιάδης",
+      "status": "active"
+    },
+    {
+      "id": "info_assetpro.cy",
+      "email": "info@assetpro.cy",
+      "name": "Άντρια Μιχαήλ",
+      "status": "active"
+    },
+    {
+      "id": "info_dpultra.com",
+      "email": "info@dpultra.com",
+      "name": "Paola Castano Moncada",
+      "status": "active"
+    },
+    {
+      "id": "info_gallopsky.com",
+      "email": "info@gallopsky.com",
+      "name": "Ντίνος Κλεάνθους",
+      "status": "active"
+    },
+    {
+      "id": "info_happyvalley.com.cy",
+      "email": "info@happyvalley.com.cy",
+      "name": "Hana Λάμπρου",
+      "status": "active"
+    },
+    {
+      "id": "info_karatzias.com",
+      "email": "info@karatzias.com",
+      "name": "Νίκος Καρατζίας",
+      "status": "active"
+    },
+    {
+      "id": "info_kastaliawater.com",
+      "email": "info@kastaliawater.com",
+      "name": "Elli Vouti",
+      "status": "active"
+    },
+    {
+      "id": "info_metimetherapy.cy",
+      "email": "info@metimetherapy.cy",
+      "name": "Gabriella Vetro",
+      "status": "active"
+    },
+    {
+      "id": "info_paphosweddingsmadeeasy.com",
+      "email": "info@paphosweddingsmadeeasy.com",
+      "name": "Joanne Heyworth",
+      "status": "active"
+    },
+    {
+      "id": "info_rotosgroup.com",
+      "email": "info@rotosgroup.com",
+      "name": "Dvlps Rotos",
+      "status": "active"
+    },
+    {
+      "id": "info_russellflick.com",
+      "email": "info@russellflick.com",
+      "name": "Russell Flick",
+      "status": "active"
+    },
+    {
+      "id": "info_smlawcy.com",
+      "email": "info@smlawcy.com",
+      "name": "Στέλλα Μιχαήλ",
+      "status": "active"
+    },
+    {
+      "id": "info_studiog.com.cy",
+      "email": "info@studiog.com.cy",
+      "name": "Despo Soteriade",
+      "status": "active"
+    },
+    {
+      "id": "info_umbertobros.com",
+      "email": "info@umbertobros.com",
+      "name": "Yishai",
+      "status": "active"
+    },
+    {
+      "id": "info_vitaltrendsgmbh.com",
+      "email": "info@vitaltrendsgmbh.com",
+      "name": "Pan Hadjichambis",
+      "status": "active"
+    },
+    {
+      "id": "mail_joana-garcia.com",
+      "email": "mail@joana-garcia.com",
+      "name": "JOANA GARCIA",
+      "status": "active"
+    },
+    {
+      "id": "office.hankge_gmail.com",
+      "email": "office.hankge@gmail.com",
+      "name": "Hank Ge.",
+      "status": "active"
+    },
+    {
+      "id": "office_cypruspropertyland.com",
+      "email": "office@cypruspropertyland.com",
+      "name": "Andri Doukanari Christodoulou",
+      "status": "active"
+    }
+  ],
+  "firstNameOnly": [
+    {
+      "id": "Y2Fyb2xpbmVAdGhlZWRpdGJ1cmVhdS5jbw",
+      "email": "caroline@theeditbureau.co",
+      "name": "Caroline Anastassiades",
+      "status": "active",
+      "reason": "\"caroline\" matches first name of \"Caroline Anastassiades\""
+    },
+    {
+      "id": "Y2hyaXN0aW5hQGNocmlzdGluYWsuY29t",
+      "email": "christina@christinak.com",
+      "name": "Christina Kyriacou",
+      "status": "active",
+      "reason": "\"christina\" matches first name of \"Christina Kyriacou\""
+    },
+    {
+      "id": "YW5uYUBzbWFydHRyYXZlbC5wcm8",
+      "email": "anna@smarttravel.pro",
+      "name": "Anna Bogautdinova",
+      "status": "active",
+      "reason": "\"anna\" matches first name of \"Anna Bogautdinova\""
+    },
+    {
+      "id": "YW5uaWVAdHJhbnNmb3Jtbm93Lm5ldA",
+      "email": "annie@transformnow.net",
+      "name": "Annie pattichi",
+      "status": "active",
+      "reason": "\"annie\" matches first name of \"Annie pattichi\""
+    },
+    {
+      "id": "YWxleGlzQGtpdGVzb2Z0LmNvbS5jeQ",
+      "email": "alexis@kitesoft.com.cy",
+      "name": "Alexis Hadjisoteriou",
+      "status": "active",
+      "reason": "\"alexis\" matches first name of \"Alexis Hadjisoteriou\""
+    },
+    {
+      "id": "YXJnaXJhQGFidi5iZw",
+      "email": "argira@abv.bg",
+      "name": "Argira Baeva",
+      "status": "active",
+      "reason": "\"argira\" matches first name of \"Argira Baeva\""
+    },
+    {
+      "id": "Z2FieUB0aGVwcm9wZXJ0eWhvdXNlLmNvbQ",
+      "email": "gaby@thepropertyhouse.com",
+      "name": "Gaby Kempenaar",
+      "status": "active",
+      "reason": "\"gaby\" matches first name of \"Gaby Kempenaar\""
+    },
+    {
+      "id": "Z2VtbWFAcmdmbWNvbnN1bHRhdGlvbi5ldQ",
+      "email": "gemma@rgfmconsultation.eu",
+      "name": "Gemma Mannion",
+      "status": "active",
+      "reason": "\"gemma\" matches first name of \"Gemma Mannion\""
+    },
+    {
+      "id": "ZG9uaWFAZ2hhcmVoZ296bGVlLmRl",
+      "email": "donia@gharehgozlee.de",
+      "name": "Donia Gharehgozlee",
+      "status": "active",
+      "reason": "\"donia\" matches first name of \"Donia Gharehgozlee\""
+    },
+    {
+      "id": "ZGFyaWlhQGFtZ2V0dmlzaW9uLmNvbQ",
+      "email": "dariia@amgetvision.com",
+      "name": "Dariia Vasylieva",
+      "status": "active",
+      "reason": "\"dariia\" matches first name of \"Dariia Vasylieva\""
+    },
+    {
+      "id": "ZW1pbGlhQGVtaWRhbGEuY29t",
+      "email": "emilia@emidala.com",
+      "name": "Emilia Forsenberg",
+      "status": "active",
+      "reason": "\"emilia\" matches first name of \"Emilia Forsenberg\""
+    },
+    {
+      "id": "ZWxpc2FudGhpQHlhaG9vLmdy",
+      "email": "elisanthi@yahoo.gr",
+      "name": "Elisanthi Nikolaou",
+      "status": "active",
+      "reason": "\"elisanthi\" matches first name of \"Elisanthi Nikolaou\""
+    },
+    {
+      "id": "a291bGFAZGlzeS5vcmcuY3k",
+      "email": "koula@disy.org.cy",
+      "name": "Koula Trifilli",
+      "status": "active",
+      "reason": "\"koula\" matches first name of \"Koula Trifilli\""
+    },
+    {
+      "id": "aGFybGV5QGRjaGJ1aWxkZXJzLmNvLnVr",
+      "email": "harley@dchbuilders.co.uk",
+      "name": "Harley Challener",
+      "status": "active",
+      "reason": "\"harley\" matches first name of \"Harley Challener\""
+    },
+    {
+      "id": "aXNhYmVsbGFAaW1hbmltdm10LmNvbQ",
+      "email": "isabella@imanimvmt.com",
+      "name": "Isabella Imani",
+      "status": "active",
+      "reason": "\"isabella\" matches first name of \"Isabella Imani\""
+    },
+    {
+      "id": "aXZhbm5hQGJyaWRnZXJwYXkuY29t",
+      "email": "ivanna@bridgerpay.com",
+      "name": "Ivanna Reshecknik",
+      "status": "active",
+      "reason": "\"ivanna\" matches first name of \"Ivanna Reshecknik\""
+    },
+    {
+      "id": "alexis_kitesoft.com.cy",
+      "email": "alexis@kitesoft.com.cy",
+      "name": "Alexis Hadjisoteriou",
+      "status": "active",
+      "reason": "\"alexis\" matches first name of \"Alexis Hadjisoteriou\""
+    },
+    {
+      "id": "am91c2xpbmVAbXVsdGlicmFuZHMuY29t",
+      "email": "jousline@multibrands.com",
+      "name": "Jousline Ego",
+      "status": "active",
+      "reason": "\"jousline\" matches first name of \"Jousline Ego\""
+    },
+    {
+      "id": "anna_smarttravel.pro",
+      "email": "anna@smarttravel.pro",
+      "name": "Anna Bogautdinova",
+      "status": "active",
+      "reason": "\"anna\" matches first name of \"Anna Bogautdinova\""
+    },
+    {
+      "id": "annie_transformnow.net",
+      "email": "annie@transformnow.net",
+      "name": "annie pattichi",
+      "status": "active",
+      "reason": "\"annie\" matches first name of \"annie pattichi\""
+    },
+    {
+      "id": "argira_abv.bg",
+      "email": "argira@abv.bg",
+      "name": "Argira Baeva",
+      "status": "active",
+      "reason": "\"argira\" matches first name of \"Argira Baeva\""
+    },
+    {
+      "id": "bGFuYUBsYW5hbWVkYXdhci5jb20",
+      "email": "lana@lanamedawar.com",
+      "name": "Lana Medawar",
+      "status": "active",
+      "reason": "\"lana\" matches first name of \"Lana Medawar\""
+    },
+    {
+      "id": "bGlsbHlAcXViZXZlbnRzLmNvbQ",
+      "email": "lilly@qubevents.com",
+      "name": "Lilly Pavlou",
+      "status": "active",
+      "reason": "\"lilly\" matches first name of \"Lilly Pavlou\""
+    },
+    {
+      "id": "bW9uaWNhQHNvcGhvY2xlb3VzbGF3LmNvbQ",
+      "email": "monica@sophocleouslaw.com",
+      "name": "Monica Sophocleous",
+      "status": "active",
+      "reason": "\"monica\" matches first name of \"Monica Sophocleous\""
+    },
+    {
+      "id": "bWFyaW5hQG5vcmEuY29tLmN5",
+      "email": "marina@nora.com.cy",
+      "name": "Marina Frangoulidou",
+      "status": "active",
+      "reason": "\"marina\" matches first name of \"Marina Frangoulidou\""
+    },
+    {
+      "id": "bWVpa2VAbW1oYW1tZXIub3Jn",
+      "email": "meike@mmhammer.org",
+      "name": "Meike Hammer",
+      "status": "active",
+      "reason": "\"meike\" matches first name of \"Meike Hammer\""
+    },
+    {
+      "id": "bWl0aGF0QGN5cHJ1c2F1dG9wYXJ0LmNvbQ",
+      "email": "mithat@cyprusautopart.com",
+      "name": "Mithat Can Kizartici",
+      "status": "active",
+      "reason": "\"mithat\" matches first name of \"Mithat Can Kizartici\""
+    },
+    {
+      "id": "bmFzb0B6aWxsaWVuLmluZm8",
+      "email": "naso@zillien.info",
+      "name": "Naso Chaili",
+      "status": "active",
+      "reason": "\"naso\" matches first name of \"Naso Chaili\""
+    },
+    {
+      "id": "bmljb3NAbm1nbG9iYWxhY2NvdW50aW5nLmNvbQ",
+      "email": "nicos@nmglobalaccounting.com",
+      "name": "Nicos Mina",
+      "status": "active",
+      "reason": "\"nicos\" matches first name of \"Nicos Mina\""
+    },
+    {
+      "id": "c2lncmlkQGRzLW1lbnRvcmluZy5ldQ",
+      "email": "sigrid@ds-mentoring.eu",
+      "name": "Sigrid Eckold",
+      "status": "active",
+      "reason": "\"sigrid\" matches first name of \"Sigrid Eckold\""
+    },
+    {
+      "id": "cGFub3NAdHNlbnRhcy5jb20",
+      "email": "panos@tsentas.com",
+      "name": "Panos Tsentas",
+      "status": "active",
+      "reason": "\"panos\" matches first name of \"Panos Tsentas\""
+    },
+    {
+      "id": "caroline_theeditbureau.co",
+      "email": "caroline@theeditbureau.co",
+      "name": "Caroline Anastassiades",
+      "status": "active",
+      "reason": "\"caroline\" matches first name of \"Caroline Anastassiades\""
+    },
+    {
+      "id": "christina_christinak.com",
+      "email": "christina@christinak.com",
+      "name": "Christina Kyriacou",
+      "status": "active",
+      "reason": "\"christina\" matches first name of \"Christina Kyriacou\""
+    },
+    {
+      "id": "cm9sYW5kb3NAYW9sLmNvbQ",
+      "email": "rolandos@aol.com",
+      "name": "Rolandos Charalambous",
+      "status": "active",
+      "reason": "\"rolandos\" matches first name of \"Rolandos Charalambous\""
+    },
+    {
+      "id": "dariia_amgetvision.com",
+      "email": "dariia@amgetvision.com",
+      "name": "Dariia Vasylieva",
+      "status": "active",
+      "reason": "\"dariia\" matches first name of \"Dariia Vasylieva\""
+    },
+    {
+      "id": "dmFybmF2YXNAb20tY3lwcnVzLmNvbQ",
+      "email": "varnavas@om-cyprus.com",
+      "name": "Varnavas Hadjittofi",
+      "status": "active",
+      "reason": "\"varnavas\" matches first name of \"Varnavas Hadjittofi\""
+    },
+    {
+      "id": "donia_gharehgozlee.de",
+      "email": "donia@gharehgozlee.de",
+      "name": "Donia Gharehgozlee",
+      "status": "active",
+      "reason": "\"donia\" matches first name of \"Donia Gharehgozlee\""
+    },
+    {
+      "id": "eWlhbm5hQGxvZ2lzb2Z0LWN5LmNvbQ",
+      "email": "yianna@logisoft-cy.com",
+      "name": "Yianna Mina",
+      "status": "active",
+      "reason": "\"yianna\" matches first name of \"Yianna Mina\""
+    },
+    {
+      "id": "elisanthi_yahoo.gr",
+      "email": "elisanthi@yahoo.gr",
+      "name": "Elisanthi Nikolaou",
+      "status": "active",
+      "reason": "\"elisanthi\" matches first name of \"Elisanthi Nikolaou\""
+    },
+    {
+      "id": "emilia_emidala.com",
+      "email": "emilia@emidala.com",
+      "name": "Emilia Forsenberg",
+      "status": "active",
+      "reason": "\"emilia\" matches first name of \"Emilia Forsenberg\""
+    },
+    {
+      "id": "evagoras_evagorou.com",
+      "email": "evagoras@evagorou.com",
+      "name": "Evagoras Evagorou",
+      "status": "active",
+      "reason": "\"evagoras\" matches first name of \"Evagoras Evagorou\""
+    },
+    {
+      "id": "fiona_dalitek.org",
+      "email": "fiona@dalitek.org",
+      "name": "Fiona Kallenou",
+      "status": "active",
+      "reason": "\"fiona\" matches first name of \"Fiona Kallenou\""
+    },
+    {
+      "id": "gaby_thepropertyhouse.com",
+      "email": "gaby@thepropertyhouse.com",
+      "name": "Gaby Kempenaar",
+      "status": "active",
+      "reason": "\"gaby\" matches first name of \"Gaby Kempenaar\""
+    },
+    {
+      "id": "gedeon_gmaill.com",
+      "email": "gedeon@gmaill.com",
+      "name": "Gedeon Diantete",
+      "status": "active",
+      "reason": "\"gedeon\" matches first name of \"Gedeon Diantete\""
+    },
+    {
+      "id": "gemma_rgfmconsultation.eu",
+      "email": "gemma@rgfmconsultation.eu",
+      "name": "Gemma Mannion",
+      "status": "active",
+      "reason": "\"gemma\" matches first name of \"Gemma Mannion\""
+    },
+    {
+      "id": "gokhan_fotoyucel.com",
+      "email": "gokhan@fotoyucel.com",
+      "name": "Gokhan Onurlu",
+      "status": "active",
+      "reason": "\"gokhan\" matches first name of \"Gokhan Onurlu\""
+    },
+    {
+      "id": "harley_dchbuilders.co.uk",
+      "email": "harley@dchbuilders.co.uk",
+      "name": "Harley Challener",
+      "status": "active",
+      "reason": "\"harley\" matches first name of \"Harley Challener\""
+    },
+    {
+      "id": "holly_hwdm.co.uk",
+      "email": "holly@hwdm.co.uk",
+      "name": "Holly Winskell",
+      "status": "active",
+      "reason": "\"holly\" matches first name of \"Holly Winskell\""
+    },
+    {
+      "id": "isabella_imanimvmt.com",
+      "email": "isabella@imanimvmt.com",
+      "name": "Isabella Imani",
+      "status": "active",
+      "reason": "\"isabella\" matches first name of \"Isabella Imani\""
+    },
+    {
+      "id": "ivanna_bridgerpay.com",
+      "email": "ivanna@bridgerpay.com",
+      "name": "Ivanna Reshecknik",
+      "status": "active",
+      "reason": "\"ivanna\" matches first name of \"Ivanna Reshecknik\""
+    },
+    {
+      "id": "josh_rock-recruitment.co.uk",
+      "email": "josh@rock-recruitment.co.uk",
+      "name": "Josh Ellis",
+      "status": "active",
+      "reason": "\"josh\" matches first name of \"Josh Ellis\""
+    },
+    {
+      "id": "jousline_multibrands.com",
+      "email": "jousline@multibrands.com",
+      "name": "Jousline Ego",
+      "status": "active",
+      "reason": "\"jousline\" matches first name of \"Jousline Ego\""
+    },
+    {
+      "id": "karit_gmail.co",
+      "email": "karit@gmail.co",
+      "name": "Karit Shock",
+      "status": "active",
+      "reason": "\"karit\" matches first name of \"Karit Shock\""
+    },
+    {
+      "id": "kevin_starlings.ie",
+      "email": "kevin@starlings.ie",
+      "name": "Kevin Hayes",
+      "status": "active",
+      "reason": "\"kevin\" matches first name of \"Kevin Hayes\""
+    },
+    {
+      "id": "kitenge_gmai.com",
+      "email": "kitenge@gmai.com",
+      "name": "Kitenge Nonof",
+      "status": "active",
+      "reason": "\"kitenge\" matches first name of \"Kitenge Nonof\""
+    },
+    {
+      "id": "koula_disy.org.cy",
+      "email": "koula@disy.org.cy",
+      "name": "Koula Trifilli",
+      "status": "active",
+      "reason": "\"koula\" matches first name of \"Koula Trifilli\""
+    },
+    {
+      "id": "lana_lanamedawar.com",
+      "email": "lana@lanamedawar.com",
+      "name": "Lana Medawar",
+      "status": "active",
+      "reason": "\"lana\" matches first name of \"Lana Medawar\""
+    },
+    {
+      "id": "libby_elizabethscott.me.uk",
+      "email": "libby@elizabethscott.me.uk",
+      "name": "Libby Scott",
+      "status": "active",
+      "reason": "\"libby\" matches first name of \"Libby Scott\""
+    },
+    {
+      "id": "lilly_qubevents.com",
+      "email": "lilly@qubevents.com",
+      "name": "Lilly Pavlou",
+      "status": "active",
+      "reason": "\"lilly\" matches first name of \"Lilly Pavlou\""
+    },
+    {
+      "id": "marina_nora.com.cy",
+      "email": "marina@nora.com.cy",
+      "name": "Marina Frangoulidou",
+      "status": "active",
+      "reason": "\"marina\" matches first name of \"Marina Frangoulidou\""
+    },
+    {
+      "id": "meike_mmhammer.org",
+      "email": "meike@mmhammer.org",
+      "name": "Meike Hammer",
+      "status": "active",
+      "reason": "\"meike\" matches first name of \"Meike Hammer\""
+    },
+    {
+      "id": "mirasol_gmai.com",
+      "email": "mirasol@gmai.com",
+      "name": "Mirasol Phillips",
+      "status": "active",
+      "reason": "\"mirasol\" matches first name of \"Mirasol Phillips\""
+    },
+    {
+      "id": "mithat_cyprusautopart.com",
+      "email": "mithat@cyprusautopart.com",
+      "name": "Mithat Can Kizartici",
+      "status": "active",
+      "reason": "\"mithat\" matches first name of \"Mithat Can Kizartici\""
+    },
+    {
+      "id": "monica_sophocleouslaw.com",
+      "email": "monica@sophocleouslaw.com",
+      "name": "Monica Sophocleous",
+      "status": "active",
+      "reason": "\"monica\" matches first name of \"Monica Sophocleous\""
+    },
+    {
+      "id": "naso_zillien.info",
+      "email": "naso@zillien.info",
+      "name": "Naso Chaili",
+      "status": "active",
+      "reason": "\"naso\" matches first name of \"Naso Chaili\""
+    },
+    {
+      "id": "nicos_nmglobalaccounting.com",
+      "email": "nicos@nmglobalaccounting.com",
+      "name": "Nicos Mina",
+      "status": "active",
+      "reason": "\"nicos\" matches first name of \"Nicos Mina\""
+    },
+    {
+      "id": "olena_bogatyr.com",
+      "email": "olena@bogatyr.com",
+      "name": "Olena Bogatyr",
+      "status": "active",
+      "reason": "\"olena\" matches first name of \"Olena Bogatyr\""
+    },
+    {
+      "id": "panos_tsentas.com",
+      "email": "panos@tsentas.com",
+      "name": "Panos Tsentas",
+      "status": "active",
+      "reason": "\"panos\" matches first name of \"Panos Tsentas\""
+    },
+    {
+      "id": "petra_petrago.com",
+      "email": "petra@petrago.com",
+      "name": "Petra Reyes",
+      "status": "active",
+      "reason": "\"petra\" matches first name of \"Petra Reyes\""
+    },
+    {
+      "id": "renos_gmail.com",
+      "email": "renos@gmail.com",
+      "name": "Renos Lyssiotis",
+      "status": "active",
+      "reason": "\"renos\" matches first name of \"Renos Lyssiotis\""
+    },
+    {
+      "id": "ricky_shieldscreate.com",
+      "email": "ricky@shieldscreate.com",
+      "name": "Ricky Shields",
+      "status": "active",
+      "reason": "\"ricky\" matches first name of \"Ricky Shields\""
+    },
+    {
+      "id": "rolandos_aol.com",
+      "email": "rolandos@aol.com",
+      "name": "Rolandos Charalambous",
+      "status": "active",
+      "reason": "\"rolandos\" matches first name of \"Rolandos Charalambous\""
+    },
+    {
+      "id": "sigrid_ds-mentoring.eu",
+      "email": "sigrid@ds-mentoring.eu",
+      "name": "Sigrid Eckold",
+      "status": "active",
+      "reason": "\"sigrid\" matches first name of \"Sigrid Eckold\""
+    },
+    {
+      "id": "silvija_flyingovation.com",
+      "email": "silvija@flyingovation.com",
+      "name": "Silvija Prvulovic",
+      "status": "active",
+      "reason": "\"silvija\" matches first name of \"Silvija Prvulovic\""
+    },
+    {
+      "id": "simone_the-florian.com",
+      "email": "simone@the-florian.com",
+      "name": "Simone Ioannides",
+      "status": "active",
+      "reason": "\"simone\" matches first name of \"Simone Ioannides\""
+    },
+    {
+      "id": "solon_falas.xyz",
+      "email": "solon@falas.xyz",
+      "name": "Solon Falas",
+      "status": "active",
+      "reason": "\"solon\" matches first name of \"Solon Falas\""
+    },
+    {
+      "id": "tatyana_yandex.ru",
+      "email": "tatyana@yandex.ru",
+      "name": "Tatyana Kornienko",
+      "status": "active",
+      "reason": "\"tatyana\" matches first name of \"Tatyana Kornienko\""
+    },
+    {
+      "id": "varnavas_om-cyprus.com",
+      "email": "varnavas@om-cyprus.com",
+      "name": "Varnavas Hadjittofi",
+      "status": "active",
+      "reason": "\"varnavas\" matches first name of \"Varnavas Hadjittofi\""
+    },
+    {
+      "id": "yianna_logisoft-cy.com",
+      "email": "yianna@logisoft-cy.com",
+      "name": "Yianna Mina",
+      "status": "active",
+      "reason": "\"yianna\" matches first name of \"Yianna Mina\""
+    }
+  ],
+  "idMismatch": [],
+  "clean": 14655
+}

@@ -4,12 +4,14 @@ const WORKER_URL = import.meta.env.VITE_WORKER_URL
 
 export default function UnsubscribePage() {
   const [phase, setPhase]     = useState('loading') // loading | confirm | done | error
-  const [contactId, setContactId] = useState(null)
-  const [errorMsg, setErrorMsg]   = useState('')
+  const [contactId, setContactId]       = useState(null)
+  const [campaignId, setCampaignId]     = useState(null)
+  const [campaignName, setCampaignName] = useState(null)
+  const [errorMsg, setErrorMsg]         = useState('')
 
   useEffect(() => {
-    // Hash-based routing: /#/unsubscribe?c=...
-    const hash   = window.location.hash // e.g. #/unsubscribe?c=abc123
+    // Hash-based routing: /#/unsubscribe?c=...&cid=...&cn=...
+    const hash   = window.location.hash
     const qStart = hash.indexOf('?')
     const params = new URLSearchParams(qStart >= 0 ? hash.slice(qStart + 1) : '')
     const c = params.get('c')
@@ -20,6 +22,8 @@ export default function UnsubscribePage() {
       return
     }
     setContactId(c)
+    setCampaignId(params.get('cid') || null)
+    setCampaignName(params.get('cn') || null)
     setPhase('confirm')
   }, [])
 
@@ -32,7 +36,7 @@ export default function UnsubscribePage() {
       const res = await fetch(`${WORKER_URL}/unsubscribe`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ contactId }),
+        body:    JSON.stringify({ contactId, campaignId, campaignName }),
       })
       if (!res.ok) throw new Error(await res.text())
       setPhase('done')

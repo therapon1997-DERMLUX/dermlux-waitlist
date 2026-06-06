@@ -8,8 +8,7 @@ import templateInjectablesHtml from '../../../email-templates/dermlux-injectable
 import CreateCampaignModal from './CreateCampaignModal'
 import FigImporter from './FigImporter'
 
-const HERO_THUMB = 'https://therapon1997-dermlux.github.io/dermlux-waitlist/email-images/hero-gradient.jpeg'
-const SUMMER_THUMB = 'https://therapon1997-dermlux.github.io/dermlux-waitlist/email-images/summer-hero.jpeg'
+const BASE = 'https://therapon1997-dermlux.github.io/dermlux-waitlist/email-images'
 
 // Built-in templates (cannot be deleted)
 const BUILTINS = [
@@ -18,7 +17,7 @@ const BUILTINS = [
     name: 'DermLux — Skin, Hair & Aesthetics (με Promo)',
     description: 'Κύριο newsletter με facials, laser, injectables, promo banner Pre-summer Glow και CTA.',
     htmlBody: templateHtml,
-    thumbUrl: HERO_THUMB,
+    thumbUrl: `${BASE}/hero-gradient.jpeg`,
     builtin: true,
   },
   {
@@ -26,7 +25,7 @@ const BUILTINS = [
     name: 'DermLux — Skin, Hair & Aesthetics (3 στήλες)',
     description: 'Newsletter 3 στηλών με facials, laser, injectables και CTA. Χωρίς promo banner.',
     htmlBody: template3colHtml,
-    thumbUrl: HERO_THUMB,
+    thumbUrl: `${BASE}/facial-hq.jpg`,
     builtin: true,
   },
   {
@@ -34,7 +33,7 @@ const BUILTINS = [
     name: 'DermLux — Summer Preglow Campaign',
     description: 'Εποχικό email για το πρόγραμμα Pre-summer Glow (€125). Με τιμή, λίστα θεραπειών και urgency notice.',
     htmlBody: templateSummerHtml,
-    thumbUrl: SUMMER_THUMB,
+    thumbUrl: `${BASE}/summer-hero.jpeg`,
     builtin: true,
   },
   {
@@ -42,7 +41,7 @@ const BUILTINS = [
     name: 'DermLux — €50 off Injectables Offer',
     description: '€50 έκπτωση σε κάθε injectable θεραπεία (Botox, Dermal Fillers, Skin Boosters, Polynucleotides). Ισχύει έως 30/06/2026.',
     htmlBody: templateInjectablesHtml,
-    thumbUrl: HERO_THUMB,
+    thumbUrl: `${BASE}/injectable-hq.jpg`,
     builtin: true,
   },
 ]
@@ -85,7 +84,7 @@ export default function TemplatesTab() {
           <div key={t.id} className="card p-5 flex gap-5 items-start">
             {/* Thumbnail */}
             <img
-              src={t.thumbUrl || HERO_THUMB}
+              src={t.thumbUrl || `${BASE}/hero-gradient.jpeg`}
               alt={t.name}
               className="w-28 h-20 object-cover rounded-lg shrink-0 border border-gray-200"
             />

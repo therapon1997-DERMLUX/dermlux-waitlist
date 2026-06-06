@@ -35,6 +35,7 @@ export function AuthProvider({ children }) {
         email,
         displayName,
         role,
+        password,
         active: true,
         createdAt: serverTimestamp(),
       })

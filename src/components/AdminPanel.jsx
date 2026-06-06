@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { collection, onSnapshot, query, doc, updateDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { useAuth } from '../contexts/AuthContext'
@@ -190,40 +190,130 @@ export default function AdminPanel() {
             + Νέος Χρήστης
           </button>
         </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-gray-400 text-xs border-b">
-              <th className="text-left pb-2">Όνομα</th>
-              <th className="text-left pb-2">Email</th>
-              <th className="text-left pb-2">Ρόλος</th>
-              <th className="text-left pb-2">Κατάσταση</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {users.map(u => (
-              <tr key={u.id}>
-                <td className="py-2 font-medium">{u.displayName}</td>
-                <td className="py-2 text-gray-500">{u.email}</td>
-                <td className="py-2">
-                  <span className={`badge ${u.role === 'admin' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
-                    {u.role}
-                  </span>
-                </td>
-                <td className="py-2">
-                  <button
-                    className={`badge cursor-pointer ${u.active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}
-                    onClick={() => updateDoc(doc(db, 'users', u.id), { active: !u.active })}
-                  >
-                    {u.active ? 'Ενεργός' : 'Ανενεργός'}
-                  </button>
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-gray-400 text-xs border-b">
+                <th className="text-left pb-2">Όνομα</th>
+                <th className="text-left pb-2">Email</th>
+                <th className="text-left pb-2">Κωδικός</th>
+                <th className="text-left pb-2">Ρόλος</th>
+                <th className="text-left pb-2">Κατάσταση</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {users.map(u => (
+                <tr key={u.id}>
+                  <td className="py-2 font-medium">{u.displayName}</td>
+                  <td className="py-2 text-gray-500">{u.email}</td>
+                  <td className="py-2">
+                    <PasswordCell userId={u.id} password={u.password} />
+                  </td>
+                  <td className="py-2">
+                    <span className={`badge ${u.role === 'admin' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
+                      {u.role}
+                    </span>
+                  </td>
+                  <td className="py-2">
+                    <button
+                      className={`badge cursor-pointer ${u.active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}
+                      onClick={() => updateDoc(doc(db, 'users', u.id), { active: !u.active })}
+                    >
+                      {u.active ? 'Ενεργός' : 'Ανενεργός'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {showCreateUser && <CreateUserModal onClose={() => setShowCreateUser(false)} createUser={createUser} />}
+    </div>
+  )
+}
+
+// ── Password cell with reveal / copy / edit ────────────────────────────────────
+function PasswordCell({ userId, password }) {
+  const [visible,  setVisible]  = useState(false)
+  const [editing,  setEditing]  = useState(false)
+  const [draft,    setDraft]    = useState('')
+  const [copied,   setCopied]   = useState(false)
+  const [saving,   setSaving]   = useState(false)
+  const inputRef = useRef(null)
+
+  function startEdit() {
+    setDraft(password || '')
+    setEditing(true)
+    setVisible(true)
+    setTimeout(() => inputRef.current?.focus(), 50)
+  }
+
+  async function saveEdit() {
+    if (!draft.trim() || draft === password) { setEditing(false); return }
+    setSaving(true)
+    await updateDoc(doc(db, 'users', userId), { password: draft.trim() })
+    setSaving(false)
+    setEditing(false)
+  }
+
+  async function copyPw() {
+    const pw = password || ''
+    if (!pw) return
+    await navigator.clipboard.writeText(pw)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  if (!password && !editing) {
+    return (
+      <button onClick={startEdit} className="text-xs text-gray-400 hover:text-blue-600 italic">
+        + Προσθήκη
+      </button>
+    )
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1">
+        <input
+          ref={inputRef}
+          type="text"
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing(false) }}
+          className="border border-blue-400 rounded px-2 py-0.5 text-xs w-32 font-mono focus:outline-none"
+        />
+        <button onClick={saveEdit} disabled={saving}
+          className="text-xs text-green-600 hover:text-green-800 font-semibold px-1">
+          {saving ? '…' : '✓'}
+        </button>
+        <button onClick={() => setEditing(false)}
+          className="text-xs text-gray-400 hover:text-red-500 px-1">
+          ✕
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className={`font-mono text-xs ${visible ? 'text-gray-800' : 'text-gray-400 tracking-widest'}`}>
+        {visible ? password : '••••••••'}
+      </span>
+      <button onClick={() => setVisible(v => !v)} title={visible ? 'Απόκρυψη' : 'Εμφάνιση'}
+        className="text-gray-400 hover:text-gray-700 transition-colors text-xs">
+        {visible ? '🙈' : '👁'}
+      </button>
+      <button onClick={copyPw} title="Αντιγραφή"
+        className={`text-xs transition-colors ${copied ? 'text-green-600' : 'text-gray-400 hover:text-blue-600'}`}>
+        {copied ? '✓' : '📋'}
+      </button>
+      <button onClick={startEdit} title="Επεξεργασία"
+        className="text-gray-300 hover:text-gray-600 text-xs transition-colors">
+        ✏️
+      </button>
     </div>
   )
 }
