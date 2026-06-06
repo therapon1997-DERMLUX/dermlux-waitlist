@@ -76,9 +76,17 @@ export default function MetricsTab() {
     )
   }
 
+  // "Effective opens" = opened OR clicked (you can't click without opening)
+  const effectiveOpened = campaigns.reduce((sum, c) => {
+    const s = c.stats || {}
+    return sum + Math.max(s.opened || 0, s.clicked || 0)
+  }, 0)
+
   const openPct  = pct(totals.opened,  totals.sent)
+  const effectiveOpenPct = pct(effectiveOpened, totals.sent)
   const clickPct = pct(totals.clicked, totals.sent)
   const hasEngagement = totals.opened > 0 || totals.clicked > 0
+  const opensPixelBlocked = totals.opened === 0 && totals.clicked > 0
 
   return (
     <div className="space-y-5">
@@ -103,11 +111,16 @@ export default function MetricsTab() {
           sub={`${campaigns.length} καμπάνιες`} color="sky"
         />
         <KpiCard
-          icon="👁" label="Open Rate" value={openPct + '%'}
-          sub={`${fmt(totals.opened)} ανοίγματα`}
-          color={openPct >= BENCHMARKS.open ? 'emerald' : 'amber'}
-          badge={openPct >= BENCHMARKS.open ? `↑ vs ${BENCHMARKS.open}%` : `↓ vs ${BENCHMARKS.open}%`}
-          badgeGood={openPct >= BENCHMARKS.open}
+          icon="👁" label={opensPixelBlocked ? 'Open Rate *' : 'Open Rate'}
+          value={opensPixelBlocked ? effectiveOpenPct + '%' : openPct + '%'}
+          sub={opensPixelBlocked
+            ? `≥${fmt(effectiveOpened)} ανοίγματα (pixel blocked)`
+            : `${fmt(totals.opened)} ανοίγματα`}
+          color={(opensPixelBlocked ? effectiveOpenPct : openPct) >= BENCHMARKS.open ? 'emerald' : 'amber'}
+          badge={(opensPixelBlocked ? effectiveOpenPct : openPct) >= BENCHMARKS.open
+            ? `↑ vs ${BENCHMARKS.open}%`
+            : `↓ vs ${BENCHMARKS.open}%`}
+          badgeGood={(opensPixelBlocked ? effectiveOpenPct : openPct) >= BENCHMARKS.open}
         />
         <KpiCard
           icon="🖱️" label="Click Rate" value={clickPct + '%'}
@@ -124,15 +137,29 @@ export default function MetricsTab() {
         />
       </div>
 
-      {/* Webhook hint — shown when sent > 20 but 0 engagement */}
-      {!hasEngagement && totals.sent >= 20 && (
+      {/* Opens = 0 but clicks > 0 → pixel blocked by email clients */}
+      {totals.opened === 0 && totals.clicked > 0 && (
+        <div className="flex gap-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
+          <span className="text-xl shrink-0">👁</span>
+          <div className="text-sm space-y-2">
+            <div className="font-semibold text-orange-800">Το tracking pixel μπλοκάρεται από τους email clients</div>
+            <div className="text-orange-700 text-xs leading-relaxed space-y-1.5">
+              <div>Το webhook <strong>έχει</strong> το <code className="bg-orange-100 px-1 rounded">email.opened</code> event — αλλά το Resend δεν το πυροδοτεί γιατί το tracking pixel μπλοκάρεται από Gmail, Outlook, κ.ά.</div>
+              <div className="font-medium">Τι να κάνεις:</div>
+              <div>1. <strong>Resend → Domains → [domain] → Open Tracking</strong> — βεβαιώσου ότι είναι ενεργό.</div>
+              <div>2. Αν είναι ήδη ενεργό, αυτό είναι φυσιολογικό. Το <strong>Open Rate * = {effectiveOpenPct}%</strong> (από clicks) είναι το ελάχιστο πραγματικό open rate σου.</div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* No engagement at all */}
+      {!hasEngagement && totals.sent >= 20 && totals.clicked === 0 && (
         <div className="flex gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
           <span className="text-xl shrink-0">⚠️</span>
           <div className="text-sm">
             <div className="font-semibold text-amber-800 mb-0.5">Opens και Clicks εμφανίζονται μόνο μέσω Resend Webhooks</div>
             <div className="text-amber-700 text-xs leading-relaxed">
-              Αν δεν έχεις ρυθμίσει webhook, τα αυτά θα παραμένουν 0. Πήγαινε στο{' '}
-              <strong>Resend → Webhooks</strong> και πρόσθεσε:<br />
+              Πήγαινε στο <strong>Resend → Webhooks</strong> και πρόσθεσε:<br />
               <code className="bg-amber-100 px-1.5 py-0.5 rounded font-mono">{WORKER_URL}/webhook</code>
               {' '}με events: <code className="bg-amber-100 px-1 py-0.5 rounded text-xs">email.opened, email.clicked, email.bounced, email.complained</code>
             </div>
@@ -150,6 +177,7 @@ export default function MetricsTab() {
               campaign={c}
               expanded={selected === c.id}
               onToggle={() => setSelected(selected === c.id ? null : c.id)}
+              onRebuild={refresh}
             />
           ))}
         </div>
@@ -329,12 +357,15 @@ function OptOutSection({ campaigns }) {
 }
 
 // ─── Campaign row ──────────────────────────────────────────────────────────────
-function CampaignRow({ campaign: c, expanded, onToggle }) {
-  const s         = c.stats || {}
-  const openPct   = pct(s.opened,   s.sent)
-  const clickPct  = pct(s.clicked,  s.sent)
-  const bouncePct = pct(s.bounced,  s.sent)
-  const failPct   = pct(s.failed,   (s.sent || 0) + (s.failed || 0))
+function CampaignRow({ campaign: c, expanded, onToggle, onRebuild }) {
+  const s              = c.stats || {}
+  const pixelBlocked   = (s.opened || 0) === 0 && (s.clicked || 0) > 0
+  const effectiveOpens = pixelBlocked ? (s.clicked || 0) : (s.opened || 0)
+  const openPct        = pixelBlocked ? pct(effectiveOpens, s.sent) : pct(s.opened, s.sent)
+  const clickPct       = pct(s.clicked,  s.sent)
+  const ctorPct        = pct(s.clicked,  effectiveOpens)   // Click-to-Open Rate
+  const bouncePct      = pct(s.bounced,  s.sent)
+  const failPct        = pct(s.failed,   (s.sent || 0) + (s.failed || 0))
 
   const sentAt = c.sentAt?.toDate?.() || null
   const dateStr = sentAt
@@ -372,7 +403,7 @@ function CampaignRow({ campaign: c, expanded, onToggle }) {
           </div>
           <div className="flex items-center gap-5 shrink-0">
             <MiniStat label="Εστάλη"   value={fmt(s.sent)}       />
-            <MiniStat label="Open"     value={openPct  + '%'}  color={openPct  >= BENCHMARKS.open  ? 'text-emerald-600' : 'text-gray-600'} />
+            <MiniStat label={pixelBlocked ? 'Open *' : 'Open'} value={openPct + '%'} color={openPct >= BENCHMARKS.open ? 'text-emerald-600' : 'text-gray-600'} />
             <MiniStat label="Click"    value={clickPct + '%'}  color={clickPct >= BENCHMARKS.click ? 'text-indigo-600'  : 'text-gray-600'} />
             <MiniStat label="Bounce"   value={bouncePct + '%'} color={bouncePct > 2 ? 'text-rose-500' : 'text-gray-400'} />
             <div className="text-gray-300 text-xs hidden sm:block">{dateStr}</div>
@@ -424,10 +455,20 @@ function CampaignRow({ campaign: c, expanded, onToggle }) {
           </div>
 
           {/* Stat grid */}
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-            <StatChip icon="📧" label="Εστάλη"    value={fmt(s.sent)}          color="sky"     />
-            <StatChip icon="👁" label="Ανοίχθηκαν" value={fmt(s.opened)}        color="emerald" />
-            <StatChip icon="🖱️" label="Κλικ"       value={fmt(s.clicked)}       color="indigo"  />
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+            <StatChip icon="📧" label="Εστάλη"      value={fmt(s.sent)}         color="sky"     />
+            <StatChip icon="👁" label={pixelBlocked ? 'Ανοίχθηκαν *' : 'Ανοίχθηκαν'}
+              value={`≥${fmt(effectiveOpens)} (${openPct}%)`}
+              color="emerald"
+              tooltip={pixelBlocked ? 'Εκτιμώμενο minimum — pixel μπλοκαρισμένο, βασίζεται στα clicks' : undefined}
+            />
+            <StatChip icon="🖱️" label="Κλικ"         value={`${fmt(s.clicked)} (${clickPct}%)`} color="indigo"  />
+            <StatChip icon="🎯" label="CTOR"          value={s.opened > 0 ? ctorPct + '%' : '—'}
+              color={s.opened > 0 ? (ctorPct >= 20 ? 'emerald' : 'indigo') : 'gray'}
+              tooltip="Click-to-Open Rate: από όσους άνοιξαν, πόσοι έκαναν κλικ"
+            />
+          </div>
+          <div className="grid grid-cols-3 gap-2">
             <StatChip icon="🚫" label="Opt-out"    value={fmt(s.unsubscribed)}  color="orange"  />
             <StatChip icon="↩️" label="Bounce"     value={fmt(s.bounced)}       color={bouncePct > 2 ? 'rose' : 'gray'} />
             <StatChip icon="❌" label="Αποτυχίες"  value={fmt(s.failed)}        color={s.failed > 0 ? 'rose' : 'gray'} />
@@ -435,9 +476,21 @@ function CampaignRow({ campaign: c, expanded, onToggle }) {
 
           {/* Benchmark comparison */}
           <div className="bg-white rounded-xl border border-gray-200 px-4 py-3 space-y-3">
-            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Σύγκριση με Industry Avg</div>
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Σύγκριση με Industry Avg</div>
+              <RebuildButton campaignId={c.id} onDone={onRebuild} />
+            </div>
             <BenchmarkRow label="Open Rate"  actual={openPct}  benchmark={BENCHMARKS.open}  colorGood="bg-emerald-400" />
             <BenchmarkRow label="Click Rate" actual={clickPct} benchmark={BENCHMARKS.click} colorGood="bg-indigo-400"  />
+            {s.opened > 0 && (
+              <div className="flex justify-between text-xs pt-1 border-t border-gray-100">
+                <span className="text-gray-600 font-medium">🎯 CTOR (Click-to-Open)</span>
+                <span className={`font-bold ${ctorPct >= 20 ? 'text-emerald-600' : 'text-indigo-600'}`}>
+                  {ctorPct}%
+                  <span className="font-normal text-gray-400 ml-1">({fmt(s.clicked)} / {fmt(s.opened)})</span>
+                </span>
+              </div>
+            )}
           </div>
 
         </div>
@@ -541,13 +594,44 @@ function RateBar({ label, p, benchmark, color }) {
   )
 }
 
-function StatChip({ icon, label, value, color }) {
+function StatChip({ icon, label, value, color, tooltip }) {
   const text = { sky: 'text-sky-600', emerald: 'text-emerald-600', indigo: 'text-indigo-600', orange: 'text-orange-500', rose: 'text-rose-500', gray: 'text-gray-600' }
   return (
-    <div className="bg-white rounded-xl border border-gray-100 px-3 py-2.5 text-center space-y-0.5">
+    <div className="bg-white rounded-xl border border-gray-100 px-3 py-2.5 text-center space-y-0.5" title={tooltip}>
       <div className="text-xs text-gray-400">{icon} {label}</div>
       <div className={`text-lg font-bold ${text[color] || text.gray}`}>{value}</div>
     </div>
+  )
+}
+
+function RebuildButton({ campaignId, onDone }) {
+  const [state, setState] = useState('idle')  // idle | loading | done | error
+
+  async function rebuild() {
+    setState('loading')
+    try {
+      const res = await fetch(`${WORKER_URL}/rebuild-stats`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignId }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      setState('done')
+      setTimeout(() => { setState('idle'); onDone?.() }, 1500)
+    } catch {
+      setState('error')
+      setTimeout(() => setState('idle'), 2000)
+    }
+  }
+
+  const labels = { idle: '↺ Rebuild stats', loading: 'Ανανέωση…', done: '✓ Ανανεώθηκε!', error: '✕ Σφάλμα' }
+  const cls    = { idle: 'text-gray-400 hover:text-indigo-600', loading: 'text-gray-300', done: 'text-emerald-600', error: 'text-rose-500' }
+  return (
+    <button onClick={rebuild} disabled={state === 'loading'}
+      title="Ξαναμετράει opens/clicks/bounces από τα email_sends"
+      className={`text-xs font-medium transition-colors ${cls[state]}`}>
+      {labels[state]}
+    </button>
   )
 }
 

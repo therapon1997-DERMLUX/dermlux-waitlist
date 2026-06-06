@@ -58,6 +58,11 @@ export default {
         const report = await runAutoSend(env)
         return json({ ok: true, report })
       }
+      // Rebuild campaign stats from email_sends docs
+      if (url.pathname === '/rebuild-stats' && request.method === 'POST') {
+        if (origin !== ALLOWED_ORIGIN) return json({ error: 'Forbidden' }, 403)
+        return await rebuildStats(request, env, json)
+      }
       return json({ error: 'Not found' }, 404)
     } catch (e) {
       console.error('Worker error:', e)
@@ -605,6 +610,86 @@ async function fsPatch(token, project, collection, id, fields) {
   if (!res.ok) {
     console.error(`fsPatch ${collection}/${id} failed:`, await res.text())
   }
+}
+
+// ─── Rebuild campaign stats from email_sends ──────────────────────────────────
+async function rebuildStats(request, env, json) {
+  const { campaignId } = await request.json()
+  if (!campaignId) return json({ error: 'campaignId required' }, 400)
+
+  const token   = await getFirebaseToken(env)
+  const project = env.FIREBASE_PROJECT_ID
+
+  // Paginate through all email_sends for this campaign
+  const sends = []
+  let pageToken = null
+  do {
+    const url = new URL(`https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents:runQuery`)
+    const body = {
+      structuredQuery: {
+        from:  [{ collectionId: 'email_sends' }],
+        where: {
+          fieldFilter: {
+            field: { fieldPath: 'campaignId' },
+            op:    'EQUAL',
+            value: { stringValue: campaignId },
+          },
+        },
+      },
+    }
+    const res = await fetch(url.toString(), {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const rows = await res.json()
+    for (const row of rows) {
+      if (row.document) sends.push(row.document.fields || {})
+    }
+    pageToken = null // runQuery doesn't paginate the same way — all results in one call
+  } while (pageToken)
+
+  // Count stats from the actual email_sends docs
+  const stats = { sent: 0, opened: 0, clicked: 0, bounced: 0, unsubscribed: 0, failed: 0 }
+  for (const f of sends) {
+    if (f.isTest?.booleanValue) continue  // skip test sends
+    const status = f.status?.stringValue || ''
+    if (status === 'failed') { stats.failed++; continue }
+    stats.sent++
+    if (f.openedAt  && !f.openedAt.nullValue)  stats.opened++
+    if (f.clickedAt && !f.clickedAt.nullValue)  stats.clicked++
+    if (f.bouncedAt && !f.bouncedAt.nullValue)  stats.bounced++
+    if (status === 'unsubscribed') stats.unsubscribed++
+  }
+
+  // Write rebuilt stats to campaign doc
+  await fetch(
+    `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/email_campaigns/${campaignId}` +
+    `?updateMask.fieldPaths=stats.sent&updateMask.fieldPaths=stats.opened&updateMask.fieldPaths=stats.clicked` +
+    `&updateMask.fieldPaths=stats.bounced&updateMask.fieldPaths=stats.unsubscribed&updateMask.fieldPaths=stats.failed`,
+    {
+      method:  'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: {
+          stats: {
+            mapValue: {
+              fields: {
+                sent:         { integerValue: String(stats.sent) },
+                opened:       { integerValue: String(stats.opened) },
+                clicked:      { integerValue: String(stats.clicked) },
+                bounced:      { integerValue: String(stats.bounced) },
+                unsubscribed: { integerValue: String(stats.unsubscribed) },
+                failed:       { integerValue: String(stats.failed) },
+              },
+            },
+          },
+        },
+      }),
+    }
+  )
+
+  return json({ ok: true, stats })
 }
 
 function fsParseFields(fields) {
