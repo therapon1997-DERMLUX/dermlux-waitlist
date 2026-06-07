@@ -4954,7 +4954,10 @@ Content-Type: `+c.contentType+`\r
       .stack { display:block !important; width:100% !important; box-sizing:border-box !important; }
       .btn-wrap { display:block !important; width:100% !important; }
       .btn-wrap td { display:block !important; }
-      .card { width:48% !important; display:inline-block !important; box-sizing:border-box !important; margin-bottom:10px !important; }
+      .card { width:22% !important; display:inline-block !important; box-sizing:border-box !important; margin:0 1px !important; }
+      .card td { padding:10px 5px 8px 5px !important; height:80px !important; border-radius:12px !important; }
+      .card .serif { font-size:13px !important; line-height:15px !important; }
+      .card .sans { font-size:9px !important; line-height:11px !important; }
       .h-hero { height:auto !important; }
       .euro { font-size:84px !important; }
     }
