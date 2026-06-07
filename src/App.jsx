@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import Login from './components/Login'
 import Dashboard from './components/Dashboard'
@@ -36,10 +36,12 @@ function EklogesRoute({ children }) {
 
 export default function App() {
   const { currentUser } = useAuth()
+  const location = useLocation()
+  const isPublicPage = location.pathname === '/unsubscribe'
 
   return (
     <div className="min-h-screen flex flex-col">
-      {currentUser && <Navbar />}
+      {currentUser && !isPublicPage && <Navbar />}
       <main className="flex-1">
         <Routes>
           <Route path="/login" element={<Login />} />
