@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import { statusLabel, statusColor, INACTIVE_STATUSES } from '../../utils/emailValidation'
+import { statusLabel, statusColor, INACTIVE_STATUSES, isValidEmail } from '../../utils/emailValidation'
 import { DISTRICTS, getDistrict, computeTags, formatSpend, SPEND_TIERS, APPT_TIERS } from '../../utils/contactTags'
 import ContactUploadModal from './ContactUploadModal'
 import ContactDetailModal from './ContactDetailModal'
@@ -226,6 +226,21 @@ export default function ContactsTab({ contacts, loading, onContactsChange }) {
           </span>
         </div>
       )}
+
+      {/* Invalid email warning */}
+      {(() => {
+        const noEmail = contacts.filter(c => c.status === 'active' && !isValidEmail(c.email)).length
+        if (!noEmail || statusFilter !== 'all' || activeXFilters !== 0) return null
+        return (
+          <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-600 flex items-center gap-2">
+            <span className="text-lg">📭</span>
+            <span>
+              <strong>{noEmail}</strong> ενεργές επαφές δεν έχουν έγκυρο email και δεν θα συμπεριληφθούν σε καμπάνιες.
+              {' '}Αυτός είναι ο λόγος που ο αριθμός στην αποστολή είναι <strong>{counts.active - noEmail}</strong> αντί για <strong>{counts.active}</strong>.
+            </span>
+          </div>
+        )
+      })()}
 
       {/* Status filter row */}
       <div className="flex flex-wrap items-center justify-between gap-3">
