@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { statusLabel, statusColor, INACTIVE_STATUSES } from '../../utils/emailValidation'
+import { CITY_TO_DISTRICT, DISTRICTS, getDistrict, computeTags, formatSpend } from '../../utils/contactTags'
 import ContactUploadModal from './ContactUploadModal'
 import ContactDetailModal from './ContactDetailModal'
 
@@ -36,77 +37,6 @@ const TREATMENT_LABELS = {
   facial:       { label: 'Facial',      icon: '✨' },
   consultation: { label: 'Consultation',icon: '📋' },
   other:        { label: 'Other',       icon: '🔖' },
-}
-
-// Maps every raw city value from OmniLux CRM → one of 7 Cyprus districts
-const CITY_TO_DISTRICT = {
-  // ── Λευκωσία ──────────────────────────────────────────────────────────────
-  'Nicosia': 'Λευκωσία', 'nicosia': 'Λευκωσία', 'NICOSIA': 'Λευκωσία',
-  'nicosia cyprus': 'Λευκωσία', 'center nicosia': 'Λευκωσία',
-  'DermLux Nicosia': 'Λευκωσία',
-  'Λευκωσία': 'Λευκωσία', 'λευκωσια': 'Λευκωσία',
-  'Strovolos': 'Λευκωσία', 'Agios Dometios': 'Λευκωσία',
-  'Dali': 'Λευκωσία', 'Lythrodontas': 'Λευκωσία', 'pendacomo': 'Λευκωσία',
-
-  // ── Λεμεσός ───────────────────────────────────────────────────────────────
-  'Limassol': 'Λεμεσός', 'limassol': 'Λεμεσός',
-  'Gold': 'Λεμεσός',                   // DermLux Limassol Gold clinic
-  'DermLux Limassol Gold': 'Λεμεσός', 'DermLux Limassol Laser': 'Λεμεσός',
-  'Limassol Gold': 'Λεμεσός', 'Limassol Laser': 'Λεμεσός',
-  'Lemselo': 'Λεμεσός',                // typo
-  'Λεμεσός': 'Λεμεσός', 'Λεμεσος': 'Λεμεσός',
-  'Kato Polemidhia': 'Λεμεσός', 'Kato Polemidya': 'Λεμεσός', 'Polemidia': 'Λεμεσός',
-  'pyrgos limassol': 'Λεμεσός', 'Paramytha': 'Λεμεσός', 'Pissouri': 'Λεμεσός',
-  'Ipsonas': 'Λεμεσός', 'Akrotiri': 'Λεμεσός', 'Ayus Tychones': 'Λεμεσός',
-  'Μέσα Γειτονιά': 'Λεμεσός',
-
-  // ── Λάρνακα ───────────────────────────────────────────────────────────────
-  'Larnaca': 'Λάρνακα', 'larnaca': 'Λάρνακα', 'Larnaka': 'Λάρνακα',
-  'Λαρνακα': 'Λάρνακα', 'Λάρνακα': 'Λάρνακα',
-  'DermLux Larnaca': 'Λάρνακα',
-  'Aradippou': 'Λάρνακα', 'Xylophaghou': 'Λάρνακα',
-  'Μενεου': 'Λάρνακα', 'Πυλα': 'Λάρνακα', 'Pyla': 'Λάρνακα', 'Κορνος': 'Λάρνακα',
-
-  // ── Πάφος ─────────────────────────────────────────────────────────────────
-  'Paphos': 'Πάφος', 'Páfos': 'Πάφος', 'Pafos': 'Πάφος', 'Paphos, Cyprus': 'Πάφος',
-  'Πάφος': 'Πάφος', 'Παφος': 'Πάφος',
-  'DermLux Paphos': 'Πάφος',
-  'Kissonerga': 'Πάφος', 'Kouklia': 'Πάφος', 'Polis': 'Πάφος',
-  'Pegeia': 'Πάφος', 'Peyia': 'Πάφος', 'Mesa Chorio': 'Πάφος',
-  'Tala': 'Πάφος', 'Empa': 'Πάφος', 'Χλωρακας': 'Πάφος', 'Lyso': 'Πάφος',
-
-  // ── Αμμόχωστος (free area — Paralimni/Deryneia side) ─────────────────────
-  'Paralimni': 'Αμμόχωστος', 'Αμμωχοστος': 'Αμμόχωστος',
-
-  // ── Κατεχόμενα ────────────────────────────────────────────────────────────
-  // North Nicosia
-  'Lefkosa': 'Κατεχόμενα', 'Lefkoşa': 'Κατεχόμενα',
-  'Gönyeli': 'Κατεχόμενα', 'Hamitköy': 'Κατεχόμενα',
-  // Kyrenia / north coast
-  'Kyrenia': 'Κατεχόμενα', 'Lapithos': 'Κατεχόμενα', 'Akanthou': 'Κατεχόμενα',
-  // Morphou area
-  'Omorfo': 'Κατεχόμενα', 'Lefke': 'Κατεχόμενα',
-  // Occupied Famagusta
-  'Famagusta': 'Κατεχόμενα', 'Famagusta Walled City': 'Κατεχόμενα',
-  'Gazimagusa': 'Κατεχόμενα',
-  // Generic "Cyprus" in Turkish
-  'Kibris': 'Κατεχόμενα',
-}
-
-// Ordered list of districts for the filter UI
-const DISTRICTS = [
-  { id: 'Λευκωσία',   color: 'blue'   },
-  { id: 'Λεμεσός',    color: 'blue'   },
-  { id: 'Λάρνακα',    color: 'blue'   },
-  { id: 'Πάφος',      color: 'blue'   },
-  { id: 'Αμμόχωστος', color: 'blue'   },
-  { id: 'Κατεχόμενα', color: 'orange' },
-  { id: 'Άλλο',       color: 'purple' },
-]
-
-function getDistrict(city) {
-  if (!city) return null
-  return CITY_TO_DISTRICT[city.trim()] || 'Άλλο'
 }
 
 const EMPTY_XFILTER = {
@@ -490,10 +420,23 @@ export default function ContactsTab({ contacts, loading, onContactsChange }) {
                       onClick={() => setSelectedContact(c)}
                       className={`hover:bg-blue-50 cursor-pointer transition-colors ${INACTIVE_STATUSES.has(c.status) ? 'opacity-70' : ''}`}>
                       <td className="px-4 py-3 font-medium text-gray-900">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           {c.name || <span className="text-gray-400 italic text-xs">Χωρίς όνομα</span>}
                           {c.lastEngagedAt && c.status === 'active' && (
-                            <span title={`Τελευταία δραστηριότητα: ${c.lastEvent || 'engagement'}`}>🔥</span>
+                            <span title="Engaged">🔥</span>
+                          )}
+                        </div>
+                        {/* Compact tags row */}
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {computeTags(c).slice(0, 4).map(t => (
+                            <span key={t.key} className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium border ${t.cls}`}>
+                              {t.label}
+                            </span>
+                          ))}
+                          {formatSpend(c.totalSpend) && (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              {formatSpend(c.totalSpend)}
+                            </span>
                           )}
                         </div>
                       </td>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { collection, query, where, getDocs, doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { statusLabel, statusColor, INACTIVE_STATUSES } from '../../utils/emailValidation'
+import { computeTags, formatSpend, getDistrict } from '../../utils/contactTags'
 
 // ── Source badge ──────────────────────────────────────────────────────────────
 
@@ -195,6 +196,79 @@ export default function ContactDetailModal({ contact, onClose, onStatusChange })
               )}
             </div>
           </div>
+
+          {/* Tags + CRM snapshot */}
+          {(() => {
+            const tags    = computeTags(contact)
+            const spend   = formatSpend(contact.totalSpend)
+            const appts   = parseInt(contact.appointmentCount) || 0
+            const district = getDistrict(contact.city)
+            const csvTags = Array.isArray(contact.tags) ? contact.tags : []
+            return (
+              <div className="space-y-3">
+                {/* Spend + appointments highlight */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-center">
+                    <div className="text-xs text-emerald-600 font-medium mb-0.5">Σύνολο Δαπανών</div>
+                    <div className="text-xl font-bold text-emerald-700">{spend || '€0'}</div>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-center">
+                    <div className="text-xs text-blue-600 font-medium mb-0.5">Ραντεβού</div>
+                    <div className="text-xl font-bold text-blue-700">{appts}</div>
+                  </div>
+                </div>
+
+                {/* Auto tags */}
+                {tags.length > 0 && (
+                  <div>
+                    <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Tags</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {tags.map(t => (
+                        <span key={t.key} className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium border ${t.cls}`}>
+                          {t.label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* CRM raw tags */}
+                {csvTags.length > 0 && (
+                  <div>
+                    <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">CRM Categories</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {csvTags.map(t => (
+                        <span key={t} className="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* CRM info row */}
+                {(contact.omniluxStatus || contact.omniluxSource || district || contact.language) && (
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs bg-gray-50 rounded-xl p-3">
+                    {contact.omniluxStatus && (
+                      <div><span className="font-medium text-gray-500">CRM Status: </span><span className="text-gray-700">{contact.omniluxStatus}</span></div>
+                    )}
+                    {contact.omniluxSource && (
+                      <div><span className="font-medium text-gray-500">Πηγή: </span><span className="text-gray-700">{contact.omniluxSource}</span></div>
+                    )}
+                    {district && (
+                      <div><span className="font-medium text-gray-500">Περιοχή: </span><span className="text-gray-700">{district}</span></div>
+                    )}
+                    {contact.language && (
+                      <div><span className="font-medium text-gray-500">Γλώσσα: </span><span className="text-gray-700">{contact.language}</span></div>
+                    )}
+                    {contact.lastAppointmentAt && (
+                      <div className="col-span-2"><span className="font-medium text-gray-500">Τελ. ραντεβού: </span><span className="text-gray-700">{fmt(contact.lastAppointmentAt)}</span></div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Status action */}
           <div className="flex gap-2">
