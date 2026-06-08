@@ -49,7 +49,7 @@ export const CITY_TO_DISTRICT = {
 }
 
 export function getDistrict(city) {
-  if (!city) return null
+  if (!city || !city.trim()) return 'Άλλο'
   return CITY_TO_DISTRICT[city.trim()] || 'Άλλο'
 }
 
