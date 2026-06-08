@@ -19,6 +19,92 @@ const ALLOWED_ORIGIN   = 'https://therapon1997-dermlux.github.io'
 const BATCH_SIZE       = 100
 const AUTO_INTERVAL_MS = 2 * 60 * 60 * 1000  // 2 hours
 
+// ─── District mapping (mirrors src/utils/contactTags.js) ─────────────────────
+const CITY_TO_DISTRICT = {
+  'Nicosia':'Λευκωσία','nicosia':'Λευκωσία','NICOSIA':'Λευκωσία',
+  'nicosia cyprus':'Λευκωσία','center nicosia':'Λευκωσία','DermLux Nicosia':'Λευκωσία',
+  'Λευκωσία':'Λευκωσία','λευκωσια':'Λευκωσία',
+  'Strovolos':'Λευκωσία','Agios Dometios':'Λευκωσία','Dali':'Λευκωσία',
+  'Lythrodontas':'Λευκωσία','pendacomo':'Λευκωσία',
+  'Limassol':'Λεμεσός','limassol':'Λεμεσός','Gold':'Λεμεσός',
+  'DermLux Limassol Gold':'Λεμεσός','DermLux Limassol Laser':'Λεμεσός',
+  'Limassol Gold':'Λεμεσός','Limassol Laser':'Λεμεσός','Lemselo':'Λεμεσός',
+  'Λεμεσός':'Λεμεσός','Λεμεσος':'Λεμεσός',
+  'Kato Polemidhia':'Λεμεσός','Kato Polemidya':'Λεμεσός','Polemidia':'Λεμεσός',
+  'pyrgos limassol':'Λεμεσός','Paramytha':'Λεμεσός','Pissouri':'Λεμεσός',
+  'Ipsonas':'Λεμεσός','Akrotiri':'Λεμεσός','Ayus Tychones':'Λεμεσός','Μέσα Γειτονιά':'Λεμεσός',
+  'Larnaca':'Λάρνακα','larnaca':'Λάρνακα','Larnaka':'Λάρνακα',
+  'Λαρνακα':'Λάρνακα','Λάρνακα':'Λάρνακα','DermLux Larnaca':'Λάρνακα',
+  'Aradippou':'Λάρνακα','Xylophaghou':'Λάρνακα','Μενεου':'Λάρνακα',
+  'Πυλα':'Λάρνακα','Pyla':'Λάρνακα','Κορνος':'Λάρνακα',
+  'Paphos':'Πάφος','Páfos':'Πάφος','Pafos':'Πάφος','Paphos, Cyprus':'Πάφος',
+  'Πάφος':'Πάφος','Παφος':'Πάφος','DermLux Paphos':'Πάφος',
+  'Kissonerga':'Πάφος','Kouklia':'Πάφος','Polis':'Πάφος','Pegeia':'Πάφος',
+  'Peyia':'Πάφος','Mesa Chorio':'Πάφος','Tala':'Πάφος','Empa':'Πάφος',
+  'Χλωρακας':'Πάφος','Lyso':'Πάφος',
+  'Paralimni':'Αμμόχωστος','Αμμωχοστος':'Αμμόχωστος',
+  'Lefkosa':'Κατεχόμενα','Lefkoşa':'Κατεχόμενα','Gönyeli':'Κατεχόμενα',
+  'Hamitköy':'Κατεχόμενα','Kyrenia':'Κατεχόμενα','Lapithos':'Κατεχόμενα',
+  'Akanthou':'Κατεχόμενα','Omorfo':'Κατεχόμενα','Lefke':'Κατεχόμενα',
+  'Famagusta':'Κατεχόμενα','Famagusta Walled City':'Κατεχόμενα',
+  'Gazimagusa':'Κατεχόμενα','Kibris':'Κατεχόμενα',
+}
+function workerGetDistrict(city) {
+  if (!city || !city.trim()) return 'Άλλο'
+  return CITY_TO_DISTRICT[city.trim()] || 'Άλλο'
+}
+
+// ─── Audience segment matching (mirrors CampaignSendModal filter logic) ───────
+function matchesSegment(contact, seg) {
+  if (!seg) return true
+  const district = workerGetDistrict(contact.city)
+  const status   = (contact.omniluxStatus || '').trim()
+  const source   = (contact.omniluxSource || '').trim()
+  const lang     = (contact.language      || '').trim()
+  const spend    = parseFloat(contact.totalSpend)       || 0
+  const appts    = parseInt(contact.appointmentCount)   || 0
+  const cats     = Array.isArray(contact.treatmentCategories) ? contact.treatmentCategories : []
+
+  if (seg.districts?.length       && !seg.districts.includes(district))       return false
+  if (seg.excludeDistricts?.length && seg.excludeDistricts.includes(district)) return false
+
+  if (seg.spendTiers?.length) {
+    const ok = seg.spendTiers.some(id =>
+      id === 'spend_lt500'    ? (spend > 0 && spend < 500)   :
+      id === 'spend_500_1000' ? (spend >= 500 && spend <= 1000) :
+      id === 'spend_gt1000'   ? spend > 1000 : false
+    )
+    if (!ok) return false
+  }
+  if (seg.apptTiers?.length) {
+    const ok = seg.apptTiers.some(id =>
+      id === 'appt_1'    ? appts === 1 :
+      id === 'appt_2_6'  ? (appts >= 2  && appts <= 6)  :
+      id === 'appt_gt6'  ? (appts >= 7  && appts <= 10) :
+      id === 'appt_gt10' ? (appts >= 11 && appts <= 20) :
+      id === 'appt_gt20' ? appts > 20 : false
+    )
+    if (!ok) return false
+  }
+
+  if (seg.statuses?.length        && !seg.statuses.includes(status))          return false
+  if (seg.excludeStatuses?.length  && seg.excludeStatuses.includes(status))    return false
+  if (seg.sources?.length          && !seg.sources.includes(source))           return false
+  if (seg.languages?.length        && !seg.languages.includes(lang))           return false
+
+  if (seg.treatmentCategories?.length) {
+    if (!seg.treatmentCategories.some(c => cats.includes(c))) return false
+  }
+  if (seg.excludeTreatmentCategories?.length) {
+    if (seg.excludeTreatmentCategories.some(c => cats.includes(c))) return false
+  }
+  if (seg.keyword) {
+    const kw = seg.keyword.toLowerCase().trim()
+    if (!`${contact.treatments || ''} ${contact.categories || ''}`.toLowerCase().includes(kw)) return false
+  }
+  return true
+}
+
 export default {
   async fetch(request, env) {
     const url    = new URL(request.url)
@@ -54,8 +140,9 @@ export default {
       // Manual trigger endpoint — lets the UI force-run auto-send immediately
       if (url.pathname === '/trigger-auto' && request.method === 'POST') {
         if (origin !== ALLOWED_ORIGIN) return json({ error: 'Forbidden' }, 403)
-        console.log('Manual trigger-auto called from', origin)
-        const report = await runAutoSend(env)
+        const body = await request.json().catch(() => ({}))
+        console.log('Manual trigger-auto called from', origin, body.campaignId || '(all)')
+        const report = await runAutoSend(env, body.campaignId || null)
         return json({ ok: true, report })
       }
       // Rebuild campaign stats from email_sends docs
@@ -469,23 +556,38 @@ async function handleWebhook(request, env, json) {
 
 // ─── Auto-send (cron) ─────────────────────────────────────────────────────────
 
-async function runAutoSend(env) {
+async function runAutoSend(env, forceCampaignId = null) {
   const token   = await getFirebaseToken(env)
   const project = env.FIREBASE_PROJECT_ID
   const now     = new Date()
   const report  = []
 
-  // Find all campaigns with autoSend: true
-  const campaigns = await fsQuery(token, project, {
-    from:  [{ collectionId: 'email_campaigns' }],
-    where: {
-      fieldFilter: {
-        field: { fieldPath: 'autoSend' },
-        op:    'EQUAL',
-        value: { booleanValue: true },
+  let campaigns
+  if (forceCampaignId) {
+    // Direct lookup by ID — no query, no race condition
+    const res = await fetch(
+      `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/email_campaigns/${forceCampaignId}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    if (!res.ok) {
+      report.push({ id: forceCampaignId, action: 'error', error: `Campaign not found (${res.status})` })
+      return report
+    }
+    const doc = await res.json()
+    campaigns = [{ id: forceCampaignId, ...fsParseFields(doc.fields) }]
+  } else {
+    // Cron path — find all campaigns with autoSend: true
+    campaigns = await fsQuery(token, project, {
+      from:  [{ collectionId: 'email_campaigns' }],
+      where: {
+        fieldFilter: {
+          field: { fieldPath: 'autoSend' },
+          op:    'EQUAL',
+          value: { booleanValue: true },
+        },
       },
-    },
-  })
+    })
+  }
 
   console.log(`runAutoSend: found ${campaigns.length} auto-send campaign(s)`)
 
@@ -495,13 +597,15 @@ async function runAutoSend(env) {
       continue
     }
 
-    // Only fire if nextBatchAt is in the past (or missing)
-    const nextAt = campaign.nextBatchAt ? new Date(campaign.nextBatchAt) : new Date(0)
-    if (nextAt > now) {
-      const waitMins = Math.round((nextAt - now) / 60000)
-      console.log(`Campaign ${campaign.id}: next batch at ${nextAt.toISOString()}, waiting ${waitMins}m`)
-      report.push({ id: campaign.id, action: 'waiting', nextBatchAt: nextAt.toISOString(), waitMins })
-      continue
+    // Only enforce the schedule when running via cron (not forced by UI)
+    if (!forceCampaignId) {
+      const nextAt = campaign.nextBatchAt ? new Date(campaign.nextBatchAt) : new Date(0)
+      if (nextAt > now) {
+        const waitMins = Math.round((nextAt - now) / 60000)
+        console.log(`Campaign ${campaign.id}: next batch at ${nextAt.toISOString()}, waiting ${waitMins}m`)
+        report.push({ id: campaign.id, action: 'waiting', nextBatchAt: nextAt.toISOString(), waitMins })
+        continue
+      }
     }
 
     console.log(`Campaign ${campaign.id}: running auto batch`)
@@ -546,8 +650,11 @@ async function sendAutoBatch(campaign, token, project, env, now) {
   })
   const sentEmails = new Set(sends.filter(s => s.status !== 'failed').map(s => s.email))
 
-  // 3. Remaining contacts (valid email, not yet sent)
-  const remaining = activeContacts.filter(c => fsValidEmail(c.email) && !sentEmails.has(c.email))
+  // 3. Remaining contacts (valid email, not yet sent, matches saved audience)
+  const seg = campaign.audienceSegment ? JSON.parse(campaign.audienceSegment) : null
+  const remaining = activeContacts.filter(c =>
+    fsValidEmail(c.email) && !sentEmails.has(c.email) && matchesSegment(c, seg)
+  )
   const batch     = remaining.slice(0, BATCH_SIZE)
   const afterThis = remaining.length - batch.length
 
@@ -878,6 +985,12 @@ function fsParseFields(fields) {
     else if (v.timestampValue !== undefined) out[k] = v.timestampValue
     else if (v.nullValue     !== undefined) out[k] = null
     else if (v.mapValue      !== undefined) out[k] = fsParseFields(v.mapValue.fields)
+    else if (v.arrayValue    !== undefined) out[k] = (v.arrayValue.values || []).map(item =>
+      item.stringValue  !== undefined ? item.stringValue  :
+      item.integerValue !== undefined ? parseInt(item.integerValue) :
+      item.booleanValue !== undefined ? item.booleanValue :
+      item.doubleValue  !== undefined ? item.doubleValue  : null
+    )
   }
   return out
 }

@@ -235,12 +235,17 @@ export default function CampaignSendModal({ campaign, onClose }) {
     setIsAutoMode(autoMode)
 
     const isFirstBatch = campaign.status === 'draft'
+    // In auto mode, save the audience segment so the worker can apply it
+    const hasFilters = autoMode && Object.entries(seg).some(([k, v]) =>
+      Array.isArray(v) ? v.length > 0 : v !== ''
+    )
     await updateDoc(doc(db, 'email_campaigns', campaign.id), {
       status:        'sending',
       batchSize,
       intervalHours,
       'stats.total': isFirstBatch ? remaining.length : (campaign.stats?.total ?? remaining.length + alreadySent),
       ...(isFirstBatch ? { sentAt: serverTimestamp() } : {}),
+      ...(autoMode ? { audienceSegment: hasFilters ? JSON.stringify(seg) : null } : {}),
     })
 
     let totalSent = 0, totalFailed = 0
