@@ -83,6 +83,13 @@ export default function CampaignsTab() {
   async function handleTriggerNow(campaign) {
     setTriggerResult({ status: 'sending', msg: 'Αποστολή batch…' })
     try {
+      // Force-sync Firestore state so the worker query always finds the campaign
+      await updateDoc(doc(db, 'email_campaigns', campaign.id), {
+        autoSend:    true,
+        status:      'auto',
+        nextBatchAt: Timestamp.fromMillis(Date.now()),
+      })
+
       const workerUrl = import.meta.env.VITE_WORKER_URL
       const res  = await fetch(`${workerUrl}/trigger-auto`, {
         method:  'POST',
@@ -91,7 +98,7 @@ export default function CampaignsTab() {
       const data = await res.json()
       const entry = data.report?.find(r => r.id === campaign.id)
       if (!entry) {
-        setTriggerResult({ status: 'error', msg: '❌ Η καμπάνια δεν βρέθηκε — βεβαιώσου ότι autoSend=true' })
+        setTriggerResult({ status: 'error', msg: '❌ Η καμπάνια δεν βρέθηκε από τον worker' })
       } else if (entry.action === 'sent') {
         setTriggerResult({ status: 'done', msg: `✅ Στάλθηκαν ${entry.sent} emails · Εναπομένουν: ${entry.remaining}` })
       } else if (entry.action === 'waiting') {
