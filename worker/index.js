@@ -622,44 +622,76 @@ async function runAutoSend(env, forceCampaignId = null) {
 }
 
 async function sendAutoBatch(campaign, token, project, env, now) {
-  // 1. All active contacts
-  const activeContacts = await fsQuery(token, project, {
-    from:  [{ collectionId: 'email_contacts' }],
-    where: {
-      fieldFilter: {
-        field: { fieldPath: 'status' },
-        op:    'EQUAL',
-        value: { stringValue: 'active' },
-      },
-    },
+  const base   = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents`
+  const seg    = campaign.audienceSegment ? JSON.parse(campaign.audienceSegment) : null
+  const cursor = campaign.lastContactCursor || null   // email of last contact examined
+  const LOAD   = BATCH_SIZE * 3  // load 3× to survive segment + already-sent filtering
+
+  // ── 1. Load a SLICE of active contacts after the cursor (ordered by email) ──
+  //    This replaces loading ALL 14 000+ contacts — only reads LOAD docs per run.
+  const slice = await fsQuery(token, project, {
+    from:    [{ collectionId: 'email_contacts' }],
+    where:   { fieldFilter: { field: { fieldPath: 'status' }, op: 'EQUAL', value: { stringValue: 'active' } } },
+    orderBy: [{ field: { fieldPath: 'email' }, direction: 'ASCENDING' }],
+    limit:   LOAD,
+    ...(cursor ? { startAt: { values: [{ stringValue: cursor }], before: false } } : {}),
   })
 
-  // 2. Who already received this campaign (exclude failed — they get retried)
-  const sends      = await fsQuery(token, project, {
-    from:  [{ collectionId: 'email_sends' }],
-    where: {
-      fieldFilter: {
-        field: { fieldPath: 'campaignId' },
-        op:    'EQUAL',
-        value: { stringValue: campaign.id },
-      },
-    },
-  })
-  const sentEmails = new Set(sends.filter(s => s.status !== 'failed').map(s => s.email))
+  // ── 2. Apply audience segment filter ────────────────────────────────────────
+  const eligible = slice.filter(c => fsValidEmail(c.email) && matchesSegment(c, seg))
 
-  // 3. Remaining contacts (valid email, not yet sent, matches saved audience)
-  const seg = campaign.audienceSegment ? JSON.parse(campaign.audienceSegment) : null
-  const remaining = activeContacts.filter(c =>
-    fsValidEmail(c.email) && !sentEmails.has(c.email) && matchesSegment(c, seg)
+  // ── 3. Check sent status via direct doc GET — O(1) per contact, in parallel ─
+  //    Much cheaper than loading the entire email_sends collection.
+  const sentChecks = await Promise.all(
+    eligible.map(async c => {
+      const docId = encodeURIComponent(`${campaign.id}||${c.email}`)
+      const r = await fetch(`${base}/email_sends/${docId}`, { headers: { Authorization: `Bearer ${token}` } })
+      if (!r.ok) return { c, sent: false }  // 404 = not sent yet
+      const doc = await r.json()
+      const st  = doc.fields?.status?.stringValue
+      return { c, sent: !!st && st !== 'failed' }  // failed = retry
+    })
   )
-  const batch     = remaining.slice(0, BATCH_SIZE)
-  const afterThis = remaining.length - batch.length
+
+  const unsent    = sentChecks.filter(x => !x.sent).map(x => x.c)
+  const batch     = unsent.slice(0, BATCH_SIZE)
+  const newCursor = eligible.length > 0 ? eligible[eligible.length - 1].email : cursor
+  const reachedEnd = slice.length < LOAD  // Firestore returned fewer than requested → end of list
 
   if (batch.length === 0) {
-    // Nothing left — mark as done (two separate calls to avoid same-doc batchWrite conflict)
+    if (reachedEnd && !cursor) {
+      // Full pass from start found nothing — campaign is truly done
+      await fsPatch(token, project, 'email_campaigns', campaign.id, {
+        status:            { stringValue: 'sent' },
+        autoSend:          { booleanValue: false },
+        lastContactCursor: { nullValue: null },
+        autoSendError:     { nullValue: null },
+      })
+      return { sent: 0, failed: 0, remaining: 0 }
+    }
+    if (reachedEnd) {
+      // Reached end but cursor was mid-list — reset to start for next run
+      await fsPatch(token, project, 'email_campaigns', campaign.id, {
+        lastContactCursor: { nullValue: null },
+        nextBatchAt:       { timestampValue: new Date(now.getTime() + AUTO_INTERVAL_MS).toISOString() },
+      })
+      return { sent: 0, failed: 0, remaining: -1 }
+    }
+    // Window was all already-sent — advance cursor and try again next run
     await fsPatch(token, project, 'email_campaigns', campaign.id, {
-      status:   { stringValue: 'sent' },
-      autoSend: { booleanValue: false },
+      lastContactCursor: { stringValue: newCursor },
+      nextBatchAt:       { timestampValue: new Date(now.getTime() + AUTO_INTERVAL_MS).toISOString() },
+    })
+    return { sent: 0, failed: 0, remaining: -1 }
+  }
+
+  const afterThis = reachedEnd
+    ? Math.max(0, unsent.length - batch.length)   // within this window
+    : -1  // unknown — more windows remain
+
+  if (batch.length === 0) {
+    await fsPatch(token, project, 'email_campaigns', campaign.id, {
+      status: { stringValue: 'sent' }, autoSend: { booleanValue: false },
     })
     return
   }
@@ -779,15 +811,17 @@ async function sendAutoBatch(campaign, token, project, env, now) {
     console.error('Stats increment failed:', await statsRes.text())
   }
 
-  // Call 2: update status, autoSend, nextBatchAt, clear any previous error
+  // Call 2: update status, cursor, nextBatchAt, clear any previous error
+  const isDone = reachedEnd && unsent.length <= BATCH_SIZE
   await fsPatch(token, project, 'email_campaigns', campaign.id, {
-    status:        { stringValue: afterThis === 0 ? 'sent' : 'auto' },
-    autoSend:      { booleanValue: afterThis > 0 },
-    nextBatchAt:   { timestampValue: nextBatchAt },
-    autoSendError: { nullValue: null },
+    status:            { stringValue: isDone ? 'sent' : 'auto' },
+    autoSend:          { booleanValue: !isDone },
+    nextBatchAt:       { timestampValue: nextBatchAt },
+    lastContactCursor: isDone ? { nullValue: null } : { stringValue: newCursor },
+    autoSendError:     { nullValue: null },
   })
 
-  return { sent: sentCount, failed: failedCount, remaining: afterThis, nextBatchAt }
+  return { sent: sentCount, failed: failedCount, remaining: isDone ? 0 : -1, nextBatchAt }
 }
 
 // ─── Sync bounces / complaints → email_contacts ───────────────────────────────
