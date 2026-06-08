@@ -5,6 +5,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { contactDocId, isActiveContact, isValidEmail } from '../../utils/emailValidation'
+import { DISTRICTS, getDistrict, SPEND_TIERS, APPT_TIERS } from '../../utils/contactTags'
 
 const WORKER_URL = import.meta.env.VITE_WORKER_URL
 
@@ -20,15 +21,14 @@ const INTERVAL_OPTIONS = [
 ]
 
 const EMPTY_SEG = {
-  cities:               [],   // include only these (empty = all)
-  excludeCities:        [],   // exclude these cities
+  districts:            [],   // include by district (empty = all)
+  excludeDistricts:     [],   // exclude these districts
+  spendTiers:           [],   // spend tier ids (empty = all)
+  apptTiers:            [],   // appointment tier ids (empty = all)
   statuses:             [],   // omniluxStatus include
   sources:              [],   // omniluxSource include
   languages:            [],   // language include
   treatmentCategories:  [],   // injectables | facial | laser | consultation | other
-  minSpend:             '',   // min totalSpend
-  maxSpend:             '',   // max totalSpend
-  hasAppointment:       false,
   keyword:              '',   // substring in treatments or categories (advanced)
 }
 
@@ -148,14 +148,24 @@ export default function CampaignSendModal({ campaign, onClose }) {
       }
       return Object.entries(m).sort((a, b) => b[1] - a[1])
     }
-    // Count per treatment category
+    const districtCounts = {}
+    for (const c of allActive) {
+      const d = getDistrict(c.city)
+      if (d) districtCounts[d] = (districtCounts[d] || 0) + 1
+    }
+    const spendCounts = {}
+    for (const t of SPEND_TIERS) spendCounts[t.id] = allActive.filter(t.match).length
+    const apptCounts  = {}
+    for (const t of APPT_TIERS)  apptCounts[t.id]  = allActive.filter(t.match).length
     const treatCatCounts = {}
     for (const c of allActive) {
       const cats = Array.isArray(c.treatmentCategories) ? c.treatmentCategories : []
       for (const cat of cats) treatCatCounts[cat] = (treatCatCounts[cat] || 0) + 1
     }
     return {
-      cities:              count('city'),
+      districtCounts,
+      spendCounts,
+      apptCounts,
       statuses:            count('omniluxStatus'),
       sources:             count('omniluxSource'),
       languages:           count('language'),
@@ -166,24 +176,22 @@ export default function CampaignSendModal({ campaign, onClose }) {
   // ── Apply segmentation ───────────────────────────────────────────────────────
   const remaining = useMemo(() => {
     return allActive.filter(c => {
-      const city     = (c.city          || '').trim()
+      const district = getDistrict(c.city)
       const status   = (c.omniluxStatus || '').trim()
       const source   = (c.omniluxSource || '').trim()
       const lang     = (c.language      || '').trim()
-      const spend    = parseFloat(c.totalSpend) || 0
       const kw       = seg.keyword.toLowerCase().trim()
 
-      if (seg.cities.length         && !seg.cities.includes(city))          return false
-      if (seg.excludeCities.length  && seg.excludeCities.includes(city))    return false
-      if (seg.statuses.length       && !seg.statuses.includes(status))      return false
-      if (seg.sources.length        && !seg.sources.includes(source))       return false
-      if (seg.languages.length      && !seg.languages.includes(lang))       return false
-      if (seg.minSpend !== ''       && spend < parseFloat(seg.minSpend))    return false
-      if (seg.maxSpend !== ''       && spend > parseFloat(seg.maxSpend))    return false
-      if (seg.hasAppointment        && !c.lastAppointmentAt)                return false
+      if (seg.districts.length        && !seg.districts.includes(district))       return false
+      if (seg.excludeDistricts.length && seg.excludeDistricts.includes(district)) return false
+      if (seg.spendTiers.length       && !SPEND_TIERS.filter(t => seg.spendTiers.includes(t.id)).some(t => t.match(c)))  return false
+      if (seg.apptTiers.length        && !APPT_TIERS.filter(t => seg.apptTiers.includes(t.id)).some(t => t.match(c)))    return false
+      if (seg.statuses.length         && !seg.statuses.includes(status))          return false
+      if (seg.sources.length          && !seg.sources.includes(source))           return false
+      if (seg.languages.length        && !seg.languages.includes(lang))           return false
       if (seg.treatmentCategories.length) {
         const cCats = Array.isArray(c.treatmentCategories) ? c.treatmentCategories : []
-        if (!seg.treatmentCategories.some(cat => cCats.includes(cat)))     return false
+        if (!seg.treatmentCategories.some(cat => cCats.includes(cat)))            return false
       }
       if (kw) {
         const haystack = `${c.treatments || ''} ${c.categories || ''}`.toLowerCase()
@@ -197,10 +205,11 @@ export default function CampaignSendModal({ campaign, onClose }) {
   const afterThis = remaining.length - thisBatch.length
   const timeEst   = calcTime(remaining.length, batchSize, intervalHours)
   const activeFilters = [
-    seg.cities.length, seg.excludeCities.length, seg.statuses.length,
-    seg.sources.length, seg.languages.length, seg.treatmentCategories.length,
-    seg.minSpend !== '', seg.maxSpend !== '',
-    seg.hasAppointment, seg.keyword !== '',
+    seg.districts.length, seg.excludeDistricts.length,
+    seg.spendTiers.length, seg.apptTiers.length,
+    seg.statuses.length, seg.sources.length,
+    seg.languages.length, seg.treatmentCategories.length,
+    seg.keyword !== '',
   ].filter(Boolean).length
 
   const sampleHtml = (campaign.htmlBody || '')
@@ -462,32 +471,70 @@ export default function CampaignSendModal({ campaign, onClose }) {
                 )}
               </div>
 
-              {/* ── City ── */}
-              {available.cities.length > 0 && (
-                <FilterSection title="Πόλη — Συμπερίληψη" icon="📍">
-                  {available.cities.slice(0, 15).map(([city, cnt]) => (
-                    <Chip key={city} label={city} count={cnt}
-                      active={seg.cities.includes(city)}
-                      onClick={() => setSeg(s => ({ ...s, cities: toggle(s.cities, city) }))}
+              {/* ── District include ── */}
+              <FilterSection title="Περιοχή — Συμπερίληψη" icon="📍">
+                {DISTRICTS.map(({ id }) => {
+                  const cnt = available.districtCounts[id] || 0
+                  if (!cnt) return null
+                  return (
+                    <Chip key={id} label={id} count={cnt}
+                      active={seg.districts.includes(id)}
+                      onClick={() => setSeg(s => ({ ...s, districts: toggle(s.districts, id) }))}
                     />
-                  ))}
-                  {available.cities.length > 15 && (
-                    <span className="text-xs text-gray-400 self-center">+{available.cities.length - 15} ακόμα</span>
-                  )}
-                </FilterSection>
-              )}
+                  )
+                })}
+              </FilterSection>
 
-              {available.cities.length > 0 && (
-                <FilterSection title="Πόλη — Εξαίρεση" icon="🚫">
-                  {available.cities.slice(0, 15).map(([city, cnt]) => (
-                    <Chip key={city} label={city} count={cnt}
-                      active={seg.excludeCities.includes(city)}
+              {/* ── District exclude ── */}
+              <FilterSection title="Περιοχή — Εξαίρεση" icon="🚫">
+                {DISTRICTS.map(({ id }) => {
+                  const cnt = available.districtCounts[id] || 0
+                  if (!cnt) return null
+                  return (
+                    <Chip key={id} label={id} count={cnt}
+                      active={seg.excludeDistricts.includes(id)}
                       color="red"
-                      onClick={() => setSeg(s => ({ ...s, excludeCities: toggle(s.excludeCities, city) }))}
+                      onClick={() => setSeg(s => ({ ...s, excludeDistricts: toggle(s.excludeDistricts, id) }))}
                     />
-                  ))}
-                </FilterSection>
-              )}
+                  )
+                })}
+              </FilterSection>
+
+              {/* ── Spend tiers ── */}
+              <FilterSection title="Δαπάνη" icon="💶">
+                {SPEND_TIERS.map(t => {
+                  const cnt = available.spendCounts[t.id] || 0
+                  if (!cnt) return null
+                  return (
+                    <Chip key={t.id} label={t.label} count={cnt}
+                      active={seg.spendTiers.includes(t.id)}
+                      color="green"
+                      onClick={() => setSeg(s => ({ ...s, spendTiers: toggle(s.spendTiers, t.id) }))}
+                    />
+                  )
+                })}
+                {SPEND_TIERS.every(t => !available.spendCounts[t.id]) && (
+                  <span className="text-xs text-gray-400 italic">Δεν υπάρχουν δεδομένα δαπάνης</span>
+                )}
+              </FilterSection>
+
+              {/* ── Appointment tiers ── */}
+              <FilterSection title="Ραντεβού" icon="📅">
+                {APPT_TIERS.map(t => {
+                  const cnt = available.apptCounts[t.id] || 0
+                  if (!cnt) return null
+                  return (
+                    <Chip key={t.id} label={t.label} count={cnt}
+                      active={seg.apptTiers.includes(t.id)}
+                      color="purple"
+                      onClick={() => setSeg(s => ({ ...s, apptTiers: toggle(s.apptTiers, t.id) }))}
+                    />
+                  )
+                })}
+                {APPT_TIERS.every(t => !available.apptCounts[t.id]) && (
+                  <span className="text-xs text-gray-400 italic">Δεν υπάρχουν δεδομένα ραντεβού</span>
+                )}
+              </FilterSection>
 
               {/* ── CRM Status ── */}
               {available.statuses.length > 0 && (
@@ -497,19 +544,6 @@ export default function CampaignSendModal({ campaign, onClose }) {
                       active={seg.statuses.includes(st)}
                       color="green"
                       onClick={() => setSeg(s => ({ ...s, statuses: toggle(s.statuses, st) }))}
-                    />
-                  ))}
-                </FilterSection>
-              )}
-
-              {/* ── Source ── */}
-              {available.sources.length > 0 && (
-                <FilterSection title="Πηγή Επαφής" icon="📋">
-                  {available.sources.map(([src, cnt]) => (
-                    <Chip key={src} label={src} count={cnt}
-                      active={seg.sources.includes(src)}
-                      color="purple"
-                      onClick={() => setSeg(s => ({ ...s, sources: toggle(s.sources, src) }))}
                     />
                   ))}
                 </FilterSection>
@@ -534,9 +568,7 @@ export default function CampaignSendModal({ campaign, onClose }) {
                     const cnt = available.treatmentCategories[key] || 0
                     if (!cnt) return null
                     return (
-                      <Chip key={key}
-                        label={`${icon} ${label}`}
-                        count={cnt}
+                      <Chip key={key} label={`${icon} ${label}`} count={cnt}
                         active={seg.treatmentCategories.includes(key)}
                         color="green"
                         onClick={() => setSeg(s => ({ ...s, treatmentCategories: toggle(s.treatmentCategories, key) }))}
@@ -546,64 +578,37 @@ export default function CampaignSendModal({ campaign, onClose }) {
                 </FilterSection>
               )}
 
-              {/* ── Advanced filters ── */}
+              {/* ── Source ── */}
+              {available.sources.length > 0 && (
+                <FilterSection title="Πηγή Επαφής" icon="📋">
+                  {available.sources.map(([src, cnt]) => (
+                    <Chip key={src} label={src} count={cnt}
+                      active={seg.sources.includes(src)}
+                      color="purple"
+                      onClick={() => setSeg(s => ({ ...s, sources: toggle(s.sources, src) }))}
+                    />
+                  ))}
+                </FilterSection>
+              )}
+
+              {/* ── Advanced: keyword ── */}
               <div>
                 <button
                   className="text-xs font-semibold text-gray-400 hover:text-gray-600 flex items-center gap-1"
                   onClick={() => setShowAdvanced(v => !v)}
                 >
-                  {showAdvanced ? '▲' : '▼'} Προχωρημένα Φίλτρα
+                  {showAdvanced ? '▲' : '▼'} Προχωρημένα (Θεραπεία / Κατηγορία)
                 </button>
-
                 {showAdvanced && (
-                  <div className="mt-3 space-y-4 border border-gray-200 rounded-xl p-4 bg-gray-50">
-
-                    {/* Spend range */}
-                    <div className="space-y-2">
-                      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">💰 Δαπάνη (€)</div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number" min="0" placeholder="Min"
-                          value={seg.minSpend}
-                          onChange={e => setSeg(s => ({ ...s, minSpend: e.target.value }))}
-                          className="input w-28 text-sm"
-                        />
-                        <span className="text-gray-400 text-sm">—</span>
-                        <input
-                          type="number" min="0" placeholder="Max"
-                          value={seg.maxSpend}
-                          onChange={e => setSeg(s => ({ ...s, maxSpend: e.target.value }))}
-                          className="input w-28 text-sm"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Has appointment */}
-                    <div className="flex items-center gap-3">
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          className="sr-only peer"
-                          checked={seg.hasAppointment}
-                          onChange={e => setSeg(s => ({ ...s, hasAppointment: e.target.checked }))}
-                        />
-                        <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:bg-blue-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" />
-                      </label>
-                      <span className="text-sm text-gray-700">📅 Μόνο με ραντεβού</span>
-                    </div>
-
-                    {/* Keyword in treatments / categories */}
-                    <div className="space-y-2">
-                      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">🔍 Θεραπεία / Κατηγορία</div>
-                      <input
-                        type="text"
-                        placeholder="π.χ. laser, botox, facial…"
-                        value={seg.keyword}
-                        onChange={e => setSeg(s => ({ ...s, keyword: e.target.value }))}
-                        className="input w-full text-sm"
-                      />
-                      <div className="text-xs text-gray-400">Αναζήτηση στα πεδία Treatments και Categories</div>
-                    </div>
+                  <div className="mt-3 border border-gray-200 rounded-xl p-4 bg-gray-50">
+                    <input
+                      type="text"
+                      placeholder="π.χ. laser, botox, facial…"
+                      value={seg.keyword}
+                      onChange={e => setSeg(s => ({ ...s, keyword: e.target.value }))}
+                      className="input w-full text-sm"
+                    />
+                    <div className="text-xs text-gray-400 mt-1">Αναζήτηση στα πεδία Treatments και Categories</div>
                   </div>
                 )}
               </div>
