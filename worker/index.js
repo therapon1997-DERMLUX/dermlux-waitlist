@@ -281,8 +281,66 @@ async function handleWebhook(request, env, json) {
 
   const qData   = await qRes.json()
   const matched = qData.filter(d => d.document)
-  if (!matched.length) return json({ ok: true })
 
+  // ── Transactional email (not a campaign) ─────────────────────────────────────
+  // No email_sends record found → this came from an appointment confirmation,
+  // booking reminder, or other transactional send via Resend.
+  // For bounce / spam-complaint events we still want to update email_contacts
+  // so the address is excluded from all future campaigns.
+  if (!matched.length) {
+    if (type !== 'email.bounced' && type !== 'email.complained') return json({ ok: true })
+
+    // Extract recipient address from the webhook payload
+    const toField  = data.to
+    const toEmail  = ((Array.isArray(toField) ? toField[0] : toField) || '').toLowerCase().trim()
+    if (!toEmail || !fsValidEmail(toEmail)) return json({ ok: true })
+
+    const now        = new Date().toISOString()
+    const contactId  = fsContactDocId(toEmail)
+    const contactUrl = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/email_contacts/${contactId}`
+
+    const isBounce    = type === 'email.bounced'
+    const statusValue = isBounce ? 'bounced' : 'complained'
+
+    // Fields to write regardless of whether the contact already exists
+    const updateFields = isBounce
+      ? { status: { stringValue: 'bounced'    }, bouncedAt:    { timestampValue: now }, lastEvent: { stringValue: 'bounced'    }, updatedAt: { timestampValue: now } }
+      : { status: { stringValue: 'complained' }, complainedAt: { timestampValue: now }, lastEvent: { stringValue: 'complained' }, updatedAt: { timestampValue: now } }
+
+    // Check whether the contact already exists
+    const getRes = await fetch(contactUrl, { headers: { Authorization: `Bearer ${token}` } })
+
+    if (getRes.ok) {
+      // Contact exists — patch only the status fields (never overwrite name, city, etc.)
+      const mask = Object.keys(updateFields).map(k => `updateMask.fieldPaths=${k}`).join('&')
+      await fetch(`${contactUrl}?${mask}`, {
+        method:  'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: updateFields }),
+      })
+      console.log(`Transactional ${type}: updated existing contact ${toEmail}`)
+    } else if (getRes.status === 404) {
+      // Contact doesn't exist — create a minimal record so the address is
+      // flagged and never used in future campaigns
+      const createFields = {
+        ...updateFields,
+        email:     { stringValue: toEmail },
+        status:    { stringValue: statusValue },
+        source:    { stringValue: 'transactional_webhook' },
+        createdAt: { timestampValue: now },
+      }
+      await fetch(contactUrl, {
+        method:  'PATCH',   // PATCH without updateMask = create-or-replace
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: createFields }),
+      })
+      console.log(`Transactional ${type}: created new contact ${toEmail} as ${statusValue}`)
+    }
+
+    return json({ ok: true })
+  }
+
+  // ── Campaign email ────────────────────────────────────────────────────────────
   const sendDoc    = matched[0].document
   const sendDocId  = sendDoc.name.split('/').pop()
   const fields     = sendDoc.fields || {}
