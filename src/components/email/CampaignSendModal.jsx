@@ -21,15 +21,17 @@ const INTERVAL_OPTIONS = [
 ]
 
 const EMPTY_SEG = {
-  districts:            [],   // include by district (empty = all)
-  excludeDistricts:     [],   // exclude these districts
-  spendTiers:           [],   // spend tier ids (empty = all)
-  apptTiers:            [],   // appointment tier ids (empty = all)
-  statuses:             [],   // omniluxStatus include
-  sources:              [],   // omniluxSource include
-  languages:            [],   // language include
-  treatmentCategories:  [],   // injectables | facial | laser | consultation | other
-  keyword:              '',   // substring in treatments or categories (advanced)
+  districts:                   [],
+  excludeDistricts:            [],
+  spendTiers:                  [],
+  apptTiers:                   [],
+  statuses:                    [],
+  excludeStatuses:             [],
+  sources:                     [],
+  languages:                   [],
+  treatmentCategories:         [],
+  excludeTreatmentCategories:  [],
+  keyword:                     '',
 }
 
 const TREATMENT_CATEGORY_LABELS = {
@@ -187,11 +189,16 @@ export default function CampaignSendModal({ campaign, onClose }) {
       if (seg.spendTiers.length       && !SPEND_TIERS.filter(t => seg.spendTiers.includes(t.id)).some(t => t.match(c)))  return false
       if (seg.apptTiers.length        && !APPT_TIERS.filter(t => seg.apptTiers.includes(t.id)).some(t => t.match(c)))    return false
       if (seg.statuses.length         && !seg.statuses.includes(status))          return false
+      if (seg.excludeStatuses.length  && seg.excludeStatuses.includes(status))   return false
       if (seg.sources.length          && !seg.sources.includes(source))           return false
       if (seg.languages.length        && !seg.languages.includes(lang))           return false
       if (seg.treatmentCategories.length) {
         const cCats = Array.isArray(c.treatmentCategories) ? c.treatmentCategories : []
         if (!seg.treatmentCategories.some(cat => cCats.includes(cat)))            return false
+      }
+      if (seg.excludeTreatmentCategories.length) {
+        const cCats = Array.isArray(c.treatmentCategories) ? c.treatmentCategories : []
+        if (seg.excludeTreatmentCategories.some(cat => cCats.includes(cat)))      return false
       }
       if (kw) {
         const haystack = `${c.treatments || ''} ${c.categories || ''}`.toLowerCase()
@@ -207,8 +214,9 @@ export default function CampaignSendModal({ campaign, onClose }) {
   const activeFilters = [
     seg.districts.length, seg.excludeDistricts.length,
     seg.spendTiers.length, seg.apptTiers.length,
-    seg.statuses.length, seg.sources.length,
-    seg.languages.length, seg.treatmentCategories.length,
+    seg.statuses.length, seg.excludeStatuses.length,
+    seg.sources.length, seg.languages.length,
+    seg.treatmentCategories.length, seg.excludeTreatmentCategories.length,
     seg.keyword !== '',
   ].filter(Boolean).length
 
@@ -536,14 +544,27 @@ export default function CampaignSendModal({ campaign, onClose }) {
                 )}
               </FilterSection>
 
-              {/* ── CRM Status ── */}
+              {/* ── CRM Status include ── */}
               {available.statuses.length > 0 && (
-                <FilterSection title="Status CRM" icon="👤">
+                <FilterSection title="Status CRM — Συμπερίληψη" icon="👤">
                   {available.statuses.map(([st, cnt]) => (
                     <Chip key={st} label={st} count={cnt}
                       active={seg.statuses.includes(st)}
                       color="green"
                       onClick={() => setSeg(s => ({ ...s, statuses: toggle(s.statuses, st) }))}
+                    />
+                  ))}
+                </FilterSection>
+              )}
+
+              {/* ── CRM Status exclude ── */}
+              {available.statuses.length > 0 && (
+                <FilterSection title="Status CRM — Εξαίρεση" icon="🚫">
+                  {available.statuses.map(([st, cnt]) => (
+                    <Chip key={st} label={st} count={cnt}
+                      active={seg.excludeStatuses.includes(st)}
+                      color="red"
+                      onClick={() => setSeg(s => ({ ...s, excludeStatuses: toggle(s.excludeStatuses, st) }))}
                     />
                   ))}
                 </FilterSection>
@@ -561,9 +582,9 @@ export default function CampaignSendModal({ campaign, onClose }) {
                 </FilterSection>
               )}
 
-              {/* ── Treatment Categories ── */}
+              {/* ── Treatment Categories include ── */}
               {Object.keys(available.treatmentCategories).length > 0 && (
-                <FilterSection title="Κατηγορία Θεραπείας" icon="💆">
+                <FilterSection title="Κατηγορία Θεραπείας — Συμπερίληψη" icon="💆">
                   {Object.entries(TREATMENT_CATEGORY_LABELS).map(([key, { label, icon }]) => {
                     const cnt = available.treatmentCategories[key] || 0
                     if (!cnt) return null
@@ -572,6 +593,23 @@ export default function CampaignSendModal({ campaign, onClose }) {
                         active={seg.treatmentCategories.includes(key)}
                         color="green"
                         onClick={() => setSeg(s => ({ ...s, treatmentCategories: toggle(s.treatmentCategories, key) }))}
+                      />
+                    )
+                  })}
+                </FilterSection>
+              )}
+
+              {/* ── Treatment Categories exclude ── */}
+              {Object.keys(available.treatmentCategories).length > 0 && (
+                <FilterSection title="Κατηγορία Θεραπείας — Εξαίρεση" icon="🚫">
+                  {Object.entries(TREATMENT_CATEGORY_LABELS).map(([key, { label, icon }]) => {
+                    const cnt = available.treatmentCategories[key] || 0
+                    if (!cnt) return null
+                    return (
+                      <Chip key={key} label={`${icon} ${label}`} count={cnt}
+                        active={seg.excludeTreatmentCategories.includes(key)}
+                        color="red"
+                        onClick={() => setSeg(s => ({ ...s, excludeTreatmentCategories: toggle(s.excludeTreatmentCategories, key) }))}
                       />
                     )
                   })}
