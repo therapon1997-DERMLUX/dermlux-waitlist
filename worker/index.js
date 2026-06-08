@@ -63,6 +63,11 @@ export default {
         if (origin !== ALLOWED_ORIGIN) return json({ error: 'Forbidden' }, 403)
         return await rebuildStats(request, env, json)
       }
+      // Sync bounced/complained email_sends → email_contacts
+      if (url.pathname === '/sync-bounces' && request.method === 'POST') {
+        if (origin !== ALLOWED_ORIGIN) return json({ error: 'Forbidden' }, 403)
+        return await syncBounces(env, json)
+      }
       return json({ error: 'Not found' }, 404)
     } catch (e) {
       console.error('Worker error:', e)
@@ -676,6 +681,66 @@ async function sendAutoBatch(campaign, token, project, env, now) {
   })
 
   return { sent: sentCount, failed: failedCount, remaining: afterThis, nextBatchAt }
+}
+
+// ─── Sync bounces / complaints → email_contacts ───────────────────────────────
+async function syncBounces(env, json) {
+  const token   = await getFirebaseToken(env)
+  const project = env.FIREBASE_PROJECT_ID
+  const now     = new Date().toISOString()
+
+  // Fetch all email_sends with status bounced or complained (non-test)
+  const sends = await fsQuery(token, project, {
+    from:  [{ collectionId: 'email_sends' }],
+    where: {
+      fieldFilter: {
+        field: { fieldPath: 'status' },
+        op:    'IN',
+        value: {
+          arrayValue: {
+            values: [{ stringValue: 'bounced' }, { stringValue: 'complained' }],
+          },
+        },
+      },
+    },
+  })
+
+  // Build map contactId → worst status (complained beats bounced)
+  const updates = {}
+  for (const s of sends) {
+    if (s.isTest) continue
+    const cid = s.contactId
+    if (!cid) continue
+    const existing = updates[cid]
+    // complained > bounced — don't downgrade a complained contact to bounced
+    if (!existing || (s.status === 'complained' && existing.status !== 'complained')) {
+      updates[cid] = {
+        status:       s.status,
+        bouncedAt:    s.bouncedAt    || (s.status === 'bounced'    ? s.sentAt : null) || now,
+        complainedAt: s.complainedAt || (s.status === 'complained' ? s.sentAt : null) || now,
+      }
+    }
+  }
+
+  let updated = 0
+  for (const [contactId, data] of Object.entries(updates)) {
+    const fields = data.status === 'bounced'
+      ? { status: { stringValue: 'bounced'    }, bouncedAt:    { timestampValue: data.bouncedAt    }, lastEvent: { stringValue: 'bounced'    }, updatedAt: { timestampValue: now } }
+      : { status: { stringValue: 'complained' }, complainedAt: { timestampValue: data.complainedAt }, lastEvent: { stringValue: 'complained' }, updatedAt: { timestampValue: now } }
+
+    const mask = Object.keys(fields).map(k => `updateMask.fieldPaths=${k}`).join('&')
+    const res  = await fetch(
+      `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/email_contacts/${contactId}?${mask}`,
+      {
+        method:  'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ fields }),
+      }
+    )
+    if (res.ok) updated++
+  }
+
+  return json({ ok: true, updated, total: Object.keys(updates).length })
 }
 
 // ─── Firestore REST helpers ───────────────────────────────────────────────────

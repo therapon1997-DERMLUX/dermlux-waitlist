@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { collection, getDocs, onSnapshot, query, where, orderBy } from 'firebase/firestore'
+import { collection, getDocs, query, where, orderBy } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -237,6 +237,9 @@ export default function MetricsTab() {
       {/* Opt-out per campaign section */}
       <OptOutSection campaigns={campaigns} />
 
+      {/* Bounces & Spam section */}
+      <BouncesSection onSync={refresh} />
+
       {/* Bar chart (only when multiple campaigns) */}
       {campaigns.length > 1 && (
         <div className="card p-5">
@@ -283,14 +286,10 @@ function OptOutSection({ campaigns }) {
   const [optOuts, setOptOuts] = useState([])
 
   useEffect(() => {
-    const unsub = onSnapshot(
-      query(collection(db, 'email_contacts'), where('status', '==', 'unsubscribed')),
-      snap => setOptOuts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    )
-    return unsub
+    getDocs(query(collection(db, 'email_contacts'), where('status', '==', 'unsubscribed')))
+      .then(snap => setOptOuts(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
   }, [])
 
-  // Group by campaign
   const byCampaign = useMemo(() => {
     const map = {}
     for (const c of optOuts) {
@@ -352,6 +351,153 @@ function OptOutSection({ campaigns }) {
           </tfoot>
         </table>
       </div>
+    </div>
+  )
+}
+
+// ─── Bounces & Spam section ────────────────────────────────────────────────────
+function BouncesSection({ onSync }) {
+  const [contacts, setContacts] = useState([])
+  const [loading,  setLoading]  = useState(true)
+  const [syncing,  setSyncing]  = useState(false)
+  const [syncMsg,  setSyncMsg]  = useState(null)
+
+  function loadBounces() {
+    setLoading(true)
+    getDocs(query(
+      collection(db, 'email_contacts'),
+      where('status', 'in', ['bounced', 'complained'])
+    ))
+      .then(snap => setContacts(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => { loadBounces() }, [])
+
+  async function handleSync() {
+    setSyncing(true)
+    setSyncMsg(null)
+    try {
+      const res  = await fetch(`${WORKER_URL}/sync-bounces`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Σφάλμα')
+      setSyncMsg({ ok: true, text: `✅ Ανανεώθηκαν ${data.updated} επαφές από ${data.total} bounced/complained` })
+      loadBounces()
+      onSync?.()
+    } catch (e) {
+      setSyncMsg({ ok: false, text: `❌ ${e.message}` })
+    } finally {
+      setSyncing(false)
+      setTimeout(() => setSyncMsg(null), 6000)
+    }
+  }
+
+  const bounced    = contacts.filter(c => c.status === 'bounced')
+  const complained = contacts.filter(c => c.status === 'complained')
+
+  // Sort newest first
+  const sorted = [...contacts].sort((a, b) => {
+    const ta = (a.bouncedAt || a.complainedAt || a.updatedAt || '')
+    const tb = (b.bouncedAt || b.complainedAt || b.updatedAt || '')
+    return tb > ta ? 1 : -1
+  })
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-xs font-semibold text-gray-400 uppercase tracking-widest">↩️ Bounces & Spam Complaints</div>
+        <div className="flex items-center gap-3">
+          {syncMsg && (
+            <span className={`text-xs font-medium ${syncMsg.ok ? 'text-emerald-600' : 'text-rose-500'}`}>
+              {syncMsg.text}
+            </span>
+          )}
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="text-xs text-gray-400 hover:text-indigo-600 transition-colors flex items-center gap-1 font-medium"
+            title="Διαβάζει όλα τα bounced/complained email_sends και ενημερώνει τις επαφές στη βάση"
+          >
+            <span className={syncing ? 'animate-spin inline-block' : ''}>↺</span>
+            {syncing ? 'Συγχρονισμός…' : 'Sync → Contacts'}
+          </button>
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="bg-rose-50 rounded-xl border border-rose-100 px-4 py-3 text-center">
+          <div className="text-2xl font-bold text-rose-600">{loading ? '…' : bounced.length}</div>
+          <div className="text-xs text-rose-500 font-medium mt-0.5">↩️ Hard Bounces</div>
+          <div className="text-xs text-rose-400 mt-0.5">Λανθασμένα / ανύπαρκτα email</div>
+        </div>
+        <div className="bg-orange-50 rounded-xl border border-orange-100 px-4 py-3 text-center">
+          <div className="text-2xl font-bold text-orange-600">{loading ? '…' : complained.length}</div>
+          <div className="text-xs text-orange-500 font-medium mt-0.5">⚠️ Spam Complaints</div>
+          <div className="text-xs text-orange-400 mt-0.5">Σημείωσαν ως ανεπιθύμητο</div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-sm text-gray-400 text-center py-6 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+          Φόρτωση…
+        </div>
+      ) : contacts.length === 0 ? (
+        <div className="text-sm text-gray-400 text-center py-6 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+          Δεν υπάρχουν bounced / complained επαφές ακόμα.
+        </div>
+      ) : (
+        <div className="card overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="text-left px-4 py-2 font-medium text-gray-500 text-xs">Email</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-500 text-xs">Τύπος</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-500 text-xs hidden md:table-cell">Ημερομηνία</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-500 text-xs hidden lg:table-cell">Πηγή</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {sorted.slice(0, 100).map(c => (
+                <tr key={c.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-2 text-xs font-medium text-gray-700 max-w-[200px] truncate">
+                    {c.email}
+                    {c.name && <span className="text-gray-400 ml-1.5 font-normal">{c.name}</span>}
+                  </td>
+                  <td className="px-4 py-2">
+                    {c.status === 'bounced'
+                      ? <span className="inline-flex items-center gap-1 text-xs bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full font-medium">↩️ Bounce</span>
+                      : <span className="inline-flex items-center gap-1 text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">⚠️ Spam</span>
+                    }
+                  </td>
+                  <td className="px-4 py-2 text-xs text-gray-400 hidden md:table-cell">
+                    {fmtDate(c.bouncedAt || c.complainedAt || c.updatedAt)}
+                  </td>
+                  <td className="px-4 py-2 text-xs text-gray-400 hidden lg:table-cell">
+                    {c.source === 'transactional_webhook'
+                      ? <span className="bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded text-xs">Transactional</span>
+                      : <span className="bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded text-xs">Campaign</span>
+                    }
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            {sorted.length > 100 && (
+              <tfoot className="bg-gray-50 border-t border-gray-200">
+                <tr>
+                  <td colSpan={4} className="px-4 py-2 text-xs text-gray-400 text-center">
+                    +{sorted.length - 100} ακόμα
+                  </td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
     </div>
   )
 }
