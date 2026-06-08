@@ -163,10 +163,7 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(Promise.all([
-      runAutoSend(env),
-      syncBouncesToContacts(env),
-    ]))
+    ctx.waitUntil(runAutoSend(env))
   },
 }
 
