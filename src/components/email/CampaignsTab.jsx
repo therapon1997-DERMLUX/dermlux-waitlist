@@ -62,6 +62,14 @@ export default function CampaignsTab() {
     })
   }
 
+  async function handleEndCampaign(campaign) {
+    if (!window.confirm(`Ολοκλήρωση καμπάνιας "${campaign.name}";\nΘα σταματήσει η αυτόματη αποστολή και η καμπάνια θα χαρακτηριστεί ως ολοκληρωμένη.`)) return
+    await updateDoc(doc(db, 'email_campaigns', campaign.id), {
+      autoSend: false,
+      status:   'sent',
+    })
+  }
+
   async function handleResumeAuto(campaign) {
     // Set nextBatchAt to now so the cron picks it up within 15 minutes
     await updateDoc(doc(db, 'email_campaigns', campaign.id), {
@@ -189,6 +197,7 @@ export default function CampaignsTab() {
               onPause={() => handlePause(c)}
               onTriggerNow={() => handleTriggerNow(c)}
               onResumeAuto={() => handleResumeAuto(c)}
+              onEndCampaign={() => handleEndCampaign(c)}
               onClone={() => { setEditCampaign({ ...c, name: c.name + ' (αντίγραφο)', status: 'draft' }); setShowCreate(true) }}
               onTest={() => setTestSendModal(c)}
               onDelete={() => handleDelete(c)}
@@ -287,7 +296,7 @@ function CampaignsSkeleton() {
   )
 }
 
-function CampaignCard({ c, testResult, onSend, onEdit, onPause, onResumeAuto, onTriggerNow, onClone, onTest, onDelete }) {
+function CampaignCard({ c, testResult, onSend, onEdit, onPause, onResumeAuto, onTriggerNow, onEndCampaign, onClone, onTest, onDelete }) {
   const statusBorder = {
     draft:   'border-l-gray-200',
     sending: 'border-l-blue-400',
@@ -390,12 +399,18 @@ function CampaignCard({ c, testResult, onSend, onEdit, onPause, onResumeAuto, on
                 ▶ Στείλε Τώρα
               </button>
               <button className="btn-secondary text-xs" onClick={onPause}>⏸ Παύση</button>
+              <button className="btn-secondary text-xs text-red-500 hover:text-red-700 hover:border-red-300" onClick={onEndCampaign}>
+                🏁 Τέλος Καμπάνιας
+              </button>
             </>
           )}
           {c.status === 'partial' && (
             <>
               <button className="btn-primary text-xs" onClick={onResumeAuto}>🤖 Συνέχεια Αυτόματα</button>
               <button className="btn-secondary text-xs" onClick={onSend}>▶️ Χειροκίνητα</button>
+              <button className="btn-secondary text-xs text-red-500 hover:text-red-700 hover:border-red-300" onClick={onEndCampaign}>
+                🏁 Τέλος Καμπάνιας
+              </button>
             </>
           )}
           {c.status === 'sent' && (
