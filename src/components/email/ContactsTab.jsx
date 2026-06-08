@@ -1,9 +1,11 @@
-import { useEffect, useState, useMemo } from 'react'
-import { collection, onSnapshot, query, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { useState, useMemo } from 'react'
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { statusLabel, statusColor, INACTIVE_STATUSES } from '../../utils/emailValidation'
 import ContactUploadModal from './ContactUploadModal'
 import ContactDetailModal from './ContactDetailModal'
+
+const PAGE_SIZE = 100
 
 const SOURCE_META = {
   csv_import:       { label: 'CSV',          cls: 'bg-blue-100 text-blue-700' },
@@ -53,7 +55,6 @@ function toggle(arr, val) {
   return arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val]
 }
 
-// ── Small chip button ──────────────────────────────────────────────────────────
 function FChip({ label, count, active, onClick, color = 'blue' }) {
   const colors = {
     blue:   active ? 'bg-blue-600 text-white border-blue-600'       : 'bg-white text-gray-600 border-gray-200 hover:border-blue-400',
@@ -83,25 +84,20 @@ function FilterGroup({ title, children }) {
   )
 }
 
-export default function ContactsTab() {
-  const [contacts, setContacts]           = useState([])
-  const [loading, setLoading]             = useState(true)
+export default function ContactsTab({ contacts, loading, onContactsChange }) {
   const [search, setSearch]               = useState('')
   const [statusFilter, setStatusFilter]   = useState('all')
   const [xFilter, setXFilter]             = useState(EMPTY_XFILTER)
   const [showFilters, setShowFilters]     = useState(false)
   const [showUpload, setShowUpload]       = useState(false)
   const [selectedContact, setSelectedContact] = useState(null)
+  const [page, setPage]                   = useState(0)
 
-  useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, 'email_contacts')), snap => {
-      setContacts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-      setLoading(false)
-    })
-    return unsub
-  }, [])
+  // Reset to page 0 whenever filters change
+  function handleStatusFilter(s) { setStatusFilter(s); setPage(0) }
+  function handleSearch(v)       { setSearch(v);        setPage(0) }
+  function handleXFilter(fn)     { setXFilter(fn);      setPage(0) }
 
-  // ── Available filter values (counts from all loaded contacts) ─────────────
   const available = useMemo(() => {
     const cntField = (field) => {
       const m = {}
@@ -125,7 +121,6 @@ export default function ContactsTab() {
     }
   }, [contacts])
 
-  // ── Filtered contacts ─────────────────────────────────────────────────────
   const filtered = useMemo(() => {
     let base = contacts
     if (statusFilter !== 'all') base = base.filter(c => c.status === statusFilter)
@@ -165,6 +160,9 @@ export default function ContactsTab() {
     xFilter.cities.length + xFilter.treatmentCategories.length +
     xFilter.omniluxStatuses.length + xFilter.languages.length + xFilter.sources.length
 
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const pageContacts = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
   async function setContactStatus(contact, newStatus) {
     const update = { status: newStatus, updatedAt: serverTimestamp() }
     if (newStatus === 'unsubscribed') {
@@ -184,6 +182,8 @@ export default function ContactsTab() {
       update.optOutSource       = null
     }
     await updateDoc(doc(db, 'email_contacts', contact.id), update)
+    // Update local state so the UI reflects the change immediately
+    onContactsChange(prev => prev.map(c => c.id === contact.id ? { ...c, ...update } : c))
   }
 
   const inactiveTotal = (counts.bounced || 0) + (counts.complained || 0) + (counts.failed || 0) + (counts.unsubscribed || 0)
@@ -208,7 +208,7 @@ export default function ContactsTab() {
             const cnt = counts[s] || 0
             if (s !== 'all' && s !== 'active' && cnt === 0) return null
             return (
-              <button key={s} onClick={() => setStatusFilter(s)}
+              <button key={s} onClick={() => handleStatusFilter(s)}
                 className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
                   statusFilter === s
                     ? 'bg-blue-600 text-white border-blue-600'
@@ -235,7 +235,7 @@ export default function ContactsTab() {
           className="input flex-1 max-w-sm"
           placeholder="Αναζήτηση ονόματος, email, τηλεφώνου…"
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          onChange={e => handleSearch(e.target.value)}
         />
         <button
           onClick={() => setShowFilters(v => !v)}
@@ -254,7 +254,7 @@ export default function ContactsTab() {
         </button>
         {activeXFilters > 0 && (
           <button
-            onClick={() => setXFilter(EMPTY_XFILTER)}
+            onClick={() => { setXFilter(EMPTY_XFILTER); setPage(0) }}
             className="text-xs text-gray-400 hover:text-red-500 font-medium transition-colors"
           >
             ✕ Καθαρισμός
@@ -266,13 +266,12 @@ export default function ContactsTab() {
       {showFilters && (
         <div className="border border-gray-200 rounded-xl bg-gray-50 p-4 space-y-4">
 
-          {/* City */}
           {available.cities.length > 0 && (
             <FilterGroup title="📍 Πόλη">
               {available.cities.slice(0, 18).map(([city, cnt]) => (
                 <FChip key={city} label={city} count={cnt}
                   active={xFilter.cities.includes(city)}
-                  onClick={() => setXFilter(f => ({ ...f, cities: toggle(f.cities, city) }))}
+                  onClick={() => handleXFilter(f => ({ ...f, cities: toggle(f.cities, city) }))}
                 />
               ))}
               {available.cities.length > 18 && (
@@ -281,7 +280,6 @@ export default function ContactsTab() {
             </FilterGroup>
           )}
 
-          {/* Treatment Category */}
           {Object.keys(available.treatCats).length > 0 && (
             <FilterGroup title="💆 Κατηγορία Θεραπείας">
               {Object.entries(TREATMENT_LABELS).map(([key, { label, icon }]) => {
@@ -291,85 +289,81 @@ export default function ContactsTab() {
                   <FChip key={key} label={`${icon} ${label}`} count={cnt}
                     active={xFilter.treatmentCategories.includes(key)}
                     color="green"
-                    onClick={() => setXFilter(f => ({ ...f, treatmentCategories: toggle(f.treatmentCategories, key) }))}
+                    onClick={() => handleXFilter(f => ({ ...f, treatmentCategories: toggle(f.treatmentCategories, key) }))}
                   />
                 )
               })}
             </FilterGroup>
           )}
 
-          {/* CRM Status */}
           {available.omniluxStatuses.length > 0 && (
             <FilterGroup title="👤 Status CRM">
               {available.omniluxStatuses.map(([st, cnt]) => (
                 <FChip key={st} label={st} count={cnt}
                   active={xFilter.omniluxStatuses.includes(st)}
                   color="orange"
-                  onClick={() => setXFilter(f => ({ ...f, omniluxStatuses: toggle(f.omniluxStatuses, st) }))}
+                  onClick={() => handleXFilter(f => ({ ...f, omniluxStatuses: toggle(f.omniluxStatuses, st) }))}
                 />
               ))}
             </FilterGroup>
           )}
 
-          {/* Source */}
           {available.sources.length > 0 && (
             <FilterGroup title="📋 Πηγή">
               {available.sources.map(([src, cnt]) => (
                 <FChip key={src} label={src} count={cnt}
                   active={xFilter.sources.includes(src)}
                   color="purple"
-                  onClick={() => setXFilter(f => ({ ...f, sources: toggle(f.sources, src) }))}
+                  onClick={() => handleXFilter(f => ({ ...f, sources: toggle(f.sources, src) }))}
                 />
               ))}
             </FilterGroup>
           )}
 
-          {/* Language */}
           {available.languages.length > 0 && (
             <FilterGroup title="🌐 Γλώσσα">
               {available.languages.map(([lang, cnt]) => (
                 <FChip key={lang} label={lang} count={cnt}
                   active={xFilter.languages.includes(lang)}
-                  onClick={() => setXFilter(f => ({ ...f, languages: toggle(f.languages, lang) }))}
+                  onClick={() => handleXFilter(f => ({ ...f, languages: toggle(f.languages, lang) }))}
                 />
               ))}
             </FilterGroup>
           )}
-
         </div>
       )}
 
-      {/* Active filter summary chips */}
+      {/* Active filter chips */}
       {activeXFilters > 0 && (
         <div className="flex flex-wrap gap-1.5 text-xs">
           {xFilter.cities.map(c => (
             <span key={c} className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
               📍 {c}
-              <button onClick={() => setXFilter(f => ({ ...f, cities: f.cities.filter(v => v !== c) }))} className="hover:text-blue-900">✕</button>
+              <button onClick={() => handleXFilter(f => ({ ...f, cities: f.cities.filter(v => v !== c) }))} className="hover:text-blue-900">✕</button>
             </span>
           ))}
           {xFilter.treatmentCategories.map(c => (
             <span key={c} className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">
               {TREATMENT_LABELS[c]?.icon} {TREATMENT_LABELS[c]?.label || c}
-              <button onClick={() => setXFilter(f => ({ ...f, treatmentCategories: f.treatmentCategories.filter(v => v !== c) }))} className="hover:text-emerald-900">✕</button>
+              <button onClick={() => handleXFilter(f => ({ ...f, treatmentCategories: f.treatmentCategories.filter(v => v !== c) }))} className="hover:text-emerald-900">✕</button>
             </span>
           ))}
           {xFilter.omniluxStatuses.map(c => (
             <span key={c} className="inline-flex items-center gap-1 bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">
               👤 {c}
-              <button onClick={() => setXFilter(f => ({ ...f, omniluxStatuses: f.omniluxStatuses.filter(v => v !== c) }))} className="hover:text-orange-900">✕</button>
+              <button onClick={() => handleXFilter(f => ({ ...f, omniluxStatuses: f.omniluxStatuses.filter(v => v !== c) }))} className="hover:text-orange-900">✕</button>
             </span>
           ))}
           {xFilter.sources.map(c => (
             <span key={c} className="inline-flex items-center gap-1 bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">
               📋 {c}
-              <button onClick={() => setXFilter(f => ({ ...f, sources: f.sources.filter(v => v !== c) }))} className="hover:text-purple-900">✕</button>
+              <button onClick={() => handleXFilter(f => ({ ...f, sources: f.sources.filter(v => v !== c) }))} className="hover:text-purple-900">✕</button>
             </span>
           ))}
           {xFilter.languages.map(c => (
             <span key={c} className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
               🌐 {c}
-              <button onClick={() => setXFilter(f => ({ ...f, languages: f.languages.filter(v => v !== c) }))} className="hover:text-blue-900">✕</button>
+              <button onClick={() => handleXFilter(f => ({ ...f, languages: f.languages.filter(v => v !== c) }))} className="hover:text-blue-900">✕</button>
             </span>
           ))}
         </div>
@@ -377,7 +371,10 @@ export default function ContactsTab() {
 
       {/* Table */}
       {loading ? (
-        <div className="text-center py-20 text-gray-400">Φόρτωση…</div>
+        <div className="card p-8 text-center space-y-3">
+          <div className="inline-block w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+          <div className="text-gray-400 text-sm">Φόρτωση επαφών…</div>
+        </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-20 text-gray-400">
           <div className="text-4xl mb-3">📭</div>
@@ -407,7 +404,7 @@ export default function ContactsTab() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filtered.map(c => {
+                {pageContacts.map(c => {
                   const { label, cls, next } = actionMeta(c.status)
                   return (
                     <tr key={c.id}
@@ -462,16 +459,54 @@ export default function ContactsTab() {
               </tbody>
             </table>
           </div>
-          <div className="px-4 py-2 border-t bg-gray-50 text-xs text-gray-400">
-            Εμφανίζονται {filtered.length} από {contacts.length} επαφές
-            {statusFilter === 'active' && activeXFilters === 0 && (
-              <span className="ml-2 text-green-600 font-medium">· {counts.active} θα λάβουν την επόμενη καμπάνια</span>
+
+          {/* Footer: count + pagination */}
+          <div className="px-4 py-2 border-t bg-gray-50 flex items-center justify-between gap-4 flex-wrap text-xs text-gray-400">
+            <span>
+              Εμφανίζονται {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} από {filtered.length} επαφές
+              {statusFilter === 'active' && activeXFilters === 0 && (
+                <span className="ml-2 text-green-600 font-medium">· {counts.active} θα λάβουν την επόμενη καμπάνια</span>
+              )}
+            </span>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage(0)}
+                  disabled={page === 0}
+                  className="px-2 py-1 rounded border border-gray-200 hover:border-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                  «
+                </button>
+                <button
+                  onClick={() => setPage(p => p - 1)}
+                  disabled={page === 0}
+                  className="px-2 py-1 rounded border border-gray-200 hover:border-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                  ‹
+                </button>
+                <span className="px-2 text-gray-500 font-medium">{page + 1} / {totalPages}</span>
+                <button
+                  onClick={() => setPage(p => p + 1)}
+                  disabled={page >= totalPages - 1}
+                  className="px-2 py-1 rounded border border-gray-200 hover:border-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                  ›
+                </button>
+                <button
+                  onClick={() => setPage(totalPages - 1)}
+                  disabled={page >= totalPages - 1}
+                  className="px-2 py-1 rounded border border-gray-200 hover:border-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                  »
+                </button>
+              </div>
             )}
           </div>
         </div>
       )}
 
-      {showUpload && <ContactUploadModal onClose={() => setShowUpload(false)} existingContacts={contacts} />}
+      {showUpload && (
+        <ContactUploadModal
+          onClose={() => setShowUpload(false)}
+          existingContacts={contacts}
+        />
+      )}
 
       {selectedContact && (
         <ContactDetailModal

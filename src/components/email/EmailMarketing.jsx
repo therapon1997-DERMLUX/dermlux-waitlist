@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { collection, getDocs, query, orderBy } from 'firebase/firestore'
+import { db } from '../../firebase/config'
 import ContactsTab from './ContactsTab'
 import CampaignsTab from './CampaignsTab'
 import MetricsTab from './MetricsTab'
@@ -12,7 +14,20 @@ const TABS = [
 ]
 
 export default function EmailMarketing() {
-  const [tab, setTab] = useState('contacts')
+  const [tab, setTab]                 = useState('contacts')
+  const [contacts, setContacts]       = useState([])
+  const [contactsLoading, setContactsLoading] = useState(true)
+
+  // Load contacts once — no real-time stream needed for 9,500 contacts
+  useEffect(() => {
+    setContactsLoading(true)
+    getDocs(query(collection(db, 'email_contacts'), orderBy('email')))
+      .then(snap => {
+        setContacts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      })
+      .catch(err => console.error('Failed to load contacts', err))
+      .finally(() => setContactsLoading(false))
+  }, [])
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -25,7 +40,7 @@ export default function EmailMarketing() {
         </div>
       </div>
 
-      {/* Tab bar */}
+      {/* Tab bar — always clickable, even while contacts load */}
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
         {TABS.map(t => (
           <button key={t.id}
@@ -41,7 +56,13 @@ export default function EmailMarketing() {
       </div>
 
       {/* Content */}
-      {tab === 'contacts'  && <ContactsTab />}
+      {tab === 'contacts'  && (
+        <ContactsTab
+          contacts={contacts}
+          loading={contactsLoading}
+          onContactsChange={setContacts}
+        />
+      )}
       {tab === 'campaigns' && <CampaignsTab />}
       {tab === 'templates' && <TemplatesTab />}
       {tab === 'metrics'   && <MetricsTab />}
