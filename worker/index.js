@@ -76,7 +76,10 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runAutoSend(env))
+    ctx.waitUntil(Promise.all([
+      runAutoSend(env),
+      syncBouncesToContacts(env),
+    ]))
   },
 }
 
@@ -684,7 +687,7 @@ async function sendAutoBatch(campaign, token, project, env, now) {
 }
 
 // ─── Sync bounces / complaints → email_contacts ───────────────────────────────
-async function syncBounces(env, json) {
+async function syncBouncesToContacts(env) {
   const token   = await getFirebaseToken(env)
   const project = env.FIREBASE_PROJECT_ID
   const now     = new Date().toISOString()
@@ -712,7 +715,6 @@ async function syncBounces(env, json) {
     const cid = s.contactId
     if (!cid) continue
     const existing = updates[cid]
-    // complained > bounced — don't downgrade a complained contact to bounced
     if (!existing || (s.status === 'complained' && existing.status !== 'complained')) {
       updates[cid] = {
         status:       s.status,
@@ -740,7 +742,13 @@ async function syncBounces(env, json) {
     if (res.ok) updated++
   }
 
-  return json({ ok: true, updated, total: Object.keys(updates).length })
+  console.log(`syncBouncesToContacts: ${updated}/${Object.keys(updates).length} contacts updated`)
+  return { updated, total: Object.keys(updates).length }
+}
+
+async function syncBounces(env, json) {
+  const result = await syncBouncesToContacts(env)
+  return json({ ok: true, ...result })
 }
 
 // ─── Firestore REST helpers ───────────────────────────────────────────────────
