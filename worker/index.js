@@ -81,16 +81,23 @@ async function sendCampaign(request, env, json) {
 
   // Build email objects for Resend batch API (max 100 per call — caller already chunks)
   const emails = contacts.map(contact => {
-    const unsub = `${APP_URL}/#/unsubscribe?c=${encodeURIComponent(contact.id)}&cid=${encodeURIComponent(campaignId)}&cn=${encodeURIComponent(campaign.name || '')}`
+    const unsub = `${APP_URL}/#/unsubscribe?c=${encodeURIComponent(contact.id)}&cid=${encodeURIComponent(campaignId)}&cn=${encodeURIComponent(campaign.name || '')}&e=${encodeURIComponent(contact.email)}`
     const html = (campaign.htmlBody || '')
       .replaceAll('{{name}}', contact.name || 'Πελάτη')
       .replaceAll('{{unsubscribe_url}}', unsub)
+      .replaceAll('*|UNSUB|*', unsub)
+      .replaceAll('*|UPDATE_PROFILE|*', unsub)
+      .replaceAll('*|ARCHIVE|*', '#')
 
     return {
       from:    `${campaign.fromName} <${campaign.fromEmail}>`,
       to:      [contact.email],
       subject: campaign.subject,
       html,
+      headers: {
+        'List-Unsubscribe':      `<${unsub}>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
       tags: [
         { name: 'campaign_id', value: String(campaignId).slice(0, 64).replace(/[^a-zA-Z0-9_-]/g, '_') },
         { name: 'contact_id',  value: String(contact.id).slice(0, 64).replace(/[^a-zA-Z0-9_-]/g, '_') },
@@ -98,36 +105,43 @@ async function sendCampaign(request, env, json) {
     }
   })
 
-  // Resend batch API
-  const res = await fetch('https://api.resend.com/emails/batch', {
-    method:  'POST',
-    headers: {
-      Authorization:  `Bearer ${env.RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(emails),
-  })
-
-  const resData = await res.json()
-
+  // Resend batch API allows max 100 per call — chunk if needed
+  const RESEND_MAX = 100
   const results = []
-  if (res.ok && Array.isArray(resData.data)) {
-    resData.data.forEach((item, i) => {
-      results.push({
-        email:    contacts[i].email,
-        status:   item.id ? 'sent' : 'failed',
-        resendId: item.id || null,
-        error:    item.id ? null : JSON.stringify(item),
-      })
+
+  for (let i = 0; i < emails.length; i += RESEND_MAX) {
+    const chunk      = emails.slice(i, i + RESEND_MAX)
+    const chunkConts = contacts.slice(i, i + RESEND_MAX)
+
+    const res = await fetch('https://api.resend.com/emails/batch', {
+      method:  'POST',
+      headers: {
+        Authorization:  `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(chunk),
     })
-  } else {
-    // Entire batch failed
-    contacts.forEach(c => results.push({
-      email:    c.email,
-      status:   'failed',
-      resendId: null,
-      error:    resData.message || JSON.stringify(resData),
-    }))
+
+    const resData = await res.json()
+
+    if (res.ok && Array.isArray(resData.data)) {
+      resData.data.forEach((item, j) => {
+        results.push({
+          email:    chunkConts[j].email,
+          status:   item.id ? 'sent' : 'failed',
+          resendId: item.id || null,
+          error:    item.id ? null : JSON.stringify(item),
+        })
+      })
+    } else {
+      // Entire chunk failed
+      chunkConts.forEach(c => results.push({
+        email:    c.email,
+        status:   'failed',
+        resendId: null,
+        error:    resData.message || JSON.stringify(resData),
+      }))
+    }
   }
 
   return json({ results })
@@ -137,6 +151,9 @@ async function sendCampaign(request, env, json) {
 async function unsubscribeContact(request, env, json) {
   const { contactId, campaignId, campaignName } = await request.json()
   if (!contactId) return json({ error: 'Missing contactId' }, 400)
+
+  // Test sends use a fake contactId — acknowledge without touching Firestore
+  if (contactId.startsWith('test_')) return json({ ok: true, test: true })
 
   const token = await getFirebaseToken(env)
   const now   = new Date().toISOString()
@@ -280,28 +297,51 @@ async function handleWebhook(request, env, json) {
 
   let sendUpdate    = {}
   let statField     = null   // null = don't increment
-  let contactStatus = null
+  let contactUpdate = null   // fields to patch on email_contacts
 
   switch (type) {
     case 'email.opened':
       sendUpdate = { status: { stringValue: 'opened' }, openedAt: { timestampValue: now } }
       // Only count first open (status was 'sent'); ignore repeat opens
       statField  = currentSendStatus === 'sent' ? 'opened' : null
+      // Always update contact engagement (first open only)
+      if (currentSendStatus === 'sent') {
+        contactUpdate = {
+          lastEngagedAt: { timestampValue: now },
+          lastEvent:     { stringValue: 'opened' },
+          updatedAt:     { timestampValue: now },
+        }
+      }
       break
     case 'email.clicked':
       sendUpdate = { status: { stringValue: 'clicked' }, clickedAt: { timestampValue: now } }
       // Count first click only
       statField  = currentSendStatus !== 'clicked' ? 'clicked' : null
+      contactUpdate = {
+        lastEngagedAt: { timestampValue: now },
+        lastEvent:     { stringValue: 'clicked' },
+        updatedAt:     { timestampValue: now },
+      }
       break
     case 'email.bounced':
       sendUpdate = { status: { stringValue: 'bounced' }, bouncedAt: { timestampValue: now } }
       statField  = currentSendStatus !== 'bounced' ? 'bounced' : null
-      contactStatus = 'bounced'
+      contactUpdate = {
+        status:    { stringValue: 'bounced' },
+        bouncedAt: { timestampValue: now },
+        lastEvent: { stringValue: 'bounced' },
+        updatedAt: { timestampValue: now },
+      }
       break
     case 'email.complained':
-      sendUpdate = { status: { stringValue: 'complained' } }
-      statField  = 'unsubscribed'   // always record spam complaints
-      contactStatus = 'complained'
+      sendUpdate = { status: { stringValue: 'complained' }, complainedAt: { timestampValue: now } }
+      statField  = 'unsubscribed'   // count spam as unsubscribe for stats
+      contactUpdate = {
+        status:       { stringValue: 'complained' },
+        complainedAt: { timestampValue: now },
+        lastEvent:    { stringValue: 'complained' },
+        updatedAt:    { timestampValue: now },
+      }
       break
     default:
       return json({ ok: true })
@@ -343,20 +383,17 @@ async function handleWebhook(request, env, json) {
     )
   }
 
-  // 3. Update contact status for hard events (bounce / spam complaint)
-  if (contactId && contactStatus) {
+  // 3. Update contact document (engagement, bounce, complaint)
+  if (contactId && contactUpdate) {
+    const contactMask = Object.keys(contactUpdate)
+      .map(k => `updateMask.fieldPaths=${k}`)
+      .join('&')
     await fetch(
-      `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/email_contacts/${contactId}` +
-      `?updateMask.fieldPaths=status&updateMask.fieldPaths=updatedAt`,
+      `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/email_contacts/${contactId}?${contactMask}`,
       {
         method:  'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fields: {
-            status:    { stringValue: contactStatus },
-            updatedAt: { timestampValue: now },
-          },
-        }),
+        body: JSON.stringify({ fields: contactUpdate }),
       }
     )
   }
@@ -459,15 +496,22 @@ async function sendAutoBatch(campaign, token, project, env, now) {
 
   // 4. Send via Resend batch API
   const emails = batch.map(contact => {
-    const unsub = `${APP_URL}/#/unsubscribe?c=${encodeURIComponent(contact.id)}&cid=${encodeURIComponent(campaign.id)}&cn=${encodeURIComponent(campaign.name || '')}`
+    const unsub = `${APP_URL}/#/unsubscribe?c=${encodeURIComponent(contact.id)}&cid=${encodeURIComponent(campaign.id)}&cn=${encodeURIComponent(campaign.name || '')}&e=${encodeURIComponent(contact.email)}`
     const html  = (campaign.htmlBody || '')
       .replaceAll('{{name}}',           contact.name || 'Πελάτη')
       .replaceAll('{{unsubscribe_url}}', unsub)
+      .replaceAll('*|UNSUB|*', unsub)
+      .replaceAll('*|UPDATE_PROFILE|*', unsub)
+      .replaceAll('*|ARCHIVE|*', '#')
     return {
       from:    `${campaign.fromName} <${campaign.fromEmail}>`,
       to:      [contact.email],
       subject: campaign.subject,
       html,
+      headers: {
+        'List-Unsubscribe':      `<${unsub}>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
       tags: [
         { name: 'campaign_id', value: String(campaign.id).slice(0, 64).replace(/[^a-zA-Z0-9_-]/g, '_') },
         { name: 'contact_id',  value: String(contact.id).slice(0, 64).replace(/[^a-zA-Z0-9_-]/g, '_') },

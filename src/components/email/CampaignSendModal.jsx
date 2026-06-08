@@ -356,7 +356,17 @@ export default function CampaignSendModal({ campaign, onClose }) {
               Τα επόμενα <strong>{Math.min(afterThis, batchSize)}</strong> emails θα αποσταλούν αυτόματα σε <strong>{INTERVAL_OPTIONS.find(o => o.value === intervalHours)?.label}</strong>. Μπορείτε να κλείσετε τη σελίδα.
             </div>
           )}
-          <button className="btn-primary w-full" onClick={onClose}>Κλείσιμο</button>
+          <div className="flex gap-2">
+            {!autoRunning && (
+              <button
+                className="btn-secondary flex-1"
+                onClick={() => { setSeg(EMPTY_SEG); setStep('audience') }}
+              >
+                🎯 Νέο Κοινό
+              </button>
+            )}
+            <button className="btn-primary flex-1" onClick={onClose}>Κλείσιμο</button>
+          </div>
         </div>
       </ModalShell>
     )

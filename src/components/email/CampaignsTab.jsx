@@ -399,7 +399,10 @@ function CampaignCard({ c, testResult, onSend, onEdit, onPause, onResumeAuto, on
             </>
           )}
           {c.status === 'sent' && (
-            <button className="btn-secondary text-xs" onClick={onClone}>📋 Αντιγραφή ως Draft</button>
+            <>
+              <button className="btn-primary text-xs" onClick={onSend}>🎯 Νέο Κοινό</button>
+              <button className="btn-secondary text-xs" onClick={onClone}>📋 Αντιγραφή ως Draft</button>
+            </>
           )}
           <button
             className="btn-secondary text-xs"
