@@ -38,8 +38,79 @@ const TREATMENT_LABELS = {
   other:        { label: 'Other',       icon: '🔖' },
 }
 
+// Maps every raw city value from OmniLux CRM → one of 7 Cyprus districts
+const CITY_TO_DISTRICT = {
+  // ── Λευκωσία ──────────────────────────────────────────────────────────────
+  'Nicosia': 'Λευκωσία', 'nicosia': 'Λευκωσία', 'NICOSIA': 'Λευκωσία',
+  'nicosia cyprus': 'Λευκωσία', 'center nicosia': 'Λευκωσία',
+  'DermLux Nicosia': 'Λευκωσία',
+  'Λευκωσία': 'Λευκωσία', 'λευκωσια': 'Λευκωσία',
+  'Strovolos': 'Λευκωσία', 'Agios Dometios': 'Λευκωσία',
+  'Dali': 'Λευκωσία', 'Lythrodontas': 'Λευκωσία', 'pendacomo': 'Λευκωσία',
+
+  // ── Λεμεσός ───────────────────────────────────────────────────────────────
+  'Limassol': 'Λεμεσός', 'limassol': 'Λεμεσός',
+  'Gold': 'Λεμεσός',                   // DermLux Limassol Gold clinic
+  'DermLux Limassol Gold': 'Λεμεσός', 'DermLux Limassol Laser': 'Λεμεσός',
+  'Limassol Gold': 'Λεμεσός', 'Limassol Laser': 'Λεμεσός',
+  'Lemselo': 'Λεμεσός',                // typo
+  'Λεμεσός': 'Λεμεσός', 'Λεμεσος': 'Λεμεσός',
+  'Kato Polemidhia': 'Λεμεσός', 'Kato Polemidya': 'Λεμεσός', 'Polemidia': 'Λεμεσός',
+  'pyrgos limassol': 'Λεμεσός', 'Paramytha': 'Λεμεσός', 'Pissouri': 'Λεμεσός',
+  'Ipsonas': 'Λεμεσός', 'Akrotiri': 'Λεμεσός', 'Ayus Tychones': 'Λεμεσός',
+  'Μέσα Γειτονιά': 'Λεμεσός',
+
+  // ── Λάρνακα ───────────────────────────────────────────────────────────────
+  'Larnaca': 'Λάρνακα', 'larnaca': 'Λάρνακα', 'Larnaka': 'Λάρνακα',
+  'Λαρνακα': 'Λάρνακα', 'Λάρνακα': 'Λάρνακα',
+  'DermLux Larnaca': 'Λάρνακα',
+  'Aradippou': 'Λάρνακα', 'Xylophaghou': 'Λάρνακα',
+  'Μενεου': 'Λάρνακα', 'Πυλα': 'Λάρνακα', 'Pyla': 'Λάρνακα', 'Κορνος': 'Λάρνακα',
+
+  // ── Πάφος ─────────────────────────────────────────────────────────────────
+  'Paphos': 'Πάφος', 'Páfos': 'Πάφος', 'Pafos': 'Πάφος', 'Paphos, Cyprus': 'Πάφος',
+  'Πάφος': 'Πάφος', 'Παφος': 'Πάφος',
+  'DermLux Paphos': 'Πάφος',
+  'Kissonerga': 'Πάφος', 'Kouklia': 'Πάφος', 'Polis': 'Πάφος',
+  'Pegeia': 'Πάφος', 'Peyia': 'Πάφος', 'Mesa Chorio': 'Πάφος',
+  'Tala': 'Πάφος', 'Empa': 'Πάφος', 'Χλωρακας': 'Πάφος', 'Lyso': 'Πάφος',
+
+  // ── Αμμόχωστος (free area — Paralimni/Deryneia side) ─────────────────────
+  'Paralimni': 'Αμμόχωστος', 'Αμμωχοστος': 'Αμμόχωστος',
+
+  // ── Κατεχόμενα ────────────────────────────────────────────────────────────
+  // North Nicosia
+  'Lefkosa': 'Κατεχόμενα', 'Lefkoşa': 'Κατεχόμενα',
+  'Gönyeli': 'Κατεχόμενα', 'Hamitköy': 'Κατεχόμενα',
+  // Kyrenia / north coast
+  'Kyrenia': 'Κατεχόμενα', 'Lapithos': 'Κατεχόμενα', 'Akanthou': 'Κατεχόμενα',
+  // Morphou area
+  'Omorfo': 'Κατεχόμενα', 'Lefke': 'Κατεχόμενα',
+  // Occupied Famagusta
+  'Famagusta': 'Κατεχόμενα', 'Famagusta Walled City': 'Κατεχόμενα',
+  'Gazimagusa': 'Κατεχόμενα',
+  // Generic "Cyprus" in Turkish
+  'Kibris': 'Κατεχόμενα',
+}
+
+// Ordered list of districts for the filter UI
+const DISTRICTS = [
+  { id: 'Λευκωσία',   color: 'blue'   },
+  { id: 'Λεμεσός',    color: 'blue'   },
+  { id: 'Λάρνακα',    color: 'blue'   },
+  { id: 'Πάφος',      color: 'blue'   },
+  { id: 'Αμμόχωστος', color: 'blue'   },
+  { id: 'Κατεχόμενα', color: 'orange' },
+  { id: 'Άλλο',       color: 'purple' },
+]
+
+function getDistrict(city) {
+  if (!city) return null
+  return CITY_TO_DISTRICT[city.trim()] || 'Άλλο'
+}
+
 const EMPTY_XFILTER = {
-  cities:              [],
+  districts:           [],
   treatmentCategories: [],
   omniluxStatuses:     [],
   languages:           [],
@@ -107,13 +178,19 @@ export default function ContactsTab({ contacts, loading, onContactsChange }) {
       }
       return Object.entries(m).sort((a, b) => b[1] - a[1])
     }
+    // District counts (mapped from raw city values)
+    const districtCounts = {}
+    for (const c of contacts) {
+      const d = getDistrict(c.city)
+      if (d) districtCounts[d] = (districtCounts[d] || 0) + 1
+    }
     const treatCats = {}
     for (const c of contacts) {
       const cats = Array.isArray(c.treatmentCategories) ? c.treatmentCategories : []
       for (const cat of cats) treatCats[cat] = (treatCats[cat] || 0) + 1
     }
     return {
-      cities:          cntField('city'),
+      districtCounts,
       omniluxStatuses: cntField('omniluxStatus'),
       languages:       cntField('language'),
       sources:         cntField('omniluxSource'),
@@ -125,8 +202,8 @@ export default function ContactsTab({ contacts, loading, onContactsChange }) {
     let base = contacts
     if (statusFilter !== 'all') base = base.filter(c => c.status === statusFilter)
 
-    if (xFilter.cities.length)
-      base = base.filter(c => xFilter.cities.includes((c.city || '').trim()))
+    if (xFilter.districts.length)
+      base = base.filter(c => xFilter.districts.includes(getDistrict(c.city)))
     if (xFilter.treatmentCategories.length)
       base = base.filter(c => {
         const cats = Array.isArray(c.treatmentCategories) ? c.treatmentCategories : []
@@ -157,7 +234,7 @@ export default function ContactsTab({ contacts, loading, onContactsChange }) {
   }, [contacts])
 
   const activeXFilters =
-    xFilter.cities.length + xFilter.treatmentCategories.length +
+    xFilter.districts.length + xFilter.treatmentCategories.length +
     xFilter.omniluxStatuses.length + xFilter.languages.length + xFilter.sources.length
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
@@ -266,17 +343,19 @@ export default function ContactsTab({ contacts, loading, onContactsChange }) {
       {showFilters && (
         <div className="border border-gray-200 rounded-xl bg-gray-50 p-4 space-y-4">
 
-          {available.cities.length > 0 && (
-            <FilterGroup title="📍 Πόλη">
-              {available.cities.slice(0, 18).map(([city, cnt]) => (
-                <FChip key={city} label={city} count={cnt}
-                  active={xFilter.cities.includes(city)}
-                  onClick={() => handleXFilter(f => ({ ...f, cities: toggle(f.cities, city) }))}
-                />
-              ))}
-              {available.cities.length > 18 && (
-                <span className="text-xs text-gray-400 self-center">+{available.cities.length - 18} ακόμα</span>
-              )}
+          {Object.keys(available.districtCounts).length > 0 && (
+            <FilterGroup title="📍 Περιοχή">
+              {DISTRICTS.map(({ id, color }) => {
+                const cnt = available.districtCounts[id]
+                if (!cnt) return null
+                return (
+                  <FChip key={id} label={id} count={cnt}
+                    active={xFilter.districts.includes(id)}
+                    color={color}
+                    onClick={() => handleXFilter(f => ({ ...f, districts: toggle(f.districts, id) }))}
+                  />
+                )
+              })}
             </FilterGroup>
           )}
 
@@ -336,10 +415,10 @@ export default function ContactsTab({ contacts, loading, onContactsChange }) {
       {/* Active filter chips */}
       {activeXFilters > 0 && (
         <div className="flex flex-wrap gap-1.5 text-xs">
-          {xFilter.cities.map(c => (
-            <span key={c} className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
-              📍 {c}
-              <button onClick={() => handleXFilter(f => ({ ...f, cities: f.cities.filter(v => v !== c) }))} className="hover:text-blue-900">✕</button>
+          {xFilter.districts.map(d => (
+            <span key={d} className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+              📍 {d}
+              <button onClick={() => handleXFilter(f => ({ ...f, districts: f.districts.filter(v => v !== d) }))} className="hover:text-blue-900">✕</button>
             </span>
           ))}
           {xFilter.treatmentCategories.map(c => (
