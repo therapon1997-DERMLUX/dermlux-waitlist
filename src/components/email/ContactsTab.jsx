@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { statusLabel, statusColor, INACTIVE_STATUSES } from '../../utils/emailValidation'
-import { CITY_TO_DISTRICT, DISTRICTS, getDistrict, computeTags, formatSpend } from '../../utils/contactTags'
+import { DISTRICTS, getDistrict, computeTags, formatSpend, SPEND_TIERS, APPT_TIERS } from '../../utils/contactTags'
 import ContactUploadModal from './ContactUploadModal'
 import ContactDetailModal from './ContactDetailModal'
 
@@ -41,6 +41,8 @@ const TREATMENT_LABELS = {
 
 const EMPTY_XFILTER = {
   districts:           [],
+  spendTiers:          [],
+  apptTiers:           [],
   treatmentCategories: [],
   omniluxStatuses:     [],
   languages:           [],
@@ -114,6 +116,16 @@ export default function ContactsTab({ contacts, loading, onContactsChange }) {
       const d = getDistrict(c.city)
       if (d) districtCounts[d] = (districtCounts[d] || 0) + 1
     }
+    // Spend tier counts
+    const spendCounts = {}
+    for (const t of SPEND_TIERS) {
+      spendCounts[t.id] = contacts.filter(t.match).length
+    }
+    // Appointment tier counts
+    const apptCounts = {}
+    for (const t of APPT_TIERS) {
+      apptCounts[t.id] = contacts.filter(t.match).length
+    }
     const treatCats = {}
     for (const c of contacts) {
       const cats = Array.isArray(c.treatmentCategories) ? c.treatmentCategories : []
@@ -121,6 +133,8 @@ export default function ContactsTab({ contacts, loading, onContactsChange }) {
     }
     return {
       districtCounts,
+      spendCounts,
+      apptCounts,
       omniluxStatuses: cntField('omniluxStatus'),
       languages:       cntField('language'),
       sources:         cntField('omniluxSource'),
@@ -134,6 +148,10 @@ export default function ContactsTab({ contacts, loading, onContactsChange }) {
 
     if (xFilter.districts.length)
       base = base.filter(c => xFilter.districts.includes(getDistrict(c.city)))
+    if (xFilter.spendTiers.length)
+      base = base.filter(c => SPEND_TIERS.filter(t => xFilter.spendTiers.includes(t.id)).some(t => t.match(c)))
+    if (xFilter.apptTiers.length)
+      base = base.filter(c => APPT_TIERS.filter(t => xFilter.apptTiers.includes(t.id)).some(t => t.match(c)))
     if (xFilter.treatmentCategories.length)
       base = base.filter(c => {
         const cats = Array.isArray(c.treatmentCategories) ? c.treatmentCategories : []
@@ -164,8 +182,9 @@ export default function ContactsTab({ contacts, loading, onContactsChange }) {
   }, [contacts])
 
   const activeXFilters =
-    xFilter.districts.length + xFilter.treatmentCategories.length +
-    xFilter.omniluxStatuses.length + xFilter.languages.length + xFilter.sources.length
+    xFilter.districts.length + xFilter.spendTiers.length + xFilter.apptTiers.length +
+    xFilter.treatmentCategories.length + xFilter.omniluxStatuses.length +
+    xFilter.languages.length + xFilter.sources.length
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
   const pageContacts = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
@@ -289,6 +308,36 @@ export default function ContactsTab({ contacts, loading, onContactsChange }) {
             </FilterGroup>
           )}
 
+          {/* Spend tiers */}
+          <FilterGroup title="💶 Δαπάνη">
+            {SPEND_TIERS.map(t => {
+              const cnt = available.spendCounts[t.id] || 0
+              if (!cnt) return null
+              return (
+                <FChip key={t.id} label={t.label} count={cnt}
+                  active={xFilter.spendTiers.includes(t.id)}
+                  color="green"
+                  onClick={() => handleXFilter(f => ({ ...f, spendTiers: toggle(f.spendTiers, t.id) }))}
+                />
+              )
+            })}
+          </FilterGroup>
+
+          {/* Appointment tiers */}
+          <FilterGroup title="📅 Ραντεβού">
+            {APPT_TIERS.map(t => {
+              const cnt = available.apptCounts[t.id] || 0
+              if (!cnt) return null
+              return (
+                <FChip key={t.id} label={t.label} count={cnt}
+                  active={xFilter.apptTiers.includes(t.id)}
+                  color="purple"
+                  onClick={() => handleXFilter(f => ({ ...f, apptTiers: toggle(f.apptTiers, t.id) }))}
+                />
+              )
+            })}
+          </FilterGroup>
+
           {Object.keys(available.treatCats).length > 0 && (
             <FilterGroup title="💆 Κατηγορία Θεραπείας">
               {Object.entries(TREATMENT_LABELS).map(([key, { label, icon }]) => {
@@ -351,6 +400,24 @@ export default function ContactsTab({ contacts, loading, onContactsChange }) {
               <button onClick={() => handleXFilter(f => ({ ...f, districts: f.districts.filter(v => v !== d) }))} className="hover:text-blue-900">✕</button>
             </span>
           ))}
+          {xFilter.spendTiers.map(id => {
+            const t = SPEND_TIERS.find(t => t.id === id)
+            return t ? (
+              <span key={id} className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">
+                💶 {t.label}
+                <button onClick={() => handleXFilter(f => ({ ...f, spendTiers: f.spendTiers.filter(v => v !== id) }))} className="hover:text-emerald-900">✕</button>
+              </span>
+            ) : null
+          })}
+          {xFilter.apptTiers.map(id => {
+            const t = APPT_TIERS.find(t => t.id === id)
+            return t ? (
+              <span key={id} className="inline-flex items-center gap-1 bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">
+                📅 {t.label}
+                <button onClick={() => handleXFilter(f => ({ ...f, apptTiers: f.apptTiers.filter(v => v !== id) }))} className="hover:text-purple-900">✕</button>
+              </span>
+            ) : null
+          })}
           {xFilter.treatmentCategories.map(c => (
             <span key={c} className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">
               {TREATMENT_LABELS[c]?.icon} {TREATMENT_LABELS[c]?.label || c}

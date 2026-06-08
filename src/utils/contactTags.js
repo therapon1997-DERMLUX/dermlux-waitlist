@@ -53,6 +53,62 @@ export function getDistrict(city) {
   return CITY_TO_DISTRICT[city.trim()] || 'Άλλο'
 }
 
+// ── Spend tiers (for filter chips + tag label) ────────────────────────────────
+export const SPEND_TIERS = [
+  {
+    id: 'spend_lt500',
+    label: '< €500',
+    cls: 'bg-gray-50 text-gray-600 border-gray-300',
+    match: c => { const s = parseFloat(c.totalSpend) || 0; return s > 0 && s < 500 },
+  },
+  {
+    id: 'spend_500_1000',
+    label: '€500 – €1.000',
+    cls: 'bg-amber-50 text-amber-800 border-amber-300',
+    match: c => { const s = parseFloat(c.totalSpend) || 0; return s >= 500 && s <= 1000 },
+  },
+  {
+    id: 'spend_gt1000',
+    label: '> €1.000',
+    cls: 'bg-yellow-50 text-yellow-800 border-yellow-300',
+    match: c => (parseFloat(c.totalSpend) || 0) > 1000,
+  },
+]
+
+// ── Appointment tiers (non-overlapping buckets) ────────────────────────────────
+export const APPT_TIERS = [
+  {
+    id: 'appt_1',
+    label: '1 ραντεβού',
+    cls: 'bg-sky-50 text-sky-700 border-sky-300',
+    match: c => (parseInt(c.appointmentCount) || 0) === 1,
+  },
+  {
+    id: 'appt_2_6',
+    label: '2 – 6',
+    cls: 'bg-blue-50 text-blue-700 border-blue-300',
+    match: c => { const a = parseInt(c.appointmentCount) || 0; return a >= 2 && a <= 6 },
+  },
+  {
+    id: 'appt_gt6',
+    label: '> 6',
+    cls: 'bg-indigo-50 text-indigo-700 border-indigo-300',
+    match: c => { const a = parseInt(c.appointmentCount) || 0; return a >= 7 && a <= 10 },
+  },
+  {
+    id: 'appt_gt10',
+    label: '> 10',
+    cls: 'bg-purple-50 text-purple-700 border-purple-300',
+    match: c => { const a = parseInt(c.appointmentCount) || 0; return a >= 11 && a <= 20 },
+  },
+  {
+    id: 'appt_gt20',
+    label: '> 20',
+    cls: 'bg-pink-50 text-pink-700 border-pink-300',
+    match: c => (parseInt(c.appointmentCount) || 0) > 20,
+  },
+]
+
 export function formatSpend(val) {
   const n = parseFloat(val)
   if (!n || isNaN(n)) return null
