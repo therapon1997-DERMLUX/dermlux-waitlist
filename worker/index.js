@@ -307,6 +307,9 @@ async function unsubscribeContact(request, env, json) {
 }
 
 // ─── /webhook (Resend events) ─────────────────────────────────────────────────
+// Status hierarchy: sent < delivered < opened < clicked (bounced/complained override all)
+const STATUS_RANK = { sent: 0, delivered: 1, opened: 2, clicked: 3 }
+
 async function handleWebhook(request, env, json) {
   const body = await request.text()
 
@@ -321,18 +324,15 @@ async function handleWebhook(request, env, json) {
       return json({ error: 'Missing signature headers' }, 400)
     }
 
-    const toSign    = `${svixId}.${svixTimestamp}.${body}`
-    const keyBytes  = new TextEncoder().encode(env.RESEND_WEBHOOK_SECRET.replace(/^whsec_/, ''))
-    const msgBytes  = new TextEncoder().encode(toSign)
-
-    // Decode base64 secret
-    const rawKey = Uint8Array.from(atob(new TextDecoder().decode(keyBytes)), c => c.charCodeAt(0))
+    const toSign   = `${svixId}.${svixTimestamp}.${body}`
+    const secret   = env.RESEND_WEBHOOK_SECRET.replace(/^whsec_/, '')
+    const rawKey   = Uint8Array.from(atob(secret), c => c.charCodeAt(0))
+    const msgBytes = new TextEncoder().encode(toSign)
     const cryptoKey = await crypto.subtle.importKey('raw', rawKey, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
     const sig = await crypto.subtle.sign('HMAC', cryptoKey, msgBytes)
     const computedSig = 'v1,' + btoa(String.fromCharCode(...new Uint8Array(sig)))
 
-    const expectedSigs = svixSignature.split(' ')
-    const valid = expectedSigs.some(s => s === computedSig)
+    const valid = svixSignature.split(' ').some(s => s === computedSig)
     if (!valid) {
       console.error('Webhook signature mismatch')
       return json({ error: 'Invalid signature' }, 401)
@@ -343,211 +343,214 @@ async function handleWebhook(request, env, json) {
   try { event = JSON.parse(body) } catch { return json({ ok: true }) }
 
   const { type, data } = event
-  const resendId = data?.email_id
-  if (!resendId) return json({ ok: true })
+  if (!data?.email_id) return json({ ok: true })
 
-  const token   = await getFirebaseToken(env)
-  const project = env.FIREBASE_PROJECT_ID
+  // Supported event types
+  const EVENTS = {
+    'email.delivered':  'delivered',
+    'email.opened':     'opened',
+    'email.clicked':    'clicked',
+    'email.bounced':    'bounced',
+    'email.complained': 'complained',
+  }
+  const eventName = EVENTS[type]
+  if (!eventName) return json({ ok: true })
 
-  // Find email_sends doc by resendId
-  const qRes = await fetch(
-    `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents:runQuery`,
-    {
-      method:  'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        structuredQuery: {
-          from:  [{ collectionId: 'email_sends' }],
-          where: {
-            fieldFilter: {
-              field: { fieldPath: 'resendId' },
-              op:    'EQUAL',
-              value: { stringValue: resendId },
-            },
-          },
-          limit: 1,
-        },
-      }),
-    }
-  )
-
-  const qData   = await qRes.json()
-  const matched = qData.filter(d => d.document)
-
-  // ── Transactional email (not a campaign) ─────────────────────────────────────
-  // No email_sends record found → this came from an appointment confirmation,
-  // booking reminder, or other transactional send via Resend.
-  // For bounce / spam-complaint events we still want to update email_contacts
-  // so the address is excluded from all future campaigns.
-  if (!matched.length) {
-    if (type !== 'email.bounced' && type !== 'email.complained') return json({ ok: true })
-
-    // Extract recipient address from the webhook payload
-    const toField  = data.to
-    const toEmail  = ((Array.isArray(toField) ? toField[0] : toField) || '').toLowerCase().trim()
-    if (!toEmail || !fsValidEmail(toEmail)) return json({ ok: true })
-
-    const now        = new Date().toISOString()
-    const contactId  = fsContactDocId(toEmail)
-    const contactUrl = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/email_contacts/${contactId}`
-
-    const isBounce    = type === 'email.bounced'
-    const statusValue = isBounce ? 'bounced' : 'complained'
-
-    // Fields to write regardless of whether the contact already exists
-    const updateFields = isBounce
-      ? { status: { stringValue: 'bounced'    }, bouncedAt:    { timestampValue: now }, lastEvent: { stringValue: 'bounced'    }, updatedAt: { timestampValue: now } }
-      : { status: { stringValue: 'complained' }, complainedAt: { timestampValue: now }, lastEvent: { stringValue: 'complained' }, updatedAt: { timestampValue: now } }
-
-    // Check whether the contact already exists
-    const getRes = await fetch(contactUrl, { headers: { Authorization: `Bearer ${token}` } })
-
-    if (getRes.ok) {
-      // Contact exists — patch only the status fields (never overwrite name, city, etc.)
-      const mask = Object.keys(updateFields).map(k => `updateMask.fieldPaths=${k}`).join('&')
-      await fetch(`${contactUrl}?${mask}`, {
-        method:  'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: updateFields }),
-      })
-      console.log(`Transactional ${type}: updated existing contact ${toEmail}`)
-    } else if (getRes.status === 404) {
-      // Contact doesn't exist — create a minimal record so the address is
-      // flagged and never used in future campaigns
-      const createFields = {
-        ...updateFields,
-        email:     { stringValue: toEmail },
-        status:    { stringValue: statusValue },
-        source:    { stringValue: 'transactional_webhook' },
-        createdAt: { timestampValue: now },
-      }
-      await fetch(contactUrl, {
-        method:  'PATCH',   // PATCH without updateMask = create-or-replace
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: createFields }),
-      })
-      console.log(`Transactional ${type}: created new contact ${toEmail} as ${statusValue}`)
-    }
-
+  // Extract recipient email
+  const toField = data.to
+  const email   = ((Array.isArray(toField) ? toField[0] : toField) || '').toLowerCase().trim()
+  if (!email || !fsValidEmail(email)) {
+    console.warn(`Webhook ${type}: invalid/missing email`, data.to)
     return json({ ok: true })
   }
 
-  // ── Campaign email ────────────────────────────────────────────────────────────
-  const sendDoc    = matched[0].document
-  const sendDocId  = sendDoc.name.split('/').pop()
-  const fields     = sendDoc.fields || {}
-  const campaignId = fields.campaignId?.stringValue
-  const contactId  = fields.contactId?.stringValue
+  const token   = await getFirebaseToken(env)
+  const project = env.FIREBASE_PROJECT_ID
+  const base    = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents`
+  const now     = new Date().toISOString()
 
-  const now = new Date().toISOString()
-  // Current status of the email_sends doc — used to deduplicate events.
-  // Resend can fire the same event multiple times; we only increment campaign
-  // stats on the FIRST occurrence of each event type.
-  const currentSendStatus = fields.status?.stringValue || 'sent'
+  // ── Deterministic IDs from email (zero Firestore reads) ──
+  const contactId = fsContactDocId(email)
+  const recordId  = emailToRecordId(email)
 
-  let sendUpdate    = {}
-  let statField     = null   // null = don't increment
-  let contactUpdate = null   // fields to patch on email_contacts
+  // ── Campaign info from Resend tags (replaces expensive runQuery!) ──
+  const rawTags = data.tags
+  let tags = {}
+  if (Array.isArray(rawTags)) {
+    for (const t of rawTags) tags[t.name] = t.value
+  } else if (rawTags && typeof rawTags === 'object') {
+    tags = rawTags
+  }
+  const campaignId = tags.campaign_id || null
+  const isCampaign = !!campaignId
 
-  switch (type) {
-    case 'email.opened':
-      sendUpdate = { status: { stringValue: 'opened' }, openedAt: { timestampValue: now } }
-      // Only count first open (status was 'sent'); ignore repeat opens
-      statField  = currentSendStatus === 'sent' ? 'opened' : null
-      // Always update contact engagement (first open only)
-      if (currentSendStatus === 'sent') {
-        contactUpdate = {
-          lastEngagedAt: { timestampValue: now },
-          lastEvent:     { stringValue: 'opened' },
-          updatedAt:     { timestampValue: now },
-        }
-      }
-      break
-    case 'email.clicked':
-      sendUpdate = { status: { stringValue: 'clicked' }, clickedAt: { timestampValue: now } }
-      // Count first click only
-      statField  = currentSendStatus !== 'clicked' ? 'clicked' : null
-      contactUpdate = {
-        lastEngagedAt: { timestampValue: now },
-        lastEvent:     { stringValue: 'clicked' },
-        updatedAt:     { timestampValue: now },
-      }
-      break
-    case 'email.bounced':
-      sendUpdate = { status: { stringValue: 'bounced' }, bouncedAt: { timestampValue: now } }
-      statField  = currentSendStatus !== 'bounced' ? 'bounced' : null
-      contactUpdate = {
-        status:    { stringValue: 'bounced' },
-        bouncedAt: { timestampValue: now },
-        lastEvent: { stringValue: 'bounced' },
-        updatedAt: { timestampValue: now },
-      }
-      break
-    case 'email.complained':
-      sendUpdate = { status: { stringValue: 'complained' }, complainedAt: { timestampValue: now } }
-      statField  = 'unsubscribed'   // count spam as unsubscribe for stats
-      contactUpdate = {
-        status:       { stringValue: 'complained' },
-        complainedAt: { timestampValue: now },
-        lastEvent:    { stringValue: 'complained' },
-        updatedAt:    { timestampValue: now },
-      }
-      break
-    default:
-      return json({ ok: true })
+  // ── Build contact enrichment fields (always set recordId + engagement) ──
+  const contactUpdate = {
+    recordId:    { integerValue: String(recordId) },
+    updatedAt:   { timestampValue: now },
+    lastEvent:   { stringValue: eventName },
+    lastEventAt: { timestampValue: now },
   }
 
-  // 1. Update email_sends doc
-  const maskParams = Object.keys(sendUpdate)
-    .map(k => `updateMask.fieldPaths=${k}`)
-    .join('&')
-
-  await fetch(
-    `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/email_sends/${sendDocId}?${maskParams}`,
-    {
-      method:  'PATCH',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fields: sendUpdate }),
-    }
-  )
-
-  // 2. Atomically increment campaign stat
-  if (campaignId && statField) {
-    await fetch(
-      `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents:batchWrite`,
-      {
-        method:  'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          writes: [{
-            transform: {
-              document: `projects/${project}/databases/(default)/documents/email_campaigns/${campaignId}`,
-              fieldTransforms: [{
-                fieldPath: `stats.${statField}`,
-                increment: { integerValue: '1' },
-              }],
-            },
-          }],
-        }),
+  switch (eventName) {
+    case 'delivered':
+      contactUpdate.lastDeliveredAt = { timestampValue: now }
+      break
+    case 'opened':
+      contactUpdate.lastOpenedAt  = { timestampValue: now }
+      contactUpdate.lastEngagedAt = { timestampValue: now }
+      break
+    case 'clicked':
+      contactUpdate.lastClickedAt = { timestampValue: now }
+      contactUpdate.lastEngagedAt = { timestampValue: now }
+      if (data.click?.link) contactUpdate.lastClickedUrl = { stringValue: data.click.link.slice(0, 500) }
+      break
+    case 'bounced':
+      contactUpdate.status    = { stringValue: 'bounced' }
+      contactUpdate.bouncedAt = { timestampValue: now }
+      if (typeof data.bounce === 'object') {
+        const reason = data.bounce.message || data.bounce.description || ''
+        if (reason) contactUpdate.bounceReason = { stringValue: reason.slice(0, 500) }
       }
-    )
+      break
+    case 'complained':
+      contactUpdate.status       = { stringValue: 'complained' }
+      contactUpdate.complainedAt = { timestampValue: now }
+      break
   }
 
-  // 3. Update contact document (engagement, bounce, complaint)
-  if (contactId && contactUpdate) {
-    const contactMask = Object.keys(contactUpdate)
-      .map(k => `updateMask.fieldPaths=${k}`)
-      .join('&')
-    await fetch(
-      `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/email_contacts/${contactId}?${contactMask}`,
-      {
-        method:  'PATCH',
+  // ── 1. Enrich contact record (campaign AND transactional) ──
+  const contactUrl  = `${base}/email_contacts/${contactId}`
+  const contactMask = Object.keys(contactUpdate).map(k => `updateMask.fieldPaths=${k}`).join('&')
+
+  if (eventName === 'bounced' || eventName === 'complained') {
+    // Bounce/complaint: must create contact if missing (to block future sends)
+    const getRes = await fetch(contactUrl, { headers: { Authorization: `Bearer ${token}` } })
+    if (getRes.ok) {
+      await fetch(`${contactUrl}?${contactMask}`, {
+        method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ fields: contactUpdate }),
-      }
-    )
+      })
+    } else if (getRes.status === 404) {
+      await fetch(contactUrl, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fields: {
+            ...contactUpdate,
+            email:     { stringValue: email },
+            source:    { stringValue: isCampaign ? 'campaign_webhook' : 'transactional_webhook' },
+            createdAt: { timestampValue: now },
+          },
+        }),
+      })
+    }
+    console.log(`Webhook ${type}: ${email} — contact ${getRes.ok ? 'updated' : 'created'} as ${eventName}`)
+  } else {
+    // Delivered/opened/clicked: just patch, ignore 404 (no create for engagement-only)
+    await fetch(`${contactUrl}?${contactMask}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: contactUpdate }),
+    })
   }
 
+  // ── 2. Campaign-specific: update email_sends + stats ──
+  if (isCampaign) {
+    const sendDocId = encodeURIComponent(`${campaignId}||${email}`)
+
+    // Build email_sends update
+    const sendUpdate = {}
+    switch (eventName) {
+      case 'delivered':
+        sendUpdate.deliveredAt = { timestampValue: now }
+        break
+      case 'opened':
+        sendUpdate.openedAt = { timestampValue: now }
+        break
+      case 'clicked':
+        sendUpdate.clickedAt = { timestampValue: now }
+        if (data.click?.link) sendUpdate.clickedUrl = { stringValue: data.click.link.slice(0, 500) }
+        break
+      case 'bounced':
+        sendUpdate.bouncedAt = { timestampValue: now }
+        break
+      case 'complained':
+        sendUpdate.complainedAt = { timestampValue: now }
+        break
+    }
+
+    // Read current send doc for status dedup (1 read)
+    let currentStatus = null
+    const sendGetRes = await fetch(`${base}/email_sends/${sendDocId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (sendGetRes.ok) {
+      const sendDoc = await sendGetRes.json()
+      currentStatus = sendDoc.fields?.status?.stringValue || 'sent'
+    } else {
+      // email_sends doc not found — might be a very old email or tag mismatch
+      console.warn(`Webhook ${type}: email_sends doc not found for ${campaignId}||${email}`)
+    }
+
+    // Only upgrade status (never downgrade clicked→opened, etc.)
+    const curRank = STATUS_RANK[currentStatus] ?? -1
+    const newRank = STATUS_RANK[eventName] ?? 99
+    if (eventName === 'bounced' || eventName === 'complained' || newRank > curRank) {
+      sendUpdate.status = { stringValue: eventName }
+    }
+
+    // Patch email_sends doc
+    if (Object.keys(sendUpdate).length > 0 && currentStatus !== null) {
+      const sendMask = Object.keys(sendUpdate).map(k => `updateMask.fieldPaths=${k}`).join('&')
+      await fetch(`${base}/email_sends/${sendDocId}?${sendMask}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: sendUpdate }),
+      })
+    }
+
+    // Determine stat to increment (dedup: only count first occurrence)
+    let statField = null
+    switch (eventName) {
+      case 'opened':
+        if (curRank < STATUS_RANK.opened) statField = 'opened'
+        break
+      case 'clicked':
+        if (curRank < STATUS_RANK.clicked) statField = 'clicked'
+        break
+      case 'bounced':
+        if (currentStatus !== 'bounced') statField = 'bounced'
+        break
+      case 'complained':
+        statField = 'unsubscribed'
+        break
+    }
+
+    if (statField) {
+      await fetch(
+        `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents:batchWrite`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            writes: [{
+              transform: {
+                document: `projects/${project}/databases/(default)/documents/email_campaigns/${campaignId}`,
+                fieldTransforms: [{
+                  fieldPath: `stats.${statField}`,
+                  increment: { integerValue: '1' },
+                }],
+              },
+            }],
+          }),
+        }
+      )
+    }
+  }
+
+  console.log(`Webhook ${type}: ${email} (${isCampaign ? 'campaign ' + campaignId : 'transactional'})`)
   return json({ ok: true })
 }
 
@@ -624,38 +627,58 @@ async function runAutoSend(env, forceCampaignId = null) {
 async function sendAutoBatch(campaign, token, project, env, now) {
   const base   = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents`
   const seg    = campaign.audienceSegment ? JSON.parse(campaign.audienceSegment) : null
-  const cursor = campaign.lastContactCursor || null   // email of last contact examined
+  const rawCursor = campaign.lastContactCursor || null
+  // Handle legacy cursor format (email) — convert to doc ID
+  const cursor = rawCursor && rawCursor.includes('@') ? fsContactDocId(rawCursor) : rawCursor
   const LOAD   = BATCH_SIZE * 3  // load 3× to survive segment + already-sent filtering
 
-  // ── 1. Load a SLICE of active contacts after the cursor (ordered by email) ──
-  //    This replaces loading ALL 14 000+ contacts — only reads LOAD docs per run.
+  // ── 1. Load a SLICE of active contacts after the cursor (ordered by doc ID) ──
+  //    Uses __name__ ordering so Firestore's auto single-field index on status suffices
+  //    (no composite index required).
+  const cursorRef = cursor
+    ? `projects/${project}/databases/(default)/documents/email_contacts/${cursor}`
+    : null
   const slice = await fsQuery(token, project, {
     from:    [{ collectionId: 'email_contacts' }],
     where:   { fieldFilter: { field: { fieldPath: 'status' }, op: 'EQUAL', value: { stringValue: 'active' } } },
-    orderBy: [{ field: { fieldPath: 'email' }, direction: 'ASCENDING' }],
+    orderBy: [{ field: { fieldPath: '__name__' }, direction: 'ASCENDING' }],
     limit:   LOAD,
-    ...(cursor ? { startAt: { values: [{ stringValue: cursor }], before: false } } : {}),
+    ...(cursorRef ? { startAt: { values: [{ referenceValue: cursorRef }], before: false } } : {}),
   })
 
   // ── 2. Apply audience segment filter ────────────────────────────────────────
   const eligible = slice.filter(c => fsValidEmail(c.email) && matchesSegment(c, seg))
 
-  // ── 3. Check sent status via direct doc GET — O(1) per contact, in parallel ─
-  //    Much cheaper than loading the entire email_sends collection.
-  const sentChecks = await Promise.all(
-    eligible.map(async c => {
-      const docId = encodeURIComponent(`${campaign.id}||${c.email}`)
-      const r = await fetch(`${base}/email_sends/${docId}`, { headers: { Authorization: `Bearer ${token}` } })
-      if (!r.ok) return { c, sent: false }  // 404 = not sent yet
-      const doc = await r.json()
-      const st  = doc.fields?.status?.stringValue
-      return { c, sent: !!st && st !== 'failed' }  // failed = retry
-    })
+  // ── 3. Check sent status via batchGet — 1 subrequest instead of N ─
+  //    Cloudflare free plan allows only 50 subrequests per invocation.
+  const sentDocPaths = eligible.map(c =>
+    `projects/${project}/databases/(default)/documents/email_sends/${campaign.id}||${c.email}`
   )
+  const sentMap = new Map()  // email → status
+  if (sentDocPaths.length > 0) {
+    const bgRes = await fetch(
+      `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents:batchGet`,
+      {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ documents: sentDocPaths }),
+      }
+    )
+    if (bgRes.ok) {
+      const bgData = await bgRes.json()
+      for (const entry of bgData) {
+        if (entry.found) {
+          const email = entry.found.fields?.email?.stringValue
+          const st    = entry.found.fields?.status?.stringValue
+          if (email && st && st !== 'failed') sentMap.set(email, true)
+        }
+      }
+    }
+  }
 
-  const unsent    = sentChecks.filter(x => !x.sent).map(x => x.c)
+  const unsent    = eligible.filter(c => !sentMap.has(c.email))
   const batch     = unsent.slice(0, BATCH_SIZE)
-  const newCursor = eligible.length > 0 ? eligible[eligible.length - 1].email : cursor
+  const newCursor = eligible.length > 0 ? eligible[eligible.length - 1].id : cursor
   const reachedEnd = slice.length < LOAD  // Firestore returned fewer than requested → end of list
 
   if (batch.length === 0) {
@@ -766,9 +789,11 @@ async function sendAutoBatch(campaign, token, project, env, now) {
           status:       { stringValue: r.status },
           sentAt:       { timestampValue: nowIso },
           failedReason: r.error ? { stringValue: r.error } : { nullValue: null },
+          deliveredAt:  { nullValue: null },
           openedAt:     { nullValue: null },
           clickedAt:    { nullValue: null },
           bouncedAt:    { nullValue: null },
+          complainedAt: { nullValue: null },
           createdAt:    { timestampValue: nowIso },
         },
       },
@@ -957,21 +982,39 @@ async function rebuildStats(request, env, json) {
     })
     const rows = await res.json()
     for (const row of rows) {
-      if (row.document) sends.push(row.document.fields || {})
+      if (row.document) sends.push({ fields: row.document.fields || {}, name: row.document.name })
     }
     pageToken = null // runQuery doesn't paginate the same way — all results in one call
   } while (pageToken)
 
-  // Count stats from the actual email_sends docs
+  // Delete old failed email_sends docs so contacts can be retried by auto-send
+  const failedNames = sends
+    .filter(s => s.fields.status?.stringValue === 'failed' && !s.fields.isTest?.booleanValue)
+    .map(s => s.name)
+  if (failedNames.length > 0) {
+    for (let i = 0; i < failedNames.length; i += 500) {
+      const chunk = failedNames.slice(i, i + 500)
+      await fetch(
+        `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents:batchWrite`,
+        {
+          method:  'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ writes: chunk.map(name => ({ delete: name })) }),
+        }
+      )
+    }
+  }
+
+  // Count stats from remaining (non-failed) email_sends docs
   const stats = { sent: 0, opened: 0, clicked: 0, bounced: 0, unsubscribed: 0, failed: 0 }
-  for (const f of sends) {
+  for (const { fields: f } of sends) {
     if (f.isTest?.booleanValue) continue  // skip test sends
     const status = f.status?.stringValue || ''
-    if (status === 'failed') { stats.failed++; continue }
+    if (status === 'failed') continue  // already deleted above
     stats.sent++
-    if (f.openedAt  && !f.openedAt.nullValue)  stats.opened++
-    if (f.clickedAt && !f.clickedAt.nullValue)  stats.clicked++
-    if (f.bouncedAt && !f.bouncedAt.nullValue)  stats.bounced++
+    if (f.openedAt?.timestampValue)  stats.opened++
+    if (f.clickedAt?.timestampValue) stats.clicked++
+    if (f.bouncedAt?.timestampValue) stats.bounced++
     if (status === 'unsubscribed') stats.unsubscribed++
   }
 
@@ -1035,6 +1078,17 @@ function fsValidEmail(email) {
 function fsContactDocId(email) {
   const normalized = (email || '').toLowerCase().trim()
   return btoa(normalized).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+}
+
+// Deterministic numeric record ID from email (FNV-1a 32-bit hash)
+function emailToRecordId(email) {
+  const s = (email || '').toLowerCase().trim()
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return (h >>> 0)  // unsigned 32-bit
 }
 
 // ─── Firebase service-account JWT helper ──────────────────────────────────────

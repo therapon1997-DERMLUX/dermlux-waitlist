@@ -624,7 +624,6 @@ function CampaignRow({ campaign: c, expanded, onToggle, onRebuild }) {
           <div className="bg-white rounded-xl border border-gray-200 px-4 py-3 space-y-3">
             <div className="flex items-center justify-between">
               <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Σύγκριση με Industry Avg</div>
-              <RebuildButton campaignId={c.id} onDone={onRebuild} />
             </div>
             <BenchmarkRow label="Open Rate"  actual={openPct}  benchmark={BENCHMARKS.open}  colorGood="bg-emerald-400" />
             <BenchmarkRow label="Click Rate" actual={clickPct} benchmark={BENCHMARKS.click} colorGood="bg-indigo-400"  />
