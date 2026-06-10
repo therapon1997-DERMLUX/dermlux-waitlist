@@ -12,6 +12,7 @@ import ElectionArchive from './components/ElectionArchive'
 import MedicalRecords from './components/medical/MedicalRecords'
 import PatientProfile from './components/medical/PatientProfile'
 import Bookkeeping from './components/bookkeeping/Bookkeeping'
+import ImportExpensify from './components/bookkeeping/ImportExpensify'
 import UnsubscribePage from './components/email/UnsubscribePage'
 
 function ProtectedRoute({ children }) {
@@ -56,6 +57,7 @@ export default function App() {
           <Route path="/medical" element={<ProtectedRoute><MedicalRecords /></ProtectedRoute>} />
           <Route path="/medical/:id" element={<ProtectedRoute><PatientProfile /></ProtectedRoute>} />
           <Route path="/bookkeeping" element={<AdminRoute><Bookkeeping /></AdminRoute>} />
+          <Route path="/import-expensify" element={<AdminRoute><ImportExpensify /></AdminRoute>} />
           <Route path="/unsubscribe" element={<UnsubscribePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
