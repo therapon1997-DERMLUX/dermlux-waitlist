@@ -12,6 +12,10 @@
  *   FIREBASE_CLIENT_EMAIL — service account email
  *   FIREBASE_PRIVATE_KEY  — service account private key (with literal \n)
  *   RESEND_WEBHOOK_SECRET — from Resend dashboard → Webhooks → signing secret
+ *   ANTHROPIC_API_KEY     — from console.anthropic.com (for /extract-invoice OCR)
+ *
+ * Extra endpoint:
+ *   POST /extract-invoice — read an uploaded expense invoice (image/PDF base64) with Claude, return JSON fields
  */
 
 const APP_URL          = 'https://therapon1997-dermlux.github.io/dermlux-waitlist'
@@ -154,6 +158,11 @@ export default {
       if (url.pathname === '/sync-bounces' && request.method === 'POST') {
         if (origin !== ALLOWED_ORIGIN) return json({ error: 'Forbidden' }, 403)
         return await syncBounces(env, json)
+      }
+      // Bookkeeping: read an expense invoice with Claude
+      if (url.pathname === '/extract-invoice' && request.method === 'POST') {
+        if (origin !== ALLOWED_ORIGIN) return json({ error: 'Forbidden' }, 403)
+        return await extractInvoice(request, env, json)
       }
       return json({ error: 'Not found' }, 404)
     } catch (e) {
@@ -912,6 +921,60 @@ async function syncBouncesToContacts(env) {
 async function syncBounces(env, json) {
   const result = await syncBouncesToContacts(env)
   return json({ ok: true, ...result })
+}
+
+// ─── /extract-invoice (Claude OCR for bookkeeping) ────────────────────────────
+async function extractInvoice(request, env, json) {
+  if (!env.ANTHROPIC_API_KEY) return json({ error: 'AI not configured' }, 503)
+
+  const { base64, mediaType, fileName } = await request.json().catch(() => ({}))
+  if (!base64) return json({ error: 'Missing file data' }, 400)
+
+  const isPdf = (mediaType || '').includes('pdf') || (fileName || '').toLowerCase().endsWith('.pdf')
+  const docBlock = isPdf
+    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
+    : { type: 'image',    source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: base64 } }
+
+  const prompt = `You are reading a single expense invoice/receipt for a beauty clinic in Cyprus. ` +
+    `Return ONLY a JSON object (no markdown, no commentary) with exactly these keys: ` +
+    `{"vendor": string|null, "vat_number": string|null, "invoice_number": string|null, ` +
+    `"date": "YYYY-MM-DD"|null, "net": number|null, "vat": number|null, "vat_rate": number|null, ` +
+    `"total": number|null, "currency": string|null, ` +
+    `"category": one of ["Ενοίκιο","Μισθοδοσία","Προμήθειες","Marketing","Λογαριασμοί","Εξοπλισμός","Συντήρηση","Φόροι","Άλλο"]}. ` +
+    `Rules: use null when a field is not present. Numbers are plain (no symbols, dot decimals). ` +
+    `vat_rate is a percent number (Cyprus is usually 19, sometimes 9/5/0). currency is an ISO code like "EUR". ` +
+    `Pick the best-fitting category from the vendor and line items.`
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method:  'POST',
+    headers: {
+      'x-api-key':         env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'content-type':      'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: [docBlock, { type: 'text', text: prompt }] }],
+    }),
+  })
+
+  if (!res.ok) {
+    const err = await res.text()
+    console.error('Anthropic error:', res.status, err)
+    return json({ error: 'AI request failed', status: res.status }, 502)
+  }
+
+  const data = await res.json()
+  const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('')
+  let fields = null
+  try {
+    const m = text.match(/\{[\s\S]*\}/)
+    fields = JSON.parse(m ? m[0] : text)
+  } catch {
+    return json({ error: 'Could not parse AI response', raw: text }, 502)
+  }
+  return json({ ok: true, fields, usage: data.usage })
 }
 
 // ─── Firestore REST helpers ───────────────────────────────────────────────────
