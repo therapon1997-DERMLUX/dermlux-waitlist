@@ -50,9 +50,14 @@ export default function MetricsTab() {
 
   function refresh() { setRefreshing(true); load() }
 
+  // Campaigns flagged excludeFromMetrics (e.g. 1st campaign — webhook was not
+  // active, so its opens/clicks were never recorded) stay visible in the list
+  // but do NOT count towards the aggregate KPIs and the comparison chart.
+  const included = useMemo(() => campaigns.filter(c => !c.excludeFromMetrics), [campaigns])
+
   const totals = useMemo(() => {
     const t = { sent: 0, opened: 0, clicked: 0, unsubscribed: 0, bounced: 0, failed: 0 }
-    campaigns.forEach(c => {
+    included.forEach(c => {
       if (!c.stats) return
       t.sent         += c.stats.sent         || 0
       t.opened       += c.stats.opened       || 0
@@ -77,7 +82,7 @@ export default function MetricsTab() {
   }
 
   // "Effective opens" = opened OR clicked (you can't click without opening)
-  const effectiveOpened = campaigns.reduce((sum, c) => {
+  const effectiveOpened = included.reduce((sum, c) => {
     const s = c.stats || {}
     return sum + Math.max(s.opened || 0, s.clicked || 0)
   }, 0)
@@ -108,7 +113,7 @@ export default function MetricsTab() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard
           icon="📧" label="Αποστολές" value={fmt(totals.sent)}
-          sub={`${campaigns.length} καμπάνιες`} color="sky"
+          sub={`${included.length} καμπάνιες${campaigns.length > included.length ? ` (+${campaigns.length - included.length} εκτός)` : ''}`} color="sky"
         />
         <KpiCard
           icon="👁" label={opensPixelBlocked ? 'Open Rate *' : 'Open Rate'}
@@ -172,13 +177,19 @@ export default function MetricsTab() {
         <div className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Καμπάνιες</div>
         <div className="space-y-2">
           {campaigns.map(c => (
-            <CampaignRow
-              key={c.id}
-              campaign={c}
-              expanded={selected === c.id}
-              onToggle={() => setSelected(selected === c.id ? null : c.id)}
-              onRebuild={refresh}
-            />
+            <div key={c.id} className={c.excludeFromMetrics ? 'opacity-60' : ''}>
+              {c.excludeFromMetrics && (
+                <div className="text-xs text-amber-600 font-medium mb-1 flex items-center gap-1">
+                  ⚠️ Εκτός συνολικών μετρικών — το webhook δεν ήταν ενεργό κατά την αποστολή (τα opens/clicks δεν καταγράφηκαν)
+                </div>
+              )}
+              <CampaignRow
+                campaign={c}
+                expanded={selected === c.id}
+                onToggle={() => setSelected(selected === c.id ? null : c.id)}
+                onRebuild={refresh}
+              />
+            </div>
           ))}
         </div>
       </div>
@@ -240,13 +251,13 @@ export default function MetricsTab() {
       {/* Bounces & Spam section */}
       <BouncesSection onSync={refresh} />
 
-      {/* Bar chart (only when multiple campaigns) */}
-      {campaigns.length > 1 && (
+      {/* Bar chart (only when multiple campaigns, excluded ones omitted) */}
+      {included.length > 1 && (
         <div className="card p-5">
           <div className="text-sm font-semibold text-gray-700 mb-4">Σύγκριση Καμπανιών</div>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart
-              data={campaigns.map(c => ({
+              data={included.map(c => ({
                 name:     c.name.length > 14 ? c.name.slice(0, 14) + '…' : c.name,
                 'Open %': pct(c.stats?.opened,  c.stats?.sent),
                 'Click %':pct(c.stats?.clicked, c.stats?.sent),
