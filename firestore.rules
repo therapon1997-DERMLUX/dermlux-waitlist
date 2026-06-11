@@ -1,0 +1,19 @@
+rules_version = '2';
+
+// ΚΑΝΟΝΕΣ FIRESTORE DATABASE
+// Επικολλούνται ΜΟΝΟ στο: Firebase Console → Firestore Database → Rules
+// (ΠΟΤΕ στο Storage → Rules και αντίστροφα!)
+//
+// Ιστορικό: στις 10/06/2026 οι κανόνες Storage μπήκαν κατά λάθος εδώ,
+// με αποτέλεσμα όλη η εφαρμογή να δείχνει άδεια (μπλοκαρισμένα reads).
+// Επαναφορά: 11/06/2026.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Όλες οι συλλογές: μόνο συνδεδεμένοι χρήστες.
+    // Ο διαχωρισμός admin/agent/ekloges γίνεται στην εφαρμογή (routes).
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

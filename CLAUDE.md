@@ -69,6 +69,7 @@ npx wrangler deploy
 
 **To deploy & enable (in order):**
 1. **Firebase Storage** — ensure Storage is enabled and rules allow authenticated writes to `expenses/` (e.g. `match /expenses/{f} { allow read, write: if request.auth != null; }`). Without this, uploads fail.
+   ⚠️ **ΠΡΟΣΟΧΗ (συνέβη 10/06/2026):** Οι κανόνες Storage μπαίνουν ΜΟΝΟ στο Firebase Console → **Storage → Rules**. ΠΟΤΕ στο **Firestore Database → Rules** — αν μπουν εκεί, σβήνουν τους κανόνες της βάσης και ΟΛΗ η εφαρμογή δείχνει άδεια (κανένα δεδομένο δεν χάνεται, αλλά μπλοκάρονται όλα τα reads). Σωστοί κανόνες Firestore: `match /{document=**} { allow read, write: if request.auth != null; }`. Επαναφορά έγινε 11/06/2026 μέσω Firebase Rules API με το service account key (`C:\Users\User\Downloads\serviceaccountkey.json`).
 2. **Anthropic key for AI read** — `cd worker` then `npx wrangler secret put ANTHROPIC_API_KEY` (paste key from console.anthropic.com), then `npx wrangler deploy`. (App works without this — just no auto-read.)
 3. **Frontend** — `git add . && git commit -m "..." && git push` (GitHub Actions auto-deploys).
 

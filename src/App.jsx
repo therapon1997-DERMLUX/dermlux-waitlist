@@ -1,19 +1,32 @@
+import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import Login from './components/Login'
-import Dashboard from './components/Dashboard'
-import AdminPanel from './components/AdminPanel'
-import EmailMarketing from './components/email/EmailMarketing'
-import VoteContacts from './components/VoteContacts'
 import Navbar from './components/Navbar'
-import EklogikáKentra from './components/ekloges/EklogikáKentra'
-import BallotResults from './components/BallotResults'
-import ElectionArchive from './components/ElectionArchive'
-import MedicalRecords from './components/medical/MedicalRecords'
-import PatientProfile from './components/medical/PatientProfile'
-import Bookkeeping from './components/bookkeeping/Bookkeeping'
-import ImportExpensify from './components/bookkeeping/ImportExpensify'
-import UnsubscribePage from './components/email/UnsubscribePage'
+import ErrorBoundary from './components/ErrorBoundary'
+
+// Lazy routes: each page downloads only when first visited,
+// so the initial load stays small (xlsx, recharts etc. live in their own chunks).
+const Dashboard       = lazy(() => import('./components/Dashboard'))
+const AdminPanel      = lazy(() => import('./components/AdminPanel'))
+const EmailMarketing  = lazy(() => import('./components/email/EmailMarketing'))
+const VoteContacts    = lazy(() => import('./components/VoteContacts'))
+const EklogikáKentra  = lazy(() => import('./components/ekloges/EklogikáKentra'))
+const BallotResults   = lazy(() => import('./components/BallotResults'))
+const ElectionArchive = lazy(() => import('./components/ElectionArchive'))
+const MedicalRecords  = lazy(() => import('./components/medical/MedicalRecords'))
+const PatientProfile  = lazy(() => import('./components/medical/PatientProfile'))
+const Bookkeeping     = lazy(() => import('./components/bookkeeping/Bookkeeping'))
+const ImportExpensify = lazy(() => import('./components/bookkeeping/ImportExpensify'))
+const UnsubscribePage = lazy(() => import('./components/email/UnsubscribePage'))
+
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center py-24">
+      <div className="text-blue-600 text-sm font-medium animate-pulse">Φόρτωση σελίδας…</div>
+    </div>
+  )
+}
 
 function ProtectedRoute({ children }) {
   const { currentUser, userProfile } = useAuth()
@@ -45,22 +58,26 @@ export default function App() {
     <div className="min-h-screen flex flex-col">
       {currentUser && !isPublicPage && <Navbar />}
       <main className="flex-1">
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/admin" element={<AdminRoute><AdminPanel /></AdminRoute>} />
-          <Route path="/email" element={<AdminRoute><EmailMarketing /></AdminRoute>} />
-          <Route path="/votes" element={<AdminRoute><VoteContacts /></AdminRoute>} />
-          <Route path="/ekloges" element={<EklogesRoute><EklogikáKentra /></EklogesRoute>} />
-          <Route path="/ballot-results" element={<AdminRoute><BallotResults /></AdminRoute>} />
-          <Route path="/election-archive" element={<ProtectedRoute><ElectionArchive /></ProtectedRoute>} />
-          <Route path="/medical" element={<ProtectedRoute><MedicalRecords /></ProtectedRoute>} />
-          <Route path="/medical/:id" element={<ProtectedRoute><PatientProfile /></ProtectedRoute>} />
-          <Route path="/bookkeeping" element={<AdminRoute><Bookkeeping /></AdminRoute>} />
-          <Route path="/import-expensify" element={<AdminRoute><ImportExpensify /></AdminRoute>} />
-          <Route path="/unsubscribe" element={<UnsubscribePage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <ErrorBoundary>
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+              <Route path="/admin" element={<AdminRoute><AdminPanel /></AdminRoute>} />
+              <Route path="/email" element={<AdminRoute><EmailMarketing /></AdminRoute>} />
+              <Route path="/votes" element={<AdminRoute><VoteContacts /></AdminRoute>} />
+              <Route path="/ekloges" element={<EklogesRoute><EklogikáKentra /></EklogesRoute>} />
+              <Route path="/ballot-results" element={<AdminRoute><BallotResults /></AdminRoute>} />
+              <Route path="/election-archive" element={<ProtectedRoute><ElectionArchive /></ProtectedRoute>} />
+              <Route path="/medical" element={<ProtectedRoute><MedicalRecords /></ProtectedRoute>} />
+              <Route path="/medical/:id" element={<ProtectedRoute><PatientProfile /></ProtectedRoute>} />
+              <Route path="/bookkeeping" element={<AdminRoute><Bookkeeping /></AdminRoute>} />
+              <Route path="/import-expensify" element={<AdminRoute><ImportExpensify /></AdminRoute>} />
+              <Route path="/unsubscribe" element={<UnsubscribePage />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
+        </ErrorBoundary>
       </main>
     </div>
   )

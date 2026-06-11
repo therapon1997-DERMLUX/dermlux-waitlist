@@ -4,18 +4,17 @@
  * Strategy (two-pass via REST batchWrite — no reads needed):
  *
  *  Pass 1 — CREATE new contacts only (condition: doc must not exist).
- *            Existing docs fail silently in batchWrite (non-atomic).
  *            New contacts get full data + status:'active' (or 'unsubscribed').
  *
- *  Pass 2 — ENRICH all contacts (updateMask, no status field touched).
- *            Adds city, totalSpend, treatments, etc. to every doc.
- *            Protected statuses (bounced/complained/suppressed/unsubscribed)
- *            are never overwritten because status is NOT in the updateMask.
+ *  Pass 2 — ENRICH all contacts (updateMask, status never touched).
+ *            Safe to run repeatedly — will not overwrite status/sendCount/etc.
  *
- * Run: node scripts/enrichContacts.mjs
+ * Usage:
+ *   node scripts/enrichContacts.mjs               ← auto-finds latest OmniLux CSV in Downloads
+ *   node scripts/enrichContacts.mjs --csv <path>  ← use specific CSV
  */
 
-import { readFileSync } from 'fs'
+import { readFileSync, readdirSync, statSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { parse } from 'csv-parse/sync'
@@ -24,7 +23,25 @@ import { createSign } from 'crypto'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const SA      = JSON.parse(readFileSync(resolve(__dirname, '../serviceAccountKey.json'), 'utf-8'))
 const PROJECT = SA.project_id
-const CSV_PATH = 'C:/Users/User/Downloads/OmniLux-05-06-2026 (1).csv'
+const DOWNLOADS = 'C:/Users/User/Downloads'
+
+// ── CSV path: --csv arg or auto-find latest OmniLux file ──────────────────────
+function findLatestOmniLuxCSV() {
+  const files = readdirSync(DOWNLOADS)
+    .filter(f => /^OmniLux.*\.csv$/i.test(f))
+    .map(f => ({ name: f, mtime: statSync(`${DOWNLOADS}/${f}`).mtime }))
+    .sort((a, b) => b.mtime - a.mtime)
+  if (!files.length) throw new Error('No OmniLux CSV found in Downloads folder.')
+  return `${DOWNLOADS}/${files[0].name}`
+}
+
+const argCsv = (() => {
+  const idx = process.argv.indexOf('--csv')
+  return idx !== -1 ? process.argv[idx + 1] : null
+})()
+
+const CSV_PATH = argCsv || findLatestOmniLuxCSV()
+console.log(`Using CSV: ${CSV_PATH}`)
 
 // ── Auth ───────────────────────────────────────────────────────────────────────
 async function getToken() {
@@ -49,61 +66,60 @@ async function getToken() {
   return d.access_token
 }
 
-// ── Treatment category mapping ─────────────────────────────────────────────────
-function mapTreatmentCategories(treatmentsStr = '', categoriesStr = '') {
-  const text = `${treatmentsStr} ${categoriesStr}`.toLowerCase()
-  const cats = []
-  if (/inject|botox|filler|lip\s*fill|toxin|dysport|xeomin|juvederm|restylane|sculptra|prp|prf|hyaluron|profhilo|radiesse/.test(text))
-    cats.push('injectables')
-  if (/laser/.test(text))
-    cats.push('laser')
-  if (/facial|hydrat|peel|microneedl|dermapen|mesother|mesopeel|clean(sing)?|brightening|glow|skinbooster|hydroface|oxygen|carboxy|hifu|ulthera|rf\b|radiofrequen/.test(text))
-    cats.push('facial')
-  if (/consult/.test(text))
-    cats.push('consultation')
-  const hasText = treatmentsStr.trim() || categoriesStr.trim()
-  if (hasText && cats.length === 0) cats.push('other')
-  return cats
-}
-
-function treatmentCategoriesField(r) {
-  const cats = mapTreatmentCategories(r['Treatments'] || '', r['Categories'] || '')
-  return { arrayValue: { values: cats.map(c => ({ stringValue: c })) } }
-}
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
-function docId(email) {
-  return email.toLowerCase().trim().replace(/[^a-z0-9._-]/g, '_')
-}
-function normalise(e) { return (e || '').toLowerCase().trim() }
-function isValidEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) }
+// ── Field helpers ──────────────────────────────────────────────────────────────
 const sleep = ms => new Promise(r => setTimeout(r, ms))
-
-function sv(v)  { return { stringValue:  String(v ?? '').trim() } }
+function sv(v)  { return { stringValue: String(v ?? '').trim() } }
 function nv(v)  {
   const n = parseFloat(String(v).replace(/[^\d.]/g, ''))
   return isNaN(n) ? { nullValue: null } : { doubleValue: n }
 }
-function bv(v)  { return { booleanValue: Boolean(v) } }
 function iv(v)  { return { integerValue: String(parseInt(v) || 0) } }
+function bv(v)  { return { booleanValue: Boolean(v) } }
+function nullv(){ return { nullValue: null } }
 function tv(dateStr) {
-  if (!dateStr || !dateStr.trim()) return { nullValue: null }
-  // formats: DD/MM/YYYY or DD/MM/YYYY HH:MM
-  const parts = dateStr.trim().split(/[\s\/]/)
+  if (!dateStr || !String(dateStr).trim()) return { nullValue: null }
+  // Formats: DD/MM/YYYY or DD/MM/YYYY HH:MM
+  const parts = String(dateStr).trim().split(/[\s/]/)
   if (parts.length < 3) return { nullValue: null }
   const [d, m, y] = parts
-  const dt = new Date(`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`)
+  const dt = new Date(`${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`)
   if (isNaN(dt)) return { nullValue: null }
   return { timestampValue: dt.toISOString() }
 }
-function nullv() { return { nullValue: null } }
+
+// Tags: split Categories column by comma, lowercase
+function tagsField(r) {
+  const raw = (r['Categories'] || '').trim()
+  if (!raw) return { arrayValue: { values: [] } }
+  const tags = raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+  return { arrayValue: { values: tags.map(t => ({ stringValue: t })) } }
+}
+
+// Detailed treatment category inference (from both Treatments + Categories text)
+function treatmentCategoriesField(r) {
+  const text = `${r['Treatments'] || ''} ${r['Categories'] || ''}`.toLowerCase()
+  const cats = []
+  if (/inject|botox|filler|lip\s*fill|toxin|dysport|xeomin|juvederm|restylane|sculptra|prp|prf|hyaluron|profhilo|radiesse/.test(text)) cats.push('injectables')
+  if (/laser/.test(text)) cats.push('laser')
+  if (/facial|hydrat|peel|microneedl|dermapen|mesother|mesopeel|clean(sing)?|brightening|glow|skinbooster|hydroface|oxygen|carboxy|hifu|ulthera|rf\b|radiofrequen/.test(text)) cats.push('facial')
+  if (/body|σώμα/.test(text)) cats.push('body')
+  if (/consult/.test(text)) cats.push('consultation')
+  const hasText = (r['Treatments'] || '').trim() || (r['Categories'] || '').trim()
+  if (hasText && cats.length === 0) cats.push('other')
+  return { arrayValue: { values: cats.map(c => ({ stringValue: c })) } }
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function docId(email) { return email.toLowerCase().trim().replace(/[^a-z0-9._-]/g, '_') }
+function normalise(e) { return (e || '').toLowerCase().trim() }
+function isValidEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) }
 
 // ── Parse & deduplicate CSV ────────────────────────────────────────────────────
 console.log('Parsing CSV…')
 const raw  = readFileSync(CSV_PATH, 'utf-8')
 const rows = parse(raw, { columns: true, skip_empty_lines: true, trim: true })
 
-// Deduplicate: for the same email keep the record with most non-empty fields
+// Deduplicate by email — keep the record with the most filled fields
 const byEmail = new Map()
 for (const r of rows) {
   const email = normalise(r['Email'])
@@ -111,139 +127,165 @@ for (const r of rows) {
   if (!byEmail.has(email)) {
     byEmail.set(email, r)
   } else {
-    const prev  = byEmail.get(email)
     const score = o => Object.values(o).filter(v => v && String(v).trim()).length
-    if (score(r) > score(prev)) byEmail.set(email, r)
+    if (score(r) > score(byEmail.get(email))) byEmail.set(email, r)
   }
 }
 
 const contacts = [...byEmail.values()]
+console.log(`Total CSV rows: ${rows.length}`)
 console.log(`Unique valid emails: ${contacts.length}`)
 
-// Separate out the 11 CSV-unsubscribed
-const csvUnsub = contacts.filter(r => (r['Subscription'] || '').toLowerCase().trim() === 'unsubscribed')
+const csvUnsub  = contacts.filter(r => (r['Subscription'] || '').toLowerCase().trim() === 'unsubscribed')
 const csvNormal = contacts.filter(r => (r['Subscription'] || '').toLowerCase().trim() !== 'unsubscribed')
-console.log(`CSV unsubscribed (will be created/kept as opt-out): ${csvUnsub.length}`)
-console.log(`Normal contacts: ${csvNormal.length}`)
+console.log(`Unsubscribed: ${csvUnsub.length}  |  Normal: ${csvNormal.length}`)
 
-// ── Firestore value builders ───────────────────────────────────────────────────
+// ── Firestore field builders ───────────────────────────────────────────────────
 function buildNewContactFields(r, status) {
-  const email = normalise(r['Email'])
   return {
-    email:              sv(email),
-    name:               sv(r['Full Name']),
-    phone:              sv(r['Phone']),
-    city:               sv(r['Primary City']),
-    tags:               { arrayValue: { values: [] } },
-    source:             sv('csv_import'),
-    status:             sv(status),
-    sendCount:          iv(0),
-    totalSpend:         nv(r['Total Spend']),
-    categories:           sv(r['Categories']),
-    treatments:           sv(r['Treatments']),
-    treatmentCategories:  treatmentCategoriesField(r),
-    lastAppointmentAt:    tv(r['Last Appointment']),
-    omniluxStatus:        sv(r['Status']),
-    omniluxSource:        sv(r['Data Source']),
-    language:             sv(r['Language']),
-    lastSentAt:           nullv(),
-    unsubscribedAt:     status === 'unsubscribed' ? { timestampValue: new Date().toISOString() } : nullv(),
-    bouncedAt:          nullv(),
-    complainedAt:       nullv(),
-    optOutPermanent:    status === 'unsubscribed' ? bv(true) : bv(false),
-    importedAt:         { timestampValue: new Date().toISOString() },
-    updatedAt:          { timestampValue: new Date().toISOString() },
-    enrichedAt:         { timestampValue: new Date().toISOString() },
+    // Identity
+    email:               sv(normalise(r['Email'])),
+    name:                sv(r['Full Name']),
+    phone:               sv(r['Phone']),
+
+    // Location
+    city:                sv(r['Primary City']),
+    citiesVisited:       sv(r['Cities Visited']),
+
+    // Email system fields
+    tags:                tagsField(r),
+    source:              sv('csv_import'),
+    status:              sv(status),
+    sendCount:           iv(0),
+    lastSentAt:          nullv(),
+    unsubscribedAt:      status === 'unsubscribed' ? { timestampValue: new Date().toISOString() } : nullv(),
+    bouncedAt:           nullv(),
+    complainedAt:        nullv(),
+    optOutPermanent:     bv(status === 'unsubscribed'),
+
+    // OmniLux data
+    omniluxStatus:       sv(r['Status']),
+    omniluxSource:       sv(r['Data Source']),
+    appointmentCount:    iv(r['Appointments']),
+    totalSpend:          nv(r['Total Spend']),
+    categories:          sv(r['Categories']),
+    treatments:          sv(r['Treatments']),
+    treatmentCategories: treatmentCategoriesField(r),
+    language:            sv(r['Language']),
+    adName:              sv(r['Ad Name']),
+
+    // Dates
+    lastAppointmentAt:   tv(r['Last Appointment']),
+    lastActivityAt:      tv(r['Last Activity']),
+    addedOnAt:           tv(r['Added On']),
+
+    // Metadata
+    importedAt:          { timestampValue: new Date().toISOString() },
+    updatedAt:           { timestampValue: new Date().toISOString() },
+    enrichedAt:          { timestampValue: new Date().toISOString() },
   }
 }
 
-// Enrichment-only fields (never includes status — safe for all existing contacts)
+// Enrich mask — fields safe to overwrite on existing contacts (status is NOT here)
 const ENRICH_MASK = [
-  'city', 'totalSpend', 'categories', 'treatments', 'treatmentCategories',
-  'lastAppointmentAt', 'omniluxStatus', 'omniluxSource',
-  'language', 'enrichedAt',
+  'phone',
+  'city', 'citiesVisited',
+  'tags',
+  'omniluxStatus', 'omniluxSource',
+  'appointmentCount', 'totalSpend',
+  'categories', 'treatments', 'treatmentCategories',
+  'language', 'adName',
+  'lastAppointmentAt', 'lastActivityAt', 'addedOnAt',
+  'enrichedAt',
 ]
 
 function buildEnrichFields(r) {
   return {
-    city:                 sv(r['Primary City']),
-    totalSpend:           nv(r['Total Spend']),
-    categories:           sv(r['Categories']),
-    treatments:           sv(r['Treatments']),
-    treatmentCategories:  treatmentCategoriesField(r),
-    lastAppointmentAt:    tv(r['Last Appointment']),
-    omniluxStatus:        sv(r['Status']),
-    omniluxSource:        sv(r['Data Source']),
-    language:             sv(r['Language']),
-    enrichedAt:           { timestampValue: new Date().toISOString() },
+    phone:               sv(r['Phone']),
+    city:                sv(r['Primary City']),
+    citiesVisited:       sv(r['Cities Visited']),
+    tags:                tagsField(r),
+    omniluxStatus:       sv(r['Status']),
+    omniluxSource:       sv(r['Data Source']),
+    appointmentCount:    iv(r['Appointments']),
+    totalSpend:          nv(r['Total Spend']),
+    categories:          sv(r['Categories']),
+    treatments:          sv(r['Treatments']),
+    treatmentCategories: treatmentCategoriesField(r),
+    language:            sv(r['Language']),
+    adName:              sv(r['Ad Name']),
+    lastAppointmentAt:   tv(r['Last Appointment']),
+    lastActivityAt:      tv(r['Last Activity']),
+    addedOnAt:           tv(r['Added On']),
+    enrichedAt:          { timestampValue: new Date().toISOString() },
   }
 }
 
-// ── batchWrite helper ──────────────────────────────────────────────────────────
-const BASE = `projects/${PROJECT}/databases/(default)/documents/email_contacts`
-const BATCH_URL = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents:batchWrite`
-const BATCH_SIZE = 400
+// ── batchWrite with auto-retry on rate limits ──────────────────────────────────
+const BASE       = `projects/${PROJECT}/databases/(default)/documents/email_contacts`
+const BATCH_URL  = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents:batchWrite`
+const BATCH_SIZE = 200   // smaller batches to stay within rate limits
 
-async function batchWrite(token, writes) {
+async function batchWrite(token, writes, attempt = 0) {
   const res = await fetch(BATCH_URL, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ writes }),
   })
+  if (res.status === 429 || res.status === 503) {
+    if (attempt >= 8) throw new Error(`batchWrite ${res.status} after ${attempt} retries — daily quota likely exhausted`)
+    const wait = Math.min(3000 * 2 ** attempt, 120000)
+    console.log(`  Rate limited (${res.status}) — retry ${attempt + 1} in ${(wait / 1000).toFixed(0)}s…`)
+    await sleep(wait)
+    return batchWrite(token, writes, attempt + 1)
+  }
   if (!res.ok) {
     const t = await res.text()
-    throw new Error(`batchWrite ${res.status}: ${t.slice(0, 300)}`)
+    throw new Error(`batchWrite ${res.status}: ${t.slice(0, 400)}`)
   }
   return res.json()
 }
 
-// ── PASS 1: Create new contacts (condition: must not exist) ────────────────────
-console.log('\n── Pass 1: Creating new contacts (skip if already exists)…')
+// ── PASS 1: Create new contacts (only if doc doesn't exist) ───────────────────
+console.log('\n── Pass 1: Creating new contacts…')
 let token = await getToken()
 let created = 0, skipped = 0
 
-const allContactsForCreate = [
+const allForCreate = [
   ...csvNormal.map(r => ({ r, status: 'active' })),
   ...csvUnsub.map(r  => ({ r, status: 'unsubscribed' })),
 ]
 
-for (let i = 0; i < allContactsForCreate.length; i += BATCH_SIZE) {
-  const chunk = allContactsForCreate.slice(i, i + BATCH_SIZE)
-
+for (let i = 0; i < allForCreate.length; i += BATCH_SIZE) {
+  const chunk = allForCreate.slice(i, i + BATCH_SIZE)
   const writes = chunk.map(({ r, status }) => ({
     update: {
       name:   `${BASE}/${docId(normalise(r['Email']))}`,
       fields: buildNewContactFields(r, status),
     },
-    currentDocument: { exists: false }, // only write if doc doesn't exist
+    currentDocument: { exists: false },
   }))
 
-  // Refresh token every ~45 min
   if (i > 0 && i % 10000 === 0) token = await getToken()
-
   const result = await batchWrite(token, writes)
-  await sleep(300)
+  await sleep(800)
 
-  // Count results
   for (const s of (result.writeResults || [])) {
-    // writeResults entries without updateTime = precondition failed (doc existed)
     if (s.updateTime) created++
     else skipped++
   }
 
-  const done = Math.min(i + BATCH_SIZE, allContactsForCreate.length)
-  console.log(`  ${done}/${allContactsForCreate.length} processed — new: ${created}, existing: ${skipped}`)
+  const done = Math.min(i + BATCH_SIZE, allForCreate.length)
+  console.log(`  ${done}/${allForCreate.length} — new: ${created}, existing: ${skipped}`)
 }
-
 console.log(`Pass 1 done. Created: ${created}, Already existed: ${skipped}`)
 
-// ── PASS 2: Enrich all contacts (updateMask — status never touched) ────────────
-console.log('\n── Pass 2: Enriching all contacts with city / spend / treatments…')
+// ── PASS 2: Enrich all contacts (safe — status never touched) ─────────────────
+console.log('\n── Pass 2: Enriching all contacts…')
 let enriched = 0
 
 for (let i = 0; i < contacts.length; i += BATCH_SIZE) {
   const chunk = contacts.slice(i, i + BATCH_SIZE)
-
   const writes = chunk.map(r => ({
     update: {
       name:   `${BASE}/${docId(normalise(r['Email']))}`,
@@ -253,14 +295,13 @@ for (let i = 0; i < contacts.length; i += BATCH_SIZE) {
   }))
 
   if (i > 0 && i % 10000 === 0) token = await getToken()
-
   await batchWrite(token, writes)
   enriched += chunk.length
-  await sleep(300)
+  await sleep(800)
 
   const done = Math.min(i + BATCH_SIZE, contacts.length)
   console.log(`  ${done}/${contacts.length} enriched`)
 }
 
 console.log(`Pass 2 done. Enriched: ${enriched}`)
-console.log('\n✓ All done!')
+console.log('\n✓ Enrichment complete!')
