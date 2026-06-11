@@ -81,8 +81,9 @@ export function AuthProvider({ children }) {
     return unsub
   }, [])
 
-  const isAdmin = userProfile?.role === 'admin'
-  const isEkloges = userProfile?.role === 'ekloges' || userProfile?.role === 'admin'
+  const ADMIN_UID = 'TMgFlpv8ZcNGcgk7XKIxjDktf802'
+  const isAdmin = userProfile?.role === 'admin' || currentUser?.uid === ADMIN_UID
+  const isEkloges = userProfile?.role === 'ekloges' || isAdmin
 
   return (
     <AuthContext.Provider value={{ currentUser, userProfile, isAdmin, isEkloges, login, logout, createUser, loading }}>
