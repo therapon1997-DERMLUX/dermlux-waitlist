@@ -2,8 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import {
   collection, addDoc, doc, updateDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
-import { db, storage } from '../../firebase/config'
+import { db } from '../../firebase/config'
 import { useAuth } from '../../contexts/AuthContext'
 
 export const CATEGORIES = ['Ενοίκιο', 'Μισθοδοσία', 'Προμήθειες', 'Marketing', 'Λογαριασμοί', 'Εξοπλισμός', 'Συντήρηση', 'Φόροι', 'Άλλο']
@@ -28,7 +27,7 @@ function fileToBase64(file) {
 }
 
 export default function ExpenseModal({ existing, onClose }) {
-  const { userProfile } = useAuth()
+  const { userProfile, currentUser } = useAuth()
   const editing = !!existing
   const [form, setForm]       = useState(existing ? { ...blank, ...existing } : blank)
   const [fileUrl, setFileUrl] = useState(existing?.fileUrl || '')
@@ -70,37 +69,42 @@ export default function ExpenseModal({ existing, onClose }) {
     setStage('reading')
     setAiMsg('Μεταφόρτωση αρχείου…')
     try {
-      // 1. Upload to Firebase Storage
-      const safe = file.name?.replace(/[^\w.\-]/g, '_') || `invoice_${Date.now()}`
-      const path = `expenses/${Date.now()}_${safe}`
-      const r = ref(storage, path)
-      await uploadBytes(r, file)
-      const url = await getDownloadURL(r)
-      setFileUrl(url); setFileName(file.name || safe)
+      const base64  = await fileToBase64(file)
+      const idToken = await currentUser.getIdToken()
+
+      // 1. Upload to R2 via Worker
+      const uploadRes = await fetch(`${WORKER}/upload-invoice-file`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body:    JSON.stringify({ base64, mediaType: file.type, fileName: file.name || `invoice_${Date.now()}` }),
+      })
+      if (!uploadRes.ok) throw new Error('Upload failed')
+      const { fileUrl: url, fileName: safe } = await uploadRes.json()
+      setFileUrl(url)
+      setFileName(file.name || safe)
 
       // 2. Ask the AI to read it (optional — skip gracefully if not configured)
       if (WORKER) {
         setAiMsg('Ανάγνωση τιμολογίου με AI…')
         try {
-          const base64 = await fileToBase64(file)
           const res = await fetch(`${WORKER}/extract-invoice`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base64, mediaType: file.type, fileName: file.name }),
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+            body:    JSON.stringify({ base64, mediaType: file.type, fileName: file.name }),
           })
           const data = await res.json()
           if (res.ok && data.fields) {
             const f = data.fields
             setForm(prev => recalc({
               ...prev,
-              vendor:        f.vendor        ?? prev.vendor,
-              vatNumber:     f.vat_number    ?? prev.vatNumber,
-              invoiceNumber: f.invoice_number?? prev.invoiceNumber,
-              date:          f.date          || prev.date,
-              net:           f.net  ?? prev.net,
-              vat:           f.vat  ?? prev.vat,
+              vendor:        f.vendor         ?? prev.vendor,
+              vatNumber:     f.vat_number     ?? prev.vatNumber,
+              invoiceNumber: f.invoice_number ?? prev.invoiceNumber,
+              date:          f.date           || prev.date,
+              net:           f.net    ?? prev.net,
+              vat:           f.vat    ?? prev.vat,
               vatRate:       f.vat_rate ?? prev.vatRate,
-              total:         f.total ?? prev.total,
+              total:         f.total  ?? prev.total,
               currency:      f.currency || prev.currency,
               category:      CATEGORIES.includes(f.category) ? f.category : prev.category,
             }))
@@ -119,6 +123,19 @@ export default function ExpenseModal({ existing, onClose }) {
       setError('Η μεταφόρτωση απέτυχε: ' + e.message)
     } finally {
       setStage('form')
+    }
+  }
+
+  async function openInvoice(url) {
+    try {
+      const idToken = await currentUser.getIdToken()
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${idToken}` } })
+      if (!res.ok) throw new Error('Failed to load')
+      const blob    = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      window.open(blobUrl, '_blank')
+    } catch (e) {
+      setError('Αδυναμία φόρτωσης αρχείου: ' + e.message)
     }
   }
 
@@ -218,9 +235,10 @@ export default function ExpenseModal({ existing, onClose }) {
           <form onSubmit={save} className="px-6 py-4 space-y-4">
             {aiMsg && <div className="bg-blue-50 text-blue-700 text-sm rounded-lg px-3 py-2">{aiMsg}</div>}
             {fileUrl && (
-              <a href={fileUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm text-blue-600 hover:underline">
+              <button type="button" onClick={() => openInvoice(fileUrl)}
+                className="inline-flex items-center gap-2 text-sm text-blue-600 hover:underline">
                 📎 {fileName || 'Συνημμένο αρχείο'}
-              </a>
+              </button>
             )}
 
             <div>

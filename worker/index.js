@@ -20,6 +20,7 @@
 
 const APP_URL          = 'https://therapon1997-dermlux.github.io/dermlux-waitlist'
 const ALLOWED_ORIGIN   = 'https://therapon1997-dermlux.github.io'
+const WORKER_URL       = 'https://empty-hall-968f.therapon1997.workers.dev'
 const BATCH_SIZE       = 100
 const AUTO_INTERVAL_MS = 2 * 60 * 60 * 1000  // 2 hours
 
@@ -163,6 +164,22 @@ export default {
       if (url.pathname === '/extract-invoice' && request.method === 'POST') {
         if (origin !== ALLOWED_ORIGIN) return json({ error: 'Forbidden' }, 403)
         return await extractInvoice(request, env, json)
+      }
+      // Temporary bulk import (protected by IMPORT_SECRET)
+      if (url.pathname === '/bulk-import-expenses' && request.method === 'POST') {
+        return await bulkImportExpenses(request, env, json)
+      }
+      // Upload invoice image to R2 and link to Firestore record (import script)
+      if (url.pathname === '/link-invoice-image' && request.method === 'POST') {
+        return await linkInvoiceImage(request, env, json)
+      }
+      // Upload invoice file from the expense modal (authenticated user)
+      if (url.pathname === '/upload-invoice-file' && request.method === 'POST') {
+        return await uploadInvoiceFile(request, env, json)
+      }
+      // Serve invoice image from R2 (authenticated user)
+      if (url.pathname.startsWith('/invoices/') && request.method === 'GET') {
+        return await serveInvoiceImage(request, env, url, origin)
       }
       return json({ error: 'Not found' }, 404)
     } catch (e) {
@@ -977,6 +994,210 @@ async function extractInvoice(request, env, json) {
   return json({ ok: true, fields, usage: data.usage })
 }
 
+// ─── Bulk import expenses (temporary, IMPORT_SECRET protected) ───────────────
+async function bulkImportExpenses(request, env, json) {
+  const body = await request.json()
+  if (!env.IMPORT_SECRET || body.secret !== env.IMPORT_SECRET)
+    return json({ error: 'Forbidden' }, 403)
+  const { expenses } = body
+  if (!Array.isArray(expenses) || expenses.length === 0)
+    return json({ error: 'expenses array required' }, 400)
+
+  const token   = await getFirebaseToken(env)
+  const project = env.FIREBASE_PROJECT_ID
+  const apiBase = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents`
+  const docBase = `projects/${project}/databases/(default)/documents`
+  const now     = new Date().toISOString()
+
+  function fsVal(v) {
+    if (v === null || v === undefined) return { nullValue: null }
+    if (typeof v === 'boolean') return { booleanValue: v }
+    if (typeof v === 'number') return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v }
+    return { stringValue: String(v) }
+  }
+
+  const writes = expenses.map(exp => {
+    const { _docId, ...rest } = exp
+    const docId = _docId || crypto.randomUUID()
+    const fields = {}
+    for (const [k, v] of Object.entries(rest)) fields[k] = fsVal(v)
+    fields.createdAt = { timestampValue: now }
+    return {
+      update: {
+        name: `${docBase}/expenses/${docId}`,
+        fields,
+      }
+    }
+  })
+
+  // Firestore batchWrite limit = 500
+  const chunks = []
+  for (let i = 0; i < writes.length; i += 400) chunks.push(writes.slice(i, i + 400))
+
+  let total = 0
+  for (const chunk of chunks) {
+    const res = await fetch(`${apiBase}:batchWrite`, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ writes: chunk }),
+    })
+    if (!res.ok) {
+      const err = await res.text()
+      return json({ error: `Firestore batchWrite failed: ${err}` }, 500)
+    }
+    total += chunk.length
+  }
+  return json({ ok: true, imported: total })
+}
+
+// ─── Link invoice image: upload to R2 + update Firestore record ──────────────
+async function linkInvoiceImage(request, env, json) {
+  const body = await request.json()
+  if (!env.IMPORT_SECRET || body.secret !== env.IMPORT_SECRET)
+    return json({ error: 'Forbidden' }, 403)
+
+  const { invoiceNumber, vendor, imageBase64, mediaType, fileName } = body
+  if (!imageBase64 || !fileName) return json({ error: 'imageBase64 and fileName required' }, 400)
+
+  // 1. Upload to R2
+  const ts      = Date.now()
+  const safe    = fileName.replace(/[^\w.\-]/g, '_')
+  const key     = `expenses/${ts}_${safe}`
+  const bytes   = Uint8Array.from(atob(imageBase64), c => c.charCodeAt(0))
+  await env.INVOICES.put(key, bytes, { httpMetadata: { contentType: mediaType || 'image/png' } })
+  const fileUrl = `${WORKER_URL}/invoices/${encodeURIComponent(key)}`
+
+  // 2. Link to Firestore: use docId directly if provided, otherwise query
+  const token   = await getFirebaseToken(env)
+  const project = env.FIREBASE_PROJECT_ID
+  const fsBase  = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents`
+  let docName
+
+  if (body.docId) {
+    docName = `projects/${project}/databases/(default)/documents/expenses/${body.docId}`
+  } else {
+    const query = {
+      structuredQuery: {
+        from:  [{ collectionId: 'expenses' }],
+        where: invoiceNumber
+          ? { fieldFilter: { field: { fieldPath: 'invoiceNumber' }, op: 'EQUAL', value: { stringValue: invoiceNumber } } }
+          : { compositeFilter: { op: 'AND', filters: [
+              { fieldFilter: { field: { fieldPath: 'vendor' }, op: 'EQUAL', value: { stringValue: vendor } } },
+              { fieldFilter: { field: { fieldPath: 'source' }, op: 'EQUAL', value: { stringValue: 'invoice_import' } } },
+            ]}},
+        limit: 1,
+      },
+    }
+    const qRes = await fetch(`${fsBase}:runQuery`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(query),
+    })
+    if (!qRes.ok) {
+      const err = await qRes.text()
+      return json({ error: `Firestore query failed (${qRes.status}): ${err}` }, 500)
+    }
+    const qData = await qRes.json()
+    docName = qData.find?.(d => d.document)?.document?.name
+    if (!docName) return json({ error: `No expense found for invoiceNumber=${invoiceNumber} vendor=${vendor}` }, 404)
+  }
+
+  const mask = 'updateMask.fieldPaths=fileUrl&updateMask.fieldPaths=fileName'
+  await fetch(`https://firestore.googleapis.com/v1/${docName}?${mask}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: {
+      fileUrl:  { stringValue: fileUrl },
+      fileName: { stringValue: fileName },
+    }}),
+  })
+
+  return json({ ok: true, fileUrl, docName: docName.split('/').pop() })
+}
+
+// ─── Upload invoice file from expense modal (Firebase token auth) ─────────────
+async function uploadInvoiceFile(request, env, json) {
+  const authHeader = request.headers.get('Authorization') || ''
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
+  if (!token) return json({ error: 'Unauthorized' }, 401)
+  try {
+    await verifyFirebaseToken(token, env.FIREBASE_PROJECT_ID)
+  } catch (e) {
+    return json({ error: 'Unauthorized: ' + e.message }, 401)
+  }
+
+  const { base64, mediaType, fileName } = await request.json().catch(() => ({}))
+  if (!base64 || !fileName) return json({ error: 'base64 and fileName required' }, 400)
+
+  const safe    = fileName.replace(/[^\w.\-]/g, '_')
+  const key     = `expenses/${Date.now()}_${safe}`
+  const bytes   = Uint8Array.from(atob(base64), c => c.charCodeAt(0))
+  await env.INVOICES.put(key, bytes, { httpMetadata: { contentType: mediaType || 'image/jpeg' } })
+  const fileUrl = `${WORKER_URL}/invoices/${encodeURIComponent(key)}`
+  return json({ ok: true, fileUrl, fileName: safe })
+}
+
+// ─── Serve invoice image from R2 (Firebase token auth) ───────────────────────
+async function serveInvoiceImage(request, env, url, origin) {
+  const authHeader = request.headers.get('Authorization') || ''
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
+  if (!token) return new Response('Unauthorized', { status: 401 })
+  try {
+    await verifyFirebaseToken(token, env.FIREBASE_PROJECT_ID)
+  } catch (e) {
+    return new Response('Unauthorized: ' + e.message, { status: 401 })
+  }
+
+  const key = decodeURIComponent(url.pathname.slice('/invoices/'.length))
+  if (!key) return new Response('Missing key', { status: 400 })
+
+  const obj = await env.INVOICES.get(key)
+  if (!obj) return new Response('Not found', { status: 404 })
+
+  const headers = new Headers()
+  if (origin === ALLOWED_ORIGIN) {
+    headers.set('Access-Control-Allow-Origin', ALLOWED_ORIGIN)
+    headers.set('Vary', 'Origin')
+  }
+  obj.writeHttpMetadata(headers)
+  headers.set('Cache-Control', 'private, max-age=3600')
+  return new Response(obj.body, { headers })
+}
+
+// ─── Verify Firebase ID token (RS256 JWT from securetoken.google.com) ─────────
+async function verifyFirebaseToken(token, projectId) {
+  const parts = token.split('.')
+  if (parts.length !== 3) throw new Error('Invalid JWT')
+
+  const decode = s => JSON.parse(new TextDecoder().decode(
+    Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
+  ))
+  const header  = decode(parts[0])
+  const payload = decode(parts[1])
+
+  const now = Math.floor(Date.now() / 1000)
+  if (payload.exp < now)  throw new Error('Token expired')
+  if (payload.iss !== `https://securetoken.google.com/${projectId}`) throw new Error('Invalid issuer')
+  if (payload.aud !== projectId) throw new Error('Invalid audience')
+
+  const keysRes = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com')
+  if (!keysRes.ok) throw new Error('Could not fetch public keys')
+  const { keys } = await keysRes.json()
+  const jwk = keys.find(k => k.kid === header.kid)
+  if (!jwk) throw new Error('Unknown key ID')
+
+  const pubKey = await crypto.subtle.importKey(
+    'jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']
+  )
+  const sigInput = `${parts[0]}.${parts[1]}`
+  const sigBytes = Uint8Array.from(atob(parts[2].replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
+  const valid = await crypto.subtle.verify(
+    'RSASSA-PKCS1-v1_5', pubKey, sigBytes, new TextEncoder().encode(sigInput)
+  )
+  if (!valid) throw new Error('Invalid signature')
+  return payload
+}
+
 // ─── Firestore REST helpers ───────────────────────────────────────────────────
 
 async function fsQuery(token, project, structuredQuery) {
@@ -1171,7 +1392,7 @@ async function getFirebaseToken(env) {
     aud:   'https://oauth2.googleapis.com/token',
     iat:   now,
     exp:   now + 3600,
-    scope: 'https://www.googleapis.com/auth/datastore',
+    scope: 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/cloud-platform',
   }
 
   const signingInput = `${b64url(header)}.${b64url(payload)}`
