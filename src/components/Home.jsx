@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
+import {
+  animate, createScope, createTimeline, createTimer,
+  onScroll, stagger, svg, utils,
+} from 'animejs'
 import { useAuth } from '../contexts/AuthContext'
 import LaserLegDemo from './LaserLegDemo'
 import './Home.css'
@@ -54,6 +58,12 @@ const CARDS = [
   },
 ]
 
+const STATS = [
+  { n: 5,  label: 'Κλινικές' },
+  { n: 14, label: 'Δωμάτια' },
+  { n: 40, label: 'Άτομα ομάδα' },
+]
+
 export default function Home() {
   const { userProfile, isAdmin, isEkloges } = useAuth()
   const heroRef = useRef(null)
@@ -61,56 +71,139 @@ export default function Home() {
   const spinRef = useRef(null)
   const emblemZoneRef = useRef(null)
 
-  /* 3D coin physics: spins on its own, can be grabbed and flung
-     with the cursor, then eases back to its cruising speed. */
+  /* ════════════════════════════════════════════════════════════
+     anime.js scope — every animation lives in here so it is
+     reverted cleanly on unmount, and re-built automatically when
+     the prefers-reduced-motion media query flips.
+     ════════════════════════════════════════════════════════════ */
   useEffect(() => {
-    const spin = spinRef.current, zone = emblemZoneRef.current
-    if (!spin || !zone) return
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const BASE = reduced ? 0 : 26 // deg/s cruise speed
-    let rot = 0, vel = BASE, dragging = false, lastX = 0, lastT = 0, raf = 0
-    let prev = performance.now()
+    /* shared coin-physics state: the anime timer (inside the scope)
+       reads it; the pointer listeners (outside) write to it */
+    const physics = { rot: 0, vel: 26, base: 26, dragging: false, lastX: 0, lastT: 0 }
 
-    const loop = (now) => {
-      raf = requestAnimationFrame(loop)
-      const dt = Math.min((now - prev) / 1000, 0.05)
-      prev = now
-      if (!dragging) {
-        vel = BASE + (vel - BASE) * Math.exp(-dt * 1.3) // inertia decays to cruise
-        rot += vel * dt
-        spin.style.transform = `rotateY(${rot}deg)`
+    const scope = createScope({
+      root: heroRef,
+      mediaQueries: { reduceMotion: '(prefers-reduced-motion: reduce)' },
+    }).add(self => {
+      const reduced = !!self.matches.reduceMotion
+      const D = ms => (reduced ? 0 : ms)
+      physics.base = reduced ? 0 : 26
+      physics.vel = physics.base
+
+      /* ── 1 · Hero entrance — one orchestrated timeline ─────── */
+      createTimeline({ defaults: { ease: 'outExpo', duration: D(1000) } })
+        .add('.dlx-emblem-stage', { opacity: [0, 1], scale: [0.62, 1] })
+        .add('.dlx-char', {
+          opacity: [0, 1],
+          translateY: [46, 0],
+          rotateX: [-95, 0],
+          duration: D(900),
+          delay: stagger(D(45), { from: 'center' }),
+        }, '-=720')
+        .add('.dlx-subtitle', { opacity: [0, 1], letterSpacing: ['18px', '6px'] }, '-=650')
+        .add('.dlx-divider span', { opacity: [0, 1], scaleX: [0, 1], duration: D(750) }, '-=560')
+        .add('.dlx-tagline', { opacity: [0, 1], translateY: [18, 0], duration: D(700) }, '-=520')
+        .add('.dlx-stat', {
+          opacity: [0, 1], translateY: [24, 0],
+          duration: D(750), delay: stagger(D(120)),
+        }, '-=460')
+        .add('.dlx-scroll-hint', { opacity: [0, 0.85], duration: D(600) }, '-=250')
+
+      /* count-up numbers as the stats land */
+      utils.$('.dlx-stat-num').forEach(el => {
+        animate(el, {
+          innerHTML: [0, +el.dataset.count],
+          modifier: utils.round(0),
+          duration: D(2100),
+          delay: D(850),
+          ease: 'outExpo',
+        })
+      })
+
+      /* ── 2 · 3D coin cruise on an anime timer ──────────────── */
+      const spin = spinRef.current
+      if (spin) {
+        createTimer({
+          onUpdate: t => {
+            const dt = Math.min(t.deltaTime / 1000, 0.05)
+            if (!physics.dragging) {
+              /* fling inertia decays back to cruise speed */
+              physics.vel = physics.base + (physics.vel - physics.base) * Math.exp(-dt * 1.3)
+              physics.rot += physics.vel * dt
+              spin.style.transform = `rotateY(${physics.rot}deg)`
+            }
+          },
+        })
       }
-    }
-    raf = requestAnimationFrame(loop)
 
-    const down = (e) => {
-      dragging = true
-      lastX = e.clientX
-      lastT = performance.now()
-      zone.setPointerCapture?.(e.pointerId)
-      zone.classList.add('dlx-grabbing')
-    }
-    const move = (e) => {
-      if (!dragging) return
-      const now = performance.now()
-      const dx = e.clientX - lastX
-      rot += dx * 0.55
-      const ms = Math.max(now - lastT, 1)
-      vel = Math.max(-900, Math.min(900, (dx * 0.55) / (ms / 1000)))
-      lastX = e.clientX
-      lastT = now
-      spin.style.transform = `rotateY(${rot}deg)`
-    }
-    const up = () => { dragging = false; zone.classList.remove('dlx-grabbing') }
+      /* ── 3 · Tools section — scroll-triggered ──────────────── */
+      animate('.dlx-tools-head > *', {
+        opacity: [0, 1], translateY: [28, 0],
+        duration: D(800), delay: stagger(D(130)), ease: 'outExpo',
+        autoplay: onScroll({ target: '.dlx-tools-head' }),
+      })
 
-    zone.addEventListener('pointerdown', down)
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
+      const cards = utils.$('.dlx-card')
+      if (cards.length) {
+        animate(cards, {
+          opacity: [0, 1], translateY: [46, 0], scale: [0.95, 1],
+          duration: D(850), delay: stagger(D(95)), ease: 'outExpo',
+          autoplay: onScroll({ target: '.dlx-grid' }),
+        })
+        /* the line icons draw themselves stroke-by-stroke */
+        const drawables = svg.createDrawable('.dlx-card-icon path')
+        if (drawables.length) {
+          animate(drawables, {
+            draw: ['0 0', '0 1'],
+            duration: D(1500), delay: stagger(D(110), { start: D(220) }),
+            ease: 'inOut(2)',
+            autoplay: onScroll({ target: '.dlx-grid' }),
+          })
+        }
+      }
+
+      animate('.dlx-footer', {
+        opacity: [0, 1], duration: D(900), ease: 'outExpo',
+        autoplay: onScroll({ target: '.dlx-footer' }),
+      })
+    })
+
+    /* coin drag/fling — listeners feed the shared physics state */
+    const zone = emblemZoneRef.current
+    const spin = spinRef.current
+    let down, move, up
+    if (zone && spin) {
+      down = e => {
+        physics.dragging = true
+        physics.lastX = e.clientX
+        physics.lastT = performance.now()
+        zone.setPointerCapture?.(e.pointerId)
+        zone.classList.add('dlx-grabbing')
+      }
+      move = e => {
+        if (!physics.dragging) return
+        const now = performance.now()
+        const dx = e.clientX - physics.lastX
+        physics.rot += dx * 0.55
+        const ms = Math.max(now - physics.lastT, 1)
+        physics.vel = Math.max(-900, Math.min(900, (dx * 0.55) / (ms / 1000)))
+        physics.lastX = e.clientX
+        physics.lastT = now
+        spin.style.transform = `rotateY(${physics.rot}deg)`
+      }
+      up = () => { physics.dragging = false; zone.classList.remove('dlx-grabbing') }
+      zone.addEventListener('pointerdown', down)
+      window.addEventListener('pointermove', move)
+      window.addEventListener('pointerup', up)
+    }
+
     return () => {
-      cancelAnimationFrame(raf)
-      zone.removeEventListener('pointerdown', down)
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
+      scope.revert()
+      if (zone && down) {
+        zone.removeEventListener('pointerdown', down)
+        window.removeEventListener('pointermove', move)
+        window.removeEventListener('pointerup', up)
+      }
     }
   }, [])
 
@@ -166,17 +259,6 @@ export default function Home() {
 
   const firstName = userProfile?.displayName?.split(' ')[0]
 
-  /* Reveal sections one by one as they scroll into view */
-  useEffect(() => {
-    const io = new IntersectionObserver((entries) => {
-      entries.forEach(e => {
-        if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target) }
-      })
-    }, { threshold: 0.15 })
-    heroRef.current?.querySelectorAll('.dlx-reveal').forEach(el => io.observe(el))
-    return () => io.disconnect()
-  }, [])
-
   return (
     <div className="dlx-home" ref={heroRef} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave}>
       {/* drifting aurora blobs */}
@@ -198,6 +280,9 @@ export default function Home() {
       <section className="dlx-hero">
         <div className="dlx-emblem-stage" ref={emblemZoneRef}>
           <div className="dlx-emblem-glow" />
+          <div className="dlx-ring dlx-ring-1" />
+          <div className="dlx-ring dlx-ring-2" />
+          <div className="dlx-orbit"><span className="dlx-orbit-dot" /></div>
           <div className="dlx-emblem-tilt">
             <div className="dlx-emblem-spin" ref={spinRef}>
               {emblemLayers()}
@@ -205,13 +290,25 @@ export default function Home() {
           </div>
         </div>
 
-        <h1 className="dlx-wordmark">DermLux</h1>
+        <h1 className="dlx-wordmark" aria-label="DermLux">
+          {'DermLux'.split('').map((ch, i) => (
+            <span key={i} className="dlx-char" aria-hidden="true">{ch}</span>
+          ))}
+        </h1>
         <div className="dlx-subtitle">Medical Aesthetics</div>
         <div className="dlx-divider"><span /></div>
         <p className="dlx-tagline">
           {firstName ? <>Καλώς ήρθες, <em>{firstName}</em>.</> : 'Καλώς ήρθες.'}
-          {' '}5 Κλινικές · 14 Δωμάτια · Κύπρος
         </p>
+
+        <div className="dlx-stats" aria-label="DermLux σε αριθμούς">
+          {STATS.map(s => (
+            <div key={s.label} className="dlx-stat">
+              <span className="dlx-stat-num" data-count={s.n}>0</span>
+              <span className="dlx-stat-lbl">{s.label}</span>
+            </div>
+          ))}
+        </div>
 
         <div className="dlx-scroll-hint" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -223,13 +320,15 @@ export default function Home() {
       <LaserLegDemo />
 
       <section className="dlx-tools">
-        <div className="dlx-tools-label dlx-reveal">Portal</div>
-        <h2 className="dlx-tools-title dlx-reveal" style={{ '--i': 1 }}>Τα εργαλεία σου</h2>
+        <div className="dlx-tools-head">
+          <div className="dlx-tools-label">Portal</div>
+          <h2 className="dlx-tools-title">Τα εργαλεία σου</h2>
+        </div>
         <div className="dlx-grid">
-          {visibleCards.map((c, i) => (
+          {visibleCards.map((c) => (
             <Link
-              key={c.to} to={c.to} className="dlx-card dlx-reveal" onMouseMove={onCardMove}
-              style={{ '--accent': c.accent, '--i': i }}
+              key={c.to} to={c.to} className="dlx-card" onMouseMove={onCardMove}
+              style={{ '--accent': c.accent }}
             >
               <div className="dlx-card-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">{c.icon}</svg>

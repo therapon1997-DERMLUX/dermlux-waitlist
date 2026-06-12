@@ -104,7 +104,7 @@
   display: grid;
   place-items: center;
   margin-bottom: 36px;
-  animation: dlx-rise 1s cubic-bezier(0.22, 1, 0.36, 1) both;
+  opacity: 0; /* anime.js hero timeline fades it in */
 }
 .dlx-emblem-glow {
   position: absolute;
@@ -189,7 +189,7 @@
   to   { opacity: 1; }
 }
 
-/* wordmark */
+/* wordmark — split into chars, each animated by anime.js in 3D */
 .dlx-wordmark {
   font-family: 'Prata', Georgia, serif;
   font-size: clamp(44px, 8vw, 72px);
@@ -198,7 +198,14 @@
   color: #EEECE0;
   margin: 0;
   line-height: 1.1;
-  animation: dlx-rise 1s 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+  perspective: 700px;
+}
+.dlx-char {
+  display: inline-block;
+  opacity: 0; /* anime.js staggers them in from the center */
+  transform-origin: 50% 100%;
+  backface-visibility: hidden;
+  will-change: transform, opacity;
 }
 .dlx-subtitle {
   margin-top: 10px;
@@ -207,30 +214,52 @@
   letter-spacing: 6px;
   text-transform: uppercase;
   color: #9D835E;
-  animation: dlx-rise 1s 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  opacity: 0;
 }
-.dlx-divider {
-  margin: 26px 0;
-  animation: dlx-rise 1s 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
+.dlx-divider { margin: 26px 0; }
 .dlx-divider span {
   display: block;
   width: 70px;
   height: 1px;
   background: linear-gradient(to right, transparent, #9D835E, transparent);
+  opacity: 0;
+  transform-origin: center;
 }
 .dlx-tagline {
   font-family: 'Prata', Georgia, serif;
   font-size: 16px;
   color: #8B8378;
   margin: 0;
-  animation: dlx-rise 1s 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  opacity: 0;
 }
 .dlx-tagline em { color: #C9B4C0; font-style: normal; }
 
-@keyframes dlx-rise {
-  from { opacity: 0; transform: translateY(26px); }
-  to   { opacity: 1; transform: translateY(0); }
+/* stats with anime.js count-up numbers */
+.dlx-stats {
+  display: flex;
+  gap: 44px;
+  margin-top: 30px;
+}
+.dlx-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+}
+.dlx-stat-num {
+  font-family: 'Prata', Georgia, serif;
+  font-size: 30px;
+  color: #EEECE0;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.dlx-stat-lbl {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #9D835E;
 }
 
 .dlx-scroll-hint {
@@ -240,11 +269,12 @@
   margin-left: -12px;
   width: 24px; height: 24px;
   color: rgba(157, 131, 94, 0.8);
+  opacity: 0; /* anime.js fades it in last */
   animation: dlx-bounce 2.2s ease-in-out infinite;
 }
 @keyframes dlx-bounce {
-  0%, 100% { transform: translateY(0); opacity: 0.5; }
-  50%      { transform: translateY(9px); opacity: 1; }
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(9px); }
 }
 
 /* ── Tools grid ───────────────────────────────────────────── */
@@ -261,6 +291,7 @@
   text-transform: uppercase;
   color: #9D835E;
   margin-bottom: 8px;
+  opacity: 0; /* anime.js scroll reveal */
 }
 .dlx-tools-title {
   font-family: 'Prata', Georgia, serif;
@@ -268,6 +299,7 @@
   font-weight: 400;
   color: #EEECE0;
   margin: 0 0 30px;
+  opacity: 0; /* anime.js scroll reveal */
 }
 .dlx-grid {
   display: grid;
@@ -288,12 +320,15 @@
   color: inherit;
   overflow: hidden;
   backdrop-filter: blur(6px);
-  transform: translateY(0);
-  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+  opacity: 0; /* anime.js scroll reveal with stagger */
+  /* hover lift uses `translate` (not `transform`) so it composes
+     with the inline transform anime.js leaves after the entrance */
+  translate: 0 0;
+  transition: translate 0.35s cubic-bezier(0.22, 1, 0.36, 1),
               border-color 0.35s, background 0.35s;
 }
 .dlx-card:hover {
-  transform: translateY(-6px);
+  translate: 0 -6px;
   border-color: rgba(238, 236, 224, 0.22);
   background: rgba(238, 236, 224, 0.06);
 }
@@ -359,14 +394,7 @@
   letter-spacing: 3px;
   text-transform: uppercase;
   color: rgba(139, 131, 120, 0.55);
-}
-
-/* ── Scroll reveal ────────────────────────────────────────── */
-.dlx-reveal { opacity: 0; }
-.dlx-reveal.is-in {
-  opacity: 1;
-  animation: dlx-rise 0.9s cubic-bezier(0.22, 1, 0.36, 1) backwards;
-  animation-delay: calc(var(--i, 0) * 0.12s);
+  opacity: 0; /* anime.js scroll reveal */
 }
 
 /* ── Laser hair-removal demo ──────────────────────────────── */
@@ -509,7 +537,8 @@
   .dlx-emblem-spin, .dlx-emblem-glow, .dlx-scroll-hint,
   .dlx-laser-hint { animation: none !important; }
   .dlx-emblem-tilt { transform: none; }
-  .dlx-reveal, .dlx-reveal.is-in { opacity: 1; animation: none; }
+  /* anime.js scope rebuilds with zero-duration animations, which
+     snap everything to its final visible state instantly */
 }
 @media (max-width: 640px) {
   .dlx-emblem-stage { width: 220px; height: 220px; }
