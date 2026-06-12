@@ -57,7 +57,21 @@ function fileToBase64(file) {
 export default function ExpenseModal({ existing, onClose }) {
   const { userProfile, currentUser } = useAuth()
   const editing = !!existing
-  const [form, setForm]       = useState(existing ? { ...blank, ...existing } : blank)
+  const [form, setForm]       = useState(existing ? {
+    ...blank, ...existing,
+    vendor:        existing.vendor        ?? '',
+    vatNumber:     existing.vatNumber     ?? '',
+    invoiceNumber: existing.invoiceNumber ?? '',
+    notes:         existing.notes        ?? '',
+    net:           existing.net           ?? '',
+    vat:           existing.vat           ?? '',
+    vatRate:       existing.vatRate       ?? 19,
+    total:         existing.total         ?? '',
+    currency:      existing.currency      || 'EUR',
+    category:      existing.category      || '8119 · ΔΙΑΦΟΡΑ ΕΞΟΔΑ',
+    location:      existing.location      || 'Γενικά',
+    paymentMethod: existing.paymentMethod || 'Κάρτα',
+  } : blank)
   const [fileUrl, setFileUrl] = useState(existing?.fileUrl || '')
   const [fileName, setFileName] = useState(existing?.fileName || '')
   const [stage, setStage]     = useState(editing ? 'form' : 'upload') // upload | reading | form
