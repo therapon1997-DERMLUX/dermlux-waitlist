@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   collection, addDoc, doc, updateDoc, deleteDoc, serverTimestamp,
+  query, where, getDocs, limit,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../contexts/AuthContext'
@@ -61,9 +62,12 @@ export default function ExpenseModal({ existing, onClose }) {
   const [fileName, setFileName] = useState(existing?.fileName || '')
   const [stage, setStage]     = useState(editing ? 'form' : 'upload') // upload | reading | form
   const [aiMsg, setAiMsg]     = useState('')
-  const [saving, setSaving]   = useState(false)
-  const [error, setError]     = useState('')
-  const inputRef = useRef(null)
+  const [saving, setSaving]     = useState(false)
+  const [error, setError]       = useState('')
+  const [duplicate, setDuplicate] = useState(null) // { id, vendor, date, total, invoiceNumber }
+  const [dupOverride, setDupOverride] = useState(false)
+  const inputRef  = useRef(null)
+  const dupTimer  = useRef(null)
 
   // Allow pasting a screenshot (snip) straight into the modal
   useEffect(() => {
@@ -87,6 +91,28 @@ export default function ExpenseModal({ existing, onClose }) {
       return { ...next, vat, total: +(net + vat).toFixed(2) }
     }
     return next
+  }
+
+  const checkDuplicate = useCallback(async (invoiceNum) => {
+    const num = (invoiceNum || '').trim()
+    if (!num) { setDuplicate(null); return }
+    try {
+      const snap = await getDocs(
+        query(collection(db, 'expenses'), where('invoiceNumber', '==', num), limit(3))
+      )
+      const others = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(d => d.id !== existing?.id)
+      setDuplicate(others.length > 0 ? others[0] : null)
+      setDupOverride(false)
+    } catch { /* non-fatal */ }
+  }, [existing?.id])
+
+  // Debounced check when user types invoice number manually
+  function handleInvoiceNumberChange(v) {
+    set('invoiceNumber', v)
+    clearTimeout(dupTimer.current)
+    dupTimer.current = setTimeout(() => checkDuplicate(v), 600)
   }
 
   async function handleFile(file) {
@@ -136,6 +162,7 @@ export default function ExpenseModal({ existing, onClose }) {
               category:      CATEGORIES.includes(f.category) ? f.category : prev.category,
             }))
             setAiMsg('✓ Συμπληρώθηκε αυτόματα — ελέγξτε και αποθηκεύστε.')
+            if (f.invoice_number) checkDuplicate(f.invoice_number)
           } else {
             setAiMsg('Η αυτόματη ανάγνωση δεν ήταν διαθέσιμη — συμπληρώστε χειροκίνητα.')
           }
@@ -169,6 +196,7 @@ export default function ExpenseModal({ existing, onClose }) {
   async function save(e) {
     e.preventDefault()
     if (!form.vendor.trim()) { setError('Ο προμηθευτής είναι υποχρεωτικός.'); return }
+    if (duplicate && !dupOverride) { setError('Υπάρχει ήδη τιμολόγιο με αυτόν τον αριθμό. Επιβεβαιώστε ότι δεν είναι duplicate.'); return }
     setSaving(true); setError('')
     const payload = {
       vendor: form.vendor.trim(),
@@ -261,6 +289,26 @@ export default function ExpenseModal({ existing, onClose }) {
         {stage === 'form' && (
           <form onSubmit={save} className="px-6 py-4 space-y-4">
             {aiMsg && <div className="bg-blue-50 text-blue-700 text-sm rounded-lg px-3 py-2">{aiMsg}</div>}
+
+            {duplicate && (
+              <div className="bg-amber-50 border border-amber-300 rounded-lg px-3 py-3 text-sm">
+                <div className="flex items-start gap-2">
+                  <span className="text-amber-500 text-base mt-0.5">⚠️</span>
+                  <div className="flex-1">
+                    <p className="font-semibold text-amber-800">Πιθανό duplicate</p>
+                    <p className="text-amber-700 mt-0.5">
+                      Τιμολόγιο <strong>#{duplicate.invoiceNumber}</strong> υπάρχει ήδη:&nbsp;
+                      <strong>{duplicate.vendor}</strong> · {duplicate.date} · €{duplicate.total}
+                    </p>
+                    <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                      <input type="checkbox" checked={dupOverride} onChange={e => setDupOverride(e.target.checked)}
+                        className="accent-amber-600" />
+                      <span className="text-amber-800 text-xs font-medium">Δεν είναι duplicate — αποθήκευση κανονικά</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
             {fileUrl && (
               <button type="button" onClick={() => openInvoice(fileUrl)}
                 className="inline-flex items-center gap-2 text-sm text-blue-600 hover:underline">
@@ -280,7 +328,8 @@ export default function ExpenseModal({ existing, onClose }) {
               </div>
               <div>
                 <label className={label}>Αρ. Τιμολογίου</label>
-                <input className={field} value={form.invoiceNumber} onChange={e => set('invoiceNumber', e.target.value)} />
+                <input className={field} value={form.invoiceNumber}
+                  onChange={e => handleInvoiceNumberChange(e.target.value)} />
               </div>
             </div>
 
@@ -354,9 +403,12 @@ export default function ExpenseModal({ existing, onClose }) {
               <button type="button" onClick={onClose} className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors">
                 Ακύρωση
               </button>
-              <button type="submit" disabled={saving}
-                className="flex-1 bg-blue-700 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-800 disabled:opacity-50 transition-colors">
-                {saving ? 'Αποθήκευση…' : 'Αποθήκευση'}
+              <button type="submit" disabled={saving || (duplicate && !dupOverride)}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50
+                  ${duplicate && !dupOverride
+                    ? 'bg-amber-500 text-white cursor-not-allowed'
+                    : 'bg-green-600 hover:bg-green-700 text-white'}`}>
+                {saving ? 'Αποθήκευση…' : duplicate && !dupOverride ? '⚠️ Duplicate' : 'Αποθήκευση'}
               </button>
             </div>
           </form>
