@@ -213,7 +213,7 @@ async function sendCampaign(request, env, json) {
 
     return {
       from:    `${campaign.fromName} <${campaign.fromEmail}>`,
-      to:      [contact.email],
+      to:      [contact.email.trim()],
       subject: campaign.subject,
       html,
       headers: {
@@ -760,7 +760,7 @@ async function sendAutoBatch(campaign, token, project, env, now) {
       .replaceAll('*|ARCHIVE|*', '#')
     return {
       from:    `${campaign.fromName} <${campaign.fromEmail}>`,
-      to:      [contact.email],
+      to:      [contact.email.trim()],
       subject: campaign.subject,
       html,
       headers: {
@@ -1361,7 +1361,13 @@ function fsValidEmail(email) {
   if (!email || typeof email !== 'string') return false
   const trimmed = email.trim()
   if (trimmed.toLowerCase().endsWith('.local')) return false
-  return /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(trimmed)
+  const m = /^([a-zA-Z0-9._%+\-]+)@([a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})$/.exec(trimmed)
+  if (!m) return false
+  const [, local, domain] = m
+  // Resend rejects these with a 422 that fails the WHOLE batch:
+  if (local.startsWith('.') || local.endsWith('.') || local.includes('..')) return false
+  // every domain label must start/end alphanumeric (no 'asg-.com.cy', no empty labels)
+  return domain.split('.').every(l => /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(l))
 }
 
 // Mirror of frontend contactDocId — btoa is available in Cloudflare Workers

@@ -96,7 +96,7 @@ export default function Home() {
 
       /* ── 1 · Hero entrance — one orchestrated timeline ─────── */
       createTimeline({ defaults: { ease: 'outExpo', duration: D(1000) } })
-        .add('.dlx-emblem-stage', { opacity: [0, 1], scale: [0.62, 1], rotateX: [-30, 0] })
+        .add('.dlx-emblem-stage', { opacity: [0, 1], translateY: [26, 0] })
         .add('.dlx-char', {
           opacity: [0, 1],
           translateY: [46, 0],
@@ -374,19 +374,18 @@ export default function Home() {
       </div>
 
       <section className="dlx-hero">
-        <div className="dlx-hero-core">
-          <div className="dlx-emblem-stage" ref={emblemZoneRef}>
-            <div className="dlx-emblem-glow" />
-            <div className="dlx-ring dlx-ring-1" />
-            <div className="dlx-ring dlx-ring-2" />
-            <div className="dlx-orbit"><span className="dlx-orbit-dot" /></div>
-            <div className="dlx-emblem-tilt">
-              <div className="dlx-emblem-spin" ref={spinRef}>
-                {emblemLayers()}
-              </div>
+        {/* the 3D coin lives OUTSIDE the scroll-scrubbed core so it
+            keeps spinning steadily, exactly like the original */}
+        <div className="dlx-emblem-stage" ref={emblemZoneRef}>
+          <div className="dlx-emblem-glow" />
+          <div className="dlx-emblem-tilt">
+            <div className="dlx-emblem-spin" ref={spinRef}>
+              {emblemLayers()}
             </div>
           </div>
+        </div>
 
+        <div className="dlx-hero-core">
           <h1 className="dlx-wordmark" aria-label="DermLux">
             {'DermLux'.split('').map((ch, i) => (
               <span key={i} className="dlx-char" aria-hidden="true" onPointerEnter={onCharEnter}>{ch}</span>

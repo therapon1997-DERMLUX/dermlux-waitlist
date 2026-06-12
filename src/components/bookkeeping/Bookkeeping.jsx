@@ -11,14 +11,16 @@ const fmtDate = d => {
   const months = ['Ιαν','Φεβ','Μαρ','Απρ','Μαΐ','Ιουν','Ιουλ','Αυγ','Σεπ','Οκτ','Νοε','Δεκ']
   return `${parseInt(day)} ${months[parseInt(m) - 1]} ${y}`
 }
-const monthKey  = d => (d || '').slice(0, 7)
-const thisMonth = new Date().toISOString().slice(0, 7)
+const MONTH_NAMES = ['Ιαν','Φεβ','Μαρ','Απρ','Μαΐ','Ιουν','Ιουλ','Αυγ','Σεπ','Οκτ','Νοε','Δεκ']
+const nowYear  = String(new Date().getFullYear())
+const nowMonth = new Date().getMonth() + 1
 
 export default function Bookkeeping() {
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading]   = useState(true)
   const [modal, setModal]       = useState(null)
-  const [month, setMonth]       = useState(thisMonth)
+  const [selYears, setSelYears]   = useState([nowYear])   // multi-select
+  const [selMonths, setSelMonths] = useState([nowMonth])  // multi-select
   const [cat, setCat]           = useState('')
   const [loc, setLoc]           = useState('')
 
@@ -30,17 +32,24 @@ export default function Bookkeeping() {
     }, () => setLoading(false))
   }, [])
 
-  const months = useMemo(() => {
-    const set = new Set(expenses.map(e => monthKey(e.date)).filter(Boolean))
-    set.add(thisMonth)
+  const years = useMemo(() => {
+    const set = new Set(expenses.map(e => (e.date || '').slice(0, 4)).filter(Boolean))
+    set.add(nowYear)
     return [...set].sort().reverse()
   }, [expenses])
 
-  const filtered = useMemo(() => expenses.filter(e =>
-    (!month || monthKey(e.date) === month) &&
-    (!cat   || e.category === cat) &&
-    (!loc   || e.location === loc)
-  ), [expenses, month, cat, loc])
+  const toggleIn = (arr, set, v) =>
+    set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v])
+
+  const filtered = useMemo(() => expenses.filter(e => {
+    const y = (e.date || '').slice(0, 4)
+    const m = parseInt((e.date || '').slice(5, 7), 10)
+    if (selYears.length  && !selYears.includes(y))  return false
+    if (selMonths.length && !selMonths.includes(m)) return false
+    if (cat && e.category !== cat) return false
+    if (loc && e.location !== loc) return false
+    return true
+  }), [expenses, selYears, selMonths, cat, loc])
 
   const totals = useMemo(() => {
     const t = { total: 0, vat: 0, net: 0, count: filtered.length, byCat: {} }
@@ -87,20 +96,52 @@ export default function Bookkeeping() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-3 mb-5 flex-wrap">
-        <select className={sel} value={month} onChange={e => setMonth(e.target.value)}>
-          <option value="">Όλοι οι μήνες</option>
-          {months.map(m => <option key={m} value={m}>{m}</option>)}
-        </select>
-        <select className={sel} value={cat} onChange={e => setCat(e.target.value)}>
-          <option value="">Όλες οι κατηγορίες</option>
-          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select className={sel} value={loc} onChange={e => setLoc(e.target.value)}>
-          <option value="">Όλες οι τοποθεσίες</option>
-          {LOCATIONS.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
+      {/* Filters — year & month pills, multi-select */}
+      <div className="mb-5 space-y-2.5">
+        <div className="flex gap-1.5 flex-wrap items-center">
+          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wide w-12 shrink-0">Έτος</span>
+          {years.map(y => (
+            <button key={y} onClick={() => toggleIn(selYears, setSelYears, y)}
+              className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                selYears.includes(y)
+                  ? 'bg-green-600 border-green-600 text-white shadow-sm'
+                  : 'bg-white border-gray-200 text-gray-600 hover:border-green-400 hover:text-green-700'}`}>
+              {y}
+            </button>
+          ))}
+          {selYears.length > 0 && (
+            <button onClick={() => setSelYears([])} className="text-xs text-gray-400 hover:text-gray-600 underline ml-1">
+              όλα
+            </button>
+          )}
+        </div>
+        <div className="flex gap-1.5 flex-wrap items-center">
+          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wide w-12 shrink-0">Μήνας</span>
+          {MONTH_NAMES.map((m, i) => (
+            <button key={m} onClick={() => toggleIn(selMonths, setSelMonths, i + 1)}
+              className={`px-2.5 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                selMonths.includes(i + 1)
+                  ? 'bg-green-600 border-green-600 text-white shadow-sm'
+                  : 'bg-white border-gray-200 text-gray-600 hover:border-green-400 hover:text-green-700'}`}>
+              {m}
+            </button>
+          ))}
+          {selMonths.length > 0 && (
+            <button onClick={() => setSelMonths([])} className="text-xs text-gray-400 hover:text-gray-600 underline ml-1">
+              όλοι
+            </button>
+          )}
+        </div>
+        <div className="flex gap-3 flex-wrap">
+          <select className={sel} value={cat} onChange={e => setCat(e.target.value)}>
+            <option value="">Όλες οι κατηγορίες</option>
+            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select className={sel} value={loc} onChange={e => setLoc(e.target.value)}>
+            <option value="">Όλες οι τοποθεσίες</option>
+            {LOCATIONS.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
       </div>
 
       {/* Summary cards */}
