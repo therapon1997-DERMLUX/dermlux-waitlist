@@ -1,22 +1,24 @@
-import { useMemo, useRef, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import LaserLegDemo from './LaserLegDemo'
 import './Home.css'
 
-/* Official DermLux monogram (from the brandbook, white-on-black).
-   mix-blend-mode: screen makes the black square vanish on the dark
-   background, leaving only the white emblem — pixel-perfect brand. */
-function Emblem() {
-  return (
-    <div className="dlx-emblem-spin">
-      <img
-        className="dlx-emblem-img"
-        src={`${import.meta.env.BASE_URL}brand/emblem-dark.png`}
-        alt=""
-        draggable="false"
-      />
-    </div>
-  )
+/* Official DermLux monogram (from the brandbook), transparent PNG.
+   Rendered as a stack of layers in Z so the spinning "coin" has real
+   3D thickness when seen edge-on. */
+const EMBLEM_LAYERS = 7
+function emblemLayers() {
+  return Array.from({ length: EMBLEM_LAYERS }, (_, i) => (
+    <img
+      key={i}
+      className="dlx-emblem-layer"
+      src={`${import.meta.env.BASE_URL}brand/emblem-white.png`}
+      style={{ transform: `translateZ(${(i - (EMBLEM_LAYERS - 1) / 2) * 1.15}px)` }}
+      alt=""
+      draggable="false"
+    />
+  ))
 }
 
 const CARDS = [
@@ -56,6 +58,61 @@ export default function Home() {
   const { userProfile, isAdmin, isEkloges } = useAuth()
   const heroRef = useRef(null)
   const rafRef = useRef(0)
+  const spinRef = useRef(null)
+  const emblemZoneRef = useRef(null)
+
+  /* 3D coin physics: spins on its own, can be grabbed and flung
+     with the cursor, then eases back to its cruising speed. */
+  useEffect(() => {
+    const spin = spinRef.current, zone = emblemZoneRef.current
+    if (!spin || !zone) return
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const BASE = reduced ? 0 : 26 // deg/s cruise speed
+    let rot = 0, vel = BASE, dragging = false, lastX = 0, lastT = 0, raf = 0
+    let prev = performance.now()
+
+    const loop = (now) => {
+      raf = requestAnimationFrame(loop)
+      const dt = Math.min((now - prev) / 1000, 0.05)
+      prev = now
+      if (!dragging) {
+        vel = BASE + (vel - BASE) * Math.exp(-dt * 1.3) // inertia decays to cruise
+        rot += vel * dt
+        spin.style.transform = `rotateY(${rot}deg)`
+      }
+    }
+    raf = requestAnimationFrame(loop)
+
+    const down = (e) => {
+      dragging = true
+      lastX = e.clientX
+      lastT = performance.now()
+      zone.setPointerCapture?.(e.pointerId)
+      zone.classList.add('dlx-grabbing')
+    }
+    const move = (e) => {
+      if (!dragging) return
+      const now = performance.now()
+      const dx = e.clientX - lastX
+      rot += dx * 0.55
+      const ms = Math.max(now - lastT, 1)
+      vel = Math.max(-900, Math.min(900, (dx * 0.55) / (ms / 1000)))
+      lastX = e.clientX
+      lastT = now
+      spin.style.transform = `rotateY(${rot}deg)`
+    }
+    const up = () => { dragging = false; zone.classList.remove('dlx-grabbing') }
+
+    zone.addEventListener('pointerdown', down)
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    return () => {
+      cancelAnimationFrame(raf)
+      zone.removeEventListener('pointerdown', down)
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+  }, [])
 
   /* Cursor → CSS variables: spotlight position + 3D tilt of the emblem.
      One rAF per frame keeps it cheap. */
@@ -109,6 +166,17 @@ export default function Home() {
 
   const firstName = userProfile?.displayName?.split(' ')[0]
 
+  /* Reveal sections one by one as they scroll into view */
+  useEffect(() => {
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target) }
+      })
+    }, { threshold: 0.15 })
+    heroRef.current?.querySelectorAll('.dlx-reveal').forEach(el => io.observe(el))
+    return () => io.disconnect()
+  }, [])
+
   return (
     <div className="dlx-home" ref={heroRef} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave}>
       {/* drifting aurora blobs */}
@@ -128,13 +196,15 @@ export default function Home() {
       </div>
 
       <section className="dlx-hero">
-        <div className="dlx-emblem-stage">
+        <div className="dlx-emblem-stage" ref={emblemZoneRef}>
           <div className="dlx-emblem-glow" />
           <div className="dlx-ring dlx-ring-1" />
           <div className="dlx-ring dlx-ring-2" />
           <div className="dlx-orbit"><span className="dlx-orbit-dot" /></div>
           <div className="dlx-emblem-tilt">
-            <Emblem />
+            <div className="dlx-emblem-spin" ref={spinRef}>
+              {emblemLayers()}
+            </div>
           </div>
         </div>
 
@@ -153,13 +223,15 @@ export default function Home() {
         </div>
       </section>
 
+      <LaserLegDemo />
+
       <section className="dlx-tools">
-        <div className="dlx-tools-label">Portal</div>
-        <h2 className="dlx-tools-title">Τα εργαλεία σου</h2>
+        <div className="dlx-tools-label dlx-reveal">Portal</div>
+        <h2 className="dlx-tools-title dlx-reveal" style={{ '--i': 1 }}>Τα εργαλεία σου</h2>
         <div className="dlx-grid">
           {visibleCards.map((c, i) => (
             <Link
-              key={c.to} to={c.to} className="dlx-card" onMouseMove={onCardMove}
+              key={c.to} to={c.to} className="dlx-card dlx-reveal" onMouseMove={onCardMove}
               style={{ '--accent': c.accent, '--i': i }}
             >
               <div className="dlx-card-icon">
