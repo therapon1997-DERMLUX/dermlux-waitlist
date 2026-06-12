@@ -10,27 +10,27 @@ export default function Navbar() {
   const linkClass = (path) =>
     `px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${
       location.pathname === path
-        ? 'bg-[#9D845F] text-[#161616]'
-        : 'text-[#cfc9bb] hover:bg-[#2a2620] hover:text-[#EEEBE0]'
+        ? 'bg-[#9D835E] text-[#161616]'
+        : 'text-[#cfc9bb] hover:bg-[#2a2620] hover:text-[#EEECE0]'
     }`
 
   const mobileLinkClass = (path) =>
     `block px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
       location.pathname === path
-        ? 'bg-[#9D845F] text-[#161616]'
+        ? 'bg-[#9D835E] text-[#161616]'
         : 'text-[#cfc9bb] hover:bg-[#2a2620]'
     }`
 
   return (
-    <nav className="bg-[#161616] text-[#EEEBE0] shadow-md relative z-50 border-b border-[#9D845F]/25">
+    <nav className="bg-[#161616] text-[#EEECE0] shadow-md relative z-50 border-b border-[#9D835E]/25">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14">
           {/* Brand */}
           <Link to="/" className="flex items-baseline gap-2 group">
-            <span className="font-serif text-xl tracking-wide text-[#EEEBE0] group-hover:text-white transition-colors" style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}>
+            <span className="font-serif text-xl tracking-wide text-[#EEECE0] group-hover:text-white transition-colors" style={{ fontFamily: "'Prata', Georgia, serif" }}>
               DermLux
             </span>
-            <span className="hidden sm:block text-[8px] font-bold uppercase tracking-[2.5px] text-[#9D845F]">
+            <span className="hidden sm:block text-[8px] font-bold uppercase tracking-[2.5px] text-[#9D835E]">
               Portal
             </span>
           </Link>
@@ -51,9 +51,9 @@ export default function Navbar() {
           <div className="hidden md:flex items-center gap-4">
             <span className="text-[#8B8378] text-sm">
               {userProfile?.displayName}
-              {isAdmin && <span className="ml-1 badge bg-[#9D845F] text-[#161616]">Admin</span>}
+              {isAdmin && <span className="ml-1 badge bg-[#9D835E] text-[#161616]">Admin</span>}
             </span>
-            <button onClick={logout} className="text-[#8B8378] hover:text-[#EEEBE0] text-sm transition-colors">
+            <button onClick={logout} className="text-[#8B8378] hover:text-[#EEECE0] text-sm transition-colors">
               Αποσύνδεση
             </button>
           </div>
@@ -63,7 +63,7 @@ export default function Navbar() {
             <span className="text-[#8B8378] text-sm">{userProfile?.displayName?.split(' ')[0]}</span>
             <button
               onClick={() => setMenuOpen(o => !o)}
-              className="text-[#cfc9bb] hover:text-[#EEEBE0] p-1.5 rounded-md transition-colors"
+              className="text-[#cfc9bb] hover:text-[#EEECE0] p-1.5 rounded-md transition-colors"
               aria-label="Menu"
             >
               {menuOpen ? (
@@ -93,7 +93,7 @@ export default function Navbar() {
             <Link to="/election-archive" className={mobileLinkClass('/election-archive')}>🗳️ Εκλογές 2026</Link>
           )}
           <div className="border-t border-[#2a2620] mt-2 pt-2">
-            <button onClick={logout} className="w-full text-left px-4 py-3 text-sm text-[#8B8378] hover:text-[#EEEBE0] rounded-lg">
+            <button onClick={logout} className="w-full text-left px-4 py-3 text-sm text-[#8B8378] hover:text-[#EEECE0] rounded-lg">
               🚪 Αποσύνδεση
             </button>
           </div>
