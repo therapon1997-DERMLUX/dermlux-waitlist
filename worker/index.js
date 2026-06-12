@@ -959,10 +959,10 @@ async function extractInvoice(request, env, json) {
     `{"vendor": string|null, "vat_number": string|null, "invoice_number": string|null, ` +
     `"date": "YYYY-MM-DD"|null, "net": number|null, "vat": number|null, "vat_rate": number|null, ` +
     `"total": number|null, "currency": string|null, ` +
-    `"category": one of ["Ενοίκιο","Μισθοδοσία","Προμήθειες","Marketing","Λογαριασμοί","Εξοπλισμός","Συντήρηση","Φόροι","Άλλο"]}. ` +
+    `"category": one of ["6201 · ΑΓΟΡΕΣ","8103 · ΕΝΟΙΚΙΑ","8105 · ΠΛΗΡΩΜΕΣ ΕΙΣ ΤΡΙΤΟΥΣ","8106 · ΤΗΛΕΦΩΝΙΚΑ","8108 · ΗΛΕΚΤΡΙΣΜΟΣ","8109 · ΝΕΡΟ","8110 · ΚΑΘΑΡΙΟΤΗΤΑ","8111 · ΓΡΑΦΙΚΗ ΥΛΗ","8112 · ΣΥΝΤΗΡΙΣΗ ΜΗΧΑΝΗΜΑΤΩΝ","8115 · ΕΛΕΓΚΤΙΚΑ","8116 · ΑΣΦΑΛΙΣΤΡΑ","8117 · ΔΙΚΗΓΟΡΙΚΑ","8119 · ΔΙΑΦΟΡΑ ΕΞΟΔΑ","8120 · ΦΟΡΟΙ & ΑΔΕΙΕΣ","8122 · ΕΙΣΦΟΡΕΣ - ΣΥΝΔΡΟΜΕΣ","8133 · ΣΥΝΤΗΡΙΣΗ ΚΤΙΡΙΩΝ","8136 · ΑΛΛΑ ΕΞΟΔΑ ΠΡΟΣΩΠΙΚΟΥ","8138 · ΕΦΟΔΙΑ & ΣΥΝΤΗΡΙΣΗ Η/Υ","8144 · ΕΚΤΕΛΩΝΙΣΤΙΚΑ","8151 · ΑΝΑΛΥΣΕΙΣ ΧΗΜΕΙΟΥ","8201 · ΠΡΟΜΗΘΕΙΑ - BONUS","8202 · ΠΕΡΙΠΟΙΗΣΗ ΠΕΛΑΤΩΝ","8203 · ΔΙΑΦΗΜΙΣΕΙΣ","8204 · ΜΕΤΑΦΟΡΙΚΑ","8205 · ΕΞΟΔΑ ΟΧΗΜΑΤΩΝ","8400 · ΤΟΚΟΙ & ΕΞΟΔΑ ΤΡΕΧΟΥΜΕΝΟΥ"]}. ` +
     `Rules: use null when a field is not present. Numbers are plain (no symbols, dot decimals). ` +
     `vat_rate is a percent number (Cyprus is usually 19, sometimes 9/5/0). currency is an ISO code like "EUR". ` +
-    `Pick the best-fitting category from the vendor and line items.`
+    `Pick the best-fitting category from the vendor name and line items. Examples: rent invoice → 8103, electricity/water bill → 8108/8109, Facebook/Google ads → 8203, product supplies for treatments → 6201, phone bill → 8106, accountant fee → 8115, lawyer → 8117, insurance → 8116.`
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method:  'POST',
