@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import ExpenseModal, { CATEGORIES, LOCATIONS } from './ExpenseModal'
+import ExportPrint from './ExportPrint'
 
 const eur = n => '€' + (Number(n) || 0).toLocaleString('el-CY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtDate = d => {
@@ -77,10 +78,13 @@ export default function Bookkeeping() {
           <h1 className="text-2xl font-bold text-gray-800">Λογιστικά / Έξοδα</h1>
           <p className="text-sm text-gray-500 mt-0.5">Καταχώρηση & ανάλυση εξόδων</p>
         </div>
-        <button onClick={() => setModal('new')}
-          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm">
-          + Νέο Έξοδο
-        </button>
+        <div className="flex gap-2">
+          <ExportPrint expenses={expenses} />
+          <button onClick={() => setModal('new')}
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm">
+            + Νέο Έξοδο
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
