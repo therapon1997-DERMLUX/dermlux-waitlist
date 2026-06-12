@@ -162,7 +162,9 @@ export default {
       }
       // Bookkeeping: read an expense invoice with Claude
       if (url.pathname === '/extract-invoice' && request.method === 'POST') {
-        if (origin !== ALLOWED_ORIGIN) return json({ error: 'Forbidden' }, 403)
+        const internalKey = request.headers.get('X-Internal-Key') || ''
+        const allowedInternal = env.IMPORT_SECRET && internalKey === env.IMPORT_SECRET
+        if (origin !== ALLOWED_ORIGIN && !allowedInternal) return json({ error: 'Forbidden' }, 403)
         return await extractInvoice(request, env, json)
       }
       // Temporary bulk import (protected by IMPORT_SECRET)
@@ -999,7 +1001,7 @@ async function extractInvoice(request, env, json) {
 // ─── Bulk import expenses (temporary, IMPORT_SECRET protected) ───────────────
 async function bulkImportExpenses(request, env, json) {
   const body = await request.json()
-  if (!env.IMPORT_SECRET || body.secret !== env.IMPORT_SECRET)
+  if (!env.IMPORT_SECRET || body.secret !== env.IMPORT_SECRET.trim())
     return json({ error: 'Forbidden' }, 403)
   const { expenses } = body
   if (!Array.isArray(expenses) || expenses.length === 0)
@@ -1055,7 +1057,7 @@ async function bulkImportExpenses(request, env, json) {
 // ─── Link invoice image: upload to R2 + update Firestore record ──────────────
 async function linkInvoiceImage(request, env, json) {
   const body = await request.json()
-  if (!env.IMPORT_SECRET || body.secret !== env.IMPORT_SECRET)
+  if (!env.IMPORT_SECRET || body.secret !== env.IMPORT_SECRET.trim())
     return json({ error: 'Forbidden' }, 403)
 
   const { invoiceNumber, vendor, imageBase64, mediaType, fileName } = body
