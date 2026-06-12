@@ -372,12 +372,12 @@
 /* ── Laser hair-removal demo ──────────────────────────────── */
 .dlx-laser-section {
   position: relative;
-  max-width: 1060px;
+  max-width: 980px;
   margin: 0 auto;
   padding: 30px 24px 50px;
   display: grid;
-  grid-template-columns: 300px 1fr;
-  gap: 40px;
+  grid-template-columns: 1fr minmax(280px, 400px);
+  gap: 48px;
   align-items: center;
 }
 .dlx-laser-text {
@@ -394,21 +394,32 @@
 }
 .dlx-laser-stage {
   position: relative;
-  aspect-ratio: 5 / 3;
-  border-radius: 20px;
-  overflow: hidden;
+  aspect-ratio: 400 / 573;
+  width: min(400px, 86vw);
+  justify-self: center;
   cursor: none;
-  border: 1px solid rgba(238, 236, 224, 0.12);
-  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+/* soft warm halo behind the cut-out legs */
+.dlx-laser-stage::before {
+  content: '';
+  position: absolute;
+  inset: -14%;
+  background: radial-gradient(closest-side,
+    rgba(157, 131, 94, 0.17) 0%,
+    rgba(179, 146, 163, 0.10) 50%,
+    transparent 76%);
+  filter: blur(28px);
+  pointer-events: none;
 }
 .dlx-laser-photo {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: fill;
   user-select: none;
   pointer-events: none;
+  filter: drop-shadow(0 28px 44px rgba(0, 0, 0, 0.55));
 }
 .dlx-laser-canvas {
   position: absolute;

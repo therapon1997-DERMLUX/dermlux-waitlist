@@ -11,28 +11,29 @@ import { useEffect, useRef } from 'react'
 // each with the local hair-growth direction (radians, y-down).
 // Avoids the hand, feet and the bathtub.
 const LEG_ZONES = [
-  { // left calf (vertical)
-    angle: 1.5,
+  { // back calf (steep)
+    angle: 1.42,
     poly: [
-      [0.155, 0.06], [0.215, 0.04], [0.265, 0.10], [0.295, 0.22],
-      [0.305, 0.34], [0.30, 0.46], [0.285, 0.56], [0.255, 0.60],
-      [0.22, 0.55], [0.19, 0.42], [0.165, 0.26], [0.15, 0.14],
+      [0.115, 0.115], [0.21, 0.07], [0.28, 0.11], [0.265, 0.22],
+      [0.262, 0.30], [0.288, 0.40], [0.315, 0.50], [0.335, 0.58],
+      [0.32, 0.625], [0.285, 0.615], [0.255, 0.52], [0.225, 0.42],
+      [0.185, 0.32], [0.14, 0.22], [0.10, 0.155],
     ],
   },
-  { // right shin below the hand (diagonal)
-    angle: 0.9,
+  { // front shin (diagonal to the ankle)
+    angle: 1.22,
     poly: [
-      [0.435, 0.46], [0.475, 0.50], [0.515, 0.58], [0.555, 0.68],
-      [0.585, 0.74], [0.60, 0.78], [0.585, 0.82], [0.545, 0.80],
-      [0.505, 0.72], [0.465, 0.62], [0.435, 0.54], [0.425, 0.49],
+      [0.31, 0.30], [0.42, 0.27], [0.49, 0.315], [0.535, 0.39],
+      [0.565, 0.47], [0.59, 0.55], [0.61, 0.62], [0.615, 0.665],
+      [0.59, 0.68], [0.555, 0.655], [0.525, 0.585], [0.49, 0.51],
+      [0.45, 0.43], [0.40, 0.37], [0.335, 0.335],
     ],
   },
-  { // right calf above the hand
-    angle: 0.95,
+  { // front thigh (toward the knee)
+    angle: 0.3,
     poly: [
-      [0.475, 0.04], [0.535, 0.02], [0.575, 0.10], [0.60, 0.22],
-      [0.615, 0.34], [0.60, 0.42], [0.565, 0.40], [0.535, 0.30],
-      [0.50, 0.18], [0.475, 0.10],
+      [0.03, 0.255], [0.13, 0.235], [0.23, 0.255], [0.305, 0.285],
+      [0.285, 0.325], [0.19, 0.32], [0.10, 0.315], [0.03, 0.305],
     ],
   },
 ]
@@ -112,7 +113,7 @@ export default function LaserLegDemo() {
 
     const hairPath = (h, portion) => {
       const x0 = h.x * W, y0 = h.y * H
-      const L = h.len * W * 0.013
+      const L = h.len * W * 0.021
       const dx = Math.cos(h.angle), dy = Math.sin(h.angle)
       // perpendicular for the bend
       const px = -dy, py = dx
@@ -289,7 +290,7 @@ export default function LaserLegDemo() {
 
       <div className="dlx-laser-stage dlx-reveal" ref={stageRef} style={{ '--i': 1 }}>
         <img
-          src={`${import.meta.env.BASE_URL}brand/laser-legs.jpg`}
+          src={`${import.meta.env.BASE_URL}brand/legs-cutout.png`}
           alt="Laser hair removal"
           className="dlx-laser-photo"
           draggable="false"
