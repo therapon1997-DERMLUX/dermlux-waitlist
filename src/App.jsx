@@ -7,6 +7,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 
 // Lazy routes: each page downloads only when first visited,
 // so the initial load stays small (xlsx, recharts etc. live in their own chunks).
+const Home            = lazy(() => import('./components/Home'))
 const Dashboard       = lazy(() => import('./components/Dashboard'))
 const AdminPanel      = lazy(() => import('./components/AdminPanel'))
 const EmailMarketing  = lazy(() => import('./components/email/EmailMarketing'))
@@ -60,9 +61,11 @@ export default function App() {
       <main className="flex-1">
         <ErrorBoundary>
           <Suspense fallback={<PageLoader />}>
+            <div key={location.pathname} className="route-fade">
             <Routes>
               <Route path="/login" element={<Login />} />
-              <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+              <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+              <Route path="/waitlist" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
               <Route path="/admin" element={<AdminRoute><AdminPanel /></AdminRoute>} />
               <Route path="/email" element={<AdminRoute><EmailMarketing /></AdminRoute>} />
               <Route path="/votes" element={<AdminRoute><VoteContacts /></AdminRoute>} />
@@ -76,6 +79,7 @@ export default function App() {
               <Route path="/unsubscribe" element={<UnsubscribePage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
+            </div>
           </Suspense>
         </ErrorBoundary>
       </main>

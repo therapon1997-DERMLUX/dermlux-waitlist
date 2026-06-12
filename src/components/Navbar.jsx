@@ -8,29 +8,36 @@ export default function Navbar() {
   const location = useLocation()
 
   const linkClass = (path) =>
-    `px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+    `px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${
       location.pathname === path
-        ? 'bg-blue-700 text-white'
-        : 'text-blue-100 hover:bg-blue-700 hover:text-white'
+        ? 'bg-[#9D845F] text-[#161616]'
+        : 'text-[#cfc9bb] hover:bg-[#2a2620] hover:text-[#EEEBE0]'
     }`
 
   const mobileLinkClass = (path) =>
     `block px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
       location.pathname === path
-        ? 'bg-blue-700 text-white'
-        : 'text-blue-100 hover:bg-blue-700'
+        ? 'bg-[#9D845F] text-[#161616]'
+        : 'text-[#cfc9bb] hover:bg-[#2a2620]'
     }`
 
   return (
-    <nav className="bg-blue-800 text-white shadow-md relative z-50">
+    <nav className="bg-[#161616] text-[#EEEBE0] shadow-md relative z-50 border-b border-[#9D845F]/25">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14">
-          {/* Logo */}
-          <span className="font-bold text-lg tracking-wide">Dermlux Clinics</span>
+          {/* Brand */}
+          <Link to="/" className="flex items-baseline gap-2 group">
+            <span className="font-serif text-xl tracking-wide text-[#EEEBE0] group-hover:text-white transition-colors" style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}>
+              DermLux
+            </span>
+            <span className="hidden sm:block text-[8px] font-bold uppercase tracking-[2.5px] text-[#9D845F]">
+              Portal
+            </span>
+          </Link>
 
           {/* Desktop links */}
           <div className="hidden md:flex gap-1">
-            {userProfile?.role !== 'ekloges' && <Link to="/" className={linkClass('/')}>Dashboard</Link>}
+            {userProfile?.role !== 'ekloges' && <Link to="/waitlist" className={linkClass('/waitlist')}>Λίστα Αναμονής</Link>}
             {userProfile?.role !== 'ekloges' && <Link to="/medical" className={linkClass('/medical')}>Ασθενείς</Link>}
             {isAdmin && <Link to="/admin" className={linkClass('/admin')}>Admin</Link>}
             {isAdmin && <Link to="/email" className={linkClass('/email')}>Email</Link>}
@@ -42,21 +49,21 @@ export default function Navbar() {
 
           {/* Desktop user info */}
           <div className="hidden md:flex items-center gap-4">
-            <span className="text-blue-200 text-sm">
+            <span className="text-[#8B8378] text-sm">
               {userProfile?.displayName}
-              {isAdmin && <span className="ml-1 badge bg-yellow-400 text-yellow-900">Admin</span>}
+              {isAdmin && <span className="ml-1 badge bg-[#9D845F] text-[#161616]">Admin</span>}
             </span>
-            <button onClick={logout} className="text-blue-200 hover:text-white text-sm transition-colors">
+            <button onClick={logout} className="text-[#8B8378] hover:text-[#EEEBE0] text-sm transition-colors">
               Αποσύνδεση
             </button>
           </div>
 
           {/* Mobile: right side */}
           <div className="flex md:hidden items-center gap-3">
-            <span className="text-blue-200 text-sm">{userProfile?.displayName?.split(' ')[0]}</span>
+            <span className="text-[#8B8378] text-sm">{userProfile?.displayName?.split(' ')[0]}</span>
             <button
               onClick={() => setMenuOpen(o => !o)}
-              className="text-blue-200 hover:text-white p-1.5 rounded-md transition-colors"
+              className="text-[#cfc9bb] hover:text-[#EEEBE0] p-1.5 rounded-md transition-colors"
               aria-label="Menu"
             >
               {menuOpen ? (
@@ -75,8 +82,9 @@ export default function Navbar() {
 
       {/* Mobile dropdown menu */}
       {menuOpen && (
-        <div className="md:hidden bg-blue-900 px-4 pb-4 pt-2 flex flex-col gap-1" onClick={() => setMenuOpen(false)}>
-          {userProfile?.role !== 'ekloges' && <Link to="/" className={mobileLinkClass('/')}>🏠 Dashboard</Link>}
+        <div className="md:hidden bg-[#0e0d0b] px-4 pb-4 pt-2 flex flex-col gap-1" onClick={() => setMenuOpen(false)}>
+          {userProfile?.role !== 'ekloges' && <Link to="/" className={mobileLinkClass('/')}>🏠 Αρχική</Link>}
+          {userProfile?.role !== 'ekloges' && <Link to="/waitlist" className={mobileLinkClass('/waitlist')}>📋 Λίστα Αναμονής</Link>}
           {userProfile?.role !== 'ekloges' && <Link to="/medical" className={mobileLinkClass('/medical')}>🏥 Ασθενείς</Link>}
           {isAdmin && <Link to="/admin" className={mobileLinkClass('/admin')}>⚙️ Admin</Link>}
           {isAdmin && <Link to="/email" className={mobileLinkClass('/email')}>📧 Email</Link>}
@@ -84,8 +92,8 @@ export default function Navbar() {
           {(isAdmin || isEkloges) && (
             <Link to="/election-archive" className={mobileLinkClass('/election-archive')}>🗳️ Εκλογές 2026</Link>
           )}
-          <div className="border-t border-blue-700 mt-2 pt-2">
-            <button onClick={logout} className="w-full text-left px-4 py-3 text-sm text-blue-200 hover:text-white rounded-lg">
+          <div className="border-t border-[#2a2620] mt-2 pt-2">
+            <button onClick={logout} className="w-full text-left px-4 py-3 text-sm text-[#8B8378] hover:text-[#EEEBE0] rounded-lg">
               🚪 Αποσύνδεση
             </button>
           </div>
