@@ -13,7 +13,7 @@ function emblemLayers() {
     <img
       key={i}
       className="dlx-emblem-layer"
-      src={`${import.meta.env.BASE_URL}brand/emblem-white.png`}
+      src={`${import.meta.env.BASE_URL}brand/emblem-motif.png`}
       style={{ transform: `translateZ(${(i - (EMBLEM_LAYERS - 1) / 2) * 1.15}px)` }}
       alt=""
       draggable="false"
@@ -198,9 +198,6 @@ export default function Home() {
       <section className="dlx-hero">
         <div className="dlx-emblem-stage" ref={emblemZoneRef}>
           <div className="dlx-emblem-glow" />
-          <div className="dlx-ring dlx-ring-1" />
-          <div className="dlx-ring dlx-ring-2" />
-          <div className="dlx-orbit"><span className="dlx-orbit-dot" /></div>
           <div className="dlx-emblem-tilt">
             <div className="dlx-emblem-spin" ref={spinRef}>
               {emblemLayers()}

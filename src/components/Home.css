@@ -165,8 +165,8 @@
 }
 .dlx-emblem-spin {
   position: relative;
-  width: 200px;
-  height: 200px;
+  width: 235px;
+  height: 235px;
   transform-style: preserve-3d;
   cursor: grab;
   touch-action: none;
@@ -505,5 +505,5 @@
   .dlx-ring-1 { width: 196px; height: 196px; }
   .dlx-ring-2 { width: 218px; height: 218px; }
   .dlx-orbit  { width: 196px; height: 196px; }
-  .dlx-emblem-spin { width: 155px; height: 155px; }
+  .dlx-emblem-spin { width: 175px; height: 175px; }
 }

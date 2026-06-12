@@ -7,11 +7,34 @@ import { useEffect, useRef } from 'react'
    vanish with a wisp of smoke, then regrow ~1 minute later.
    ───────────────────────────────────────────────────────────── */
 
-// Shin area of the photo, in normalized coords (x→right, y→down)
-const LEG_POLY = [
-  [0.03, 0.32], [0.10, 0.27], [0.22, 0.28], [0.38, 0.28], [0.55, 0.25],
-  [0.70, 0.235], [0.82, 0.235], [0.84, 0.30], [0.70, 0.36], [0.55, 0.41],
-  [0.40, 0.47], [0.25, 0.53], [0.12, 0.58], [0.04, 0.58],
+// Skin areas of the photo in normalized coords (x→right, y→down),
+// each with the local hair-growth direction (radians, y-down).
+// Avoids the hand, feet and the bathtub.
+const LEG_ZONES = [
+  { // left calf (vertical)
+    angle: 1.5,
+    poly: [
+      [0.155, 0.06], [0.215, 0.04], [0.265, 0.10], [0.295, 0.22],
+      [0.305, 0.34], [0.30, 0.46], [0.285, 0.56], [0.255, 0.60],
+      [0.22, 0.55], [0.19, 0.42], [0.165, 0.26], [0.15, 0.14],
+    ],
+  },
+  { // right shin below the hand (diagonal)
+    angle: 0.9,
+    poly: [
+      [0.435, 0.46], [0.475, 0.50], [0.515, 0.58], [0.555, 0.68],
+      [0.585, 0.74], [0.60, 0.78], [0.585, 0.82], [0.545, 0.80],
+      [0.505, 0.72], [0.465, 0.62], [0.435, 0.54], [0.425, 0.49],
+    ],
+  },
+  { // right calf above the hand
+    angle: 0.95,
+    poly: [
+      [0.475, 0.04], [0.535, 0.02], [0.575, 0.10], [0.60, 0.22],
+      [0.615, 0.34], [0.60, 0.42], [0.565, 0.40], [0.535, 0.30],
+      [0.50, 0.18], [0.475, 0.10],
+    ],
+  },
 ]
 
 const HAIR_COUNT = 750
@@ -31,14 +54,15 @@ function pointInPoly(x, y, poly) {
 function makeHairs() {
   const hairs = []
   let guard = 0
-  while (hairs.length < HAIR_COUNT && guard++ < 60000) {
+  while (hairs.length < HAIR_COUNT && guard++ < 120000) {
     const x = Math.random(), y = Math.random()
-    if (!pointInPoly(x, y, LEG_POLY)) continue
+    const zone = LEG_ZONES.find(z => pointInPoly(x, y, z.poly))
+    if (!zone) continue
     const light = Math.random() < 0.22
     hairs.push({
       x, y,
-      angle: Math.PI * 0.75 + (Math.random() - 0.5) * 0.55, // mostly down-left, like real shin hair
-      len: 0.55 + Math.random() * 0.9,                      // scaled later
+      angle: zone.angle + (Math.random() - 0.5) * 0.5, // follows each limb's axis
+      len: 0.5 + Math.random() * 0.85,                 // scaled later
       bend: (Math.random() - 0.5) * 0.8,
       w: light ? 0.7 + Math.random() * 0.3 : 0.9 + Math.random() * 0.55,
       alpha: light ? 0.3 + Math.random() * 0.2 : 0.45 + Math.random() * 0.3,
@@ -260,7 +284,7 @@ export default function LaserLegDemo() {
           Σύρε τον κέρσορα πάνω από το πόδι και δες το laser στη δράση —
           όπως δουλεύει το Motus στις κλινικές μας.
         </p>
-        <p className="dlx-laser-note">Οι τρίχες ξαναβγαίνουν σε ένα λεπτό. Στις κλινικές μας… όχι.</p>
+        <p className="dlx-laser-note">Με το ξυράφι, ξαναβγαίνουν σε ένα λεπτό — όπως εδώ. Με το laser, όχι.</p>
       </div>
 
       <div className="dlx-laser-stage dlx-reveal" ref={stageRef} style={{ '--i': 1 }}>
