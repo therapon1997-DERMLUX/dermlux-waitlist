@@ -198,7 +198,9 @@ async function sendCampaign(request, env, json) {
   const { campaignId, campaign, contacts } = await request.json()
 
   // Build email objects for Resend batch API (max 100 per call — caller already chunks)
-  const emails = contacts.map(contact => {
+  // Strip placeholder emails that would fail Resend validation
+  const validContacts = contacts.filter(c => fsValidEmail(c.email))
+  const emails = validContacts.map(contact => {
     const unsub = `${APP_URL}/#/unsubscribe?c=${encodeURIComponent(contact.id)}&cid=${encodeURIComponent(campaignId)}&cn=${encodeURIComponent(campaign.name || '')}&e=${encodeURIComponent(contact.email)}`
     const html = (campaign.htmlBody || '')
       .replaceAll('{{name}}', contact.name || 'Πελάτη')
@@ -229,7 +231,7 @@ async function sendCampaign(request, env, json) {
 
   for (let i = 0; i < emails.length; i += RESEND_MAX) {
     const chunk      = emails.slice(i, i + RESEND_MAX)
-    const chunkConts = contacts.slice(i, i + RESEND_MAX)
+    const chunkConts = validContacts.slice(i, i + RESEND_MAX)
 
     const res = await fetch('https://api.resend.com/emails/batch', {
       method:  'POST',
@@ -1355,7 +1357,9 @@ function fsParseFields(fields) {
 
 function fsValidEmail(email) {
   if (!email || typeof email !== 'string') return false
-  return /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(email.trim())
+  const trimmed = email.trim()
+  if (trimmed.toLowerCase().endsWith('.local')) return false
+  return /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(trimmed)
 }
 
 // Mirror of frontend contactDocId — btoa is available in Cloudflare Workers

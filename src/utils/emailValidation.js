@@ -13,7 +13,9 @@ const EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/
 
 export function isValidEmail(email) {
   if (!email || typeof email !== 'string') return false
-  return EMAIL_REGEX.test(email.trim())
+  const trimmed = email.trim()
+  if (trimmed.toLowerCase().endsWith('.local')) return false
+  return EMAIL_REGEX.test(trimmed)
 }
 
 export function isFakeEmail(email) {
