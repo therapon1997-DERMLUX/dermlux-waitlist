@@ -70,6 +70,7 @@ export default function Home() {
   const rafRef = useRef(0)
   const spinRef = useRef(null)
   const emblemZoneRef = useRef(null)
+  const reducedRef = useRef(false)
 
   /* ════════════════════════════════════════════════════════════
      anime.js scope — every animation lives in here so it is
@@ -86,25 +87,29 @@ export default function Home() {
       mediaQueries: { reduceMotion: '(prefers-reduced-motion: reduce)' },
     }).add(self => {
       const reduced = !!self.matches.reduceMotion
+      reducedRef.current = reduced
       const D = ms => (reduced ? 0 : ms)
+      /* scroll-scrubbed autoplay — degrades to an instant set */
+      const scrub = params => (reduced ? true : onScroll(params))
       physics.base = reduced ? 0 : 26
       physics.vel = physics.base
 
       /* ── 1 · Hero entrance — one orchestrated timeline ─────── */
       createTimeline({ defaults: { ease: 'outExpo', duration: D(1000) } })
-        .add('.dlx-emblem-stage', { opacity: [0, 1], scale: [0.62, 1] })
+        .add('.dlx-emblem-stage', { opacity: [0, 1], scale: [0.62, 1], rotateX: [-30, 0] })
         .add('.dlx-char', {
           opacity: [0, 1],
           translateY: [46, 0],
-          rotateX: [-95, 0],
-          duration: D(900),
-          delay: stagger(D(45), { from: 'center' }),
+          translateZ: [-180, 0],
+          rotateX: [-100, 0],
+          duration: D(950),
+          delay: stagger(D(48), { from: 'center' }),
         }, '-=720')
         .add('.dlx-subtitle', { opacity: [0, 1], letterSpacing: ['18px', '6px'] }, '-=650')
         .add('.dlx-divider span', { opacity: [0, 1], scaleX: [0, 1], duration: D(750) }, '-=560')
         .add('.dlx-tagline', { opacity: [0, 1], translateY: [18, 0], duration: D(700) }, '-=520')
         .add('.dlx-stat', {
-          opacity: [0, 1], translateY: [24, 0],
+          opacity: [0, 1], translateY: [24, 0], rotateX: [-45, 0],
           duration: D(750), delay: stagger(D(120)),
         }, '-=460')
         .add('.dlx-scroll-hint', { opacity: [0, 0.85], duration: D(600) }, '-=250')
@@ -136,20 +141,72 @@ export default function Home() {
         })
       }
 
-      /* ── 3 · Tools section — scroll-triggered ──────────────── */
-      animate('.dlx-tools-head > *', {
-        opacity: [0, 1], translateY: [28, 0],
-        duration: D(800), delay: stagger(D(130)), ease: 'outExpo',
-        autoplay: onScroll({ target: '.dlx-tools-head' }),
+      /* ── 3 · Scroll-scrubbed depth — the page moves WITH you ── */
+
+      /* hero recedes into 3D space as you scroll away, returns
+         when you scroll back (sync: true = scrubbed to scroll) */
+      animate('.dlx-hero-core', {
+        scale: [1, 0.86],
+        opacity: [1, 0.1],
+        rotateX: [0, 16],
+        translateY: [0, -90],
+        ease: 'linear',
+        autoplay: scrub({
+          target: '.dlx-hero',
+          enter: { container: 'start', target: 'start' },
+          leave: { container: 'start', target: 'end' },
+          sync: true,
+        }),
       })
 
+      /* laser demo drifts in parallax against the scroll */
+      animate('.dlx-laser-stage', {
+        translateY: [70, -70],
+        ease: 'linear',
+        autoplay: scrub({
+          target: '.dlx-laser-section',
+          enter: 'end start',
+          leave: 'start end',
+          sync: true,
+        }),
+      })
+
+      /* section header scrubs in */
+      animate('.dlx-tools-head > *', {
+        opacity: [0, 1], translateY: [40, 0], rotateX: [-30, 0],
+        duration: D(700), delay: stagger(D(140)), ease: 'out(3)',
+        autoplay: scrub({
+          target: '.dlx-tools-head',
+          enter: 'end start',
+          leave: 'center center',
+          sync: 0.35,
+        }),
+      })
+
+      /* ── 4 · Cards — fly in from 3D depth, scrubbed ────────── */
       const cards = utils.$('.dlx-card')
       if (cards.length) {
+        /* give every card real internal depth: children float at
+           different Z heights so the cursor tilt reveals parallax */
+        utils.set('.dlx-card-icon',  { translateZ: 42 })
+        utils.set('.dlx-card h3',    { translateZ: 26 })
+        utils.set('.dlx-card p',     { translateZ: 14 })
+        utils.set('.dlx-card-arrow', { translateZ: 32 })
+
         animate(cards, {
-          opacity: [0, 1], translateY: [46, 0], scale: [0.95, 1],
-          duration: D(850), delay: stagger(D(95)), ease: 'outExpo',
-          autoplay: onScroll({ target: '.dlx-grid' }),
+          opacity: [0, 1],
+          translateY: [90, 0],
+          translateZ: [-160, 0],
+          rotateX: [-22, 0],
+          duration: D(650), delay: stagger(D(100)), ease: 'out(3)',
+          autoplay: scrub({
+            target: '.dlx-grid',
+            enter: 'end start',
+            leave: 'center center',
+            sync: 0.3,
+          }),
         })
+
         /* the line icons draw themselves stroke-by-stroke */
         const drawables = svg.createDrawable('.dlx-card-icon path')
         if (drawables.length) {
@@ -157,14 +214,14 @@ export default function Home() {
             draw: ['0 0', '0 1'],
             duration: D(1500), delay: stagger(D(110), { start: D(220) }),
             ease: 'inOut(2)',
-            autoplay: onScroll({ target: '.dlx-grid' }),
+            autoplay: reduced ? true : onScroll({ target: '.dlx-grid' }),
           })
         }
       }
 
       animate('.dlx-footer', {
         opacity: [0, 1], duration: D(900), ease: 'outExpo',
-        autoplay: onScroll({ target: '.dlx-footer' }),
+        autoplay: reduced ? true : onScroll({ target: '.dlx-footer' }),
       })
     })
 
@@ -234,11 +291,50 @@ export default function Home() {
     el.style.setProperty('--rx', '0deg')
   }, [])
 
-  /* Card spotlight follows the cursor inside each card */
+  /* ── Card 3D tilt: the card leans toward the cursor, and its
+     children (icon, title, text) float at different Z depths ── */
   const onCardMove = useCallback((e) => {
-    const r = e.currentTarget.getBoundingClientRect()
-    e.currentTarget.style.setProperty('--cx', `${e.clientX - r.left}px`)
-    e.currentTarget.style.setProperty('--cy', `${e.clientY - r.top}px`)
+    const card = e.currentTarget
+    const r = card.getBoundingClientRect()
+    /* spotlight position */
+    card.style.setProperty('--cx', `${e.clientX - r.left}px`)
+    card.style.setProperty('--cy', `${e.clientY - r.top}px`)
+    if (reducedRef.current) return
+    /* 3D tilt toward cursor */
+    const nx = (e.clientX - r.left) / r.width - 0.5
+    const ny = (e.clientY - r.top) / r.height - 0.5
+    animate(card, {
+      rotateY: nx * 16,
+      rotateX: -ny * 14,
+      duration: 200,
+      ease: 'out(2)',
+    })
+  }, [])
+
+  const onCardLeave = useCallback((e) => {
+    if (reducedRef.current) return
+    /* spring back flat with a satisfying elastic wobble */
+    animate(e.currentTarget, {
+      rotateX: 0, rotateY: 0,
+      duration: 900, ease: 'outElastic(1, 0.55)',
+    })
+  }, [])
+
+  const onCardEnter = useCallback((e) => {
+    if (reducedRef.current) return
+    /* the icon does a full 3D barrel roll */
+    const icon = e.currentTarget.querySelector('.dlx-card-icon')
+    if (icon) animate(icon, { rotateY: '+=360', duration: 800, ease: 'inOut(2)' })
+  }, [])
+
+  /* wordmark letters jump and twist when the cursor brushes them */
+  const onCharEnter = useCallback((e) => {
+    if (reducedRef.current) return
+    animate(e.currentTarget, {
+      translateY: [{ to: -20, duration: 170, ease: 'out(3)' }, { to: 0, duration: 850, ease: 'outElastic(1, 0.4)' }],
+      rotateZ: [{ to: utils.random(-14, 14), duration: 170 }, { to: 0, duration: 850, ease: 'outElastic(1, 0.4)' }],
+      scale: [{ to: 1.25, duration: 170 }, { to: 1, duration: 850, ease: 'outElastic(1, 0.4)' }],
+    })
   }, [])
 
   const particles = useMemo(() =>
@@ -278,36 +374,38 @@ export default function Home() {
       </div>
 
       <section className="dlx-hero">
-        <div className="dlx-emblem-stage" ref={emblemZoneRef}>
-          <div className="dlx-emblem-glow" />
-          <div className="dlx-ring dlx-ring-1" />
-          <div className="dlx-ring dlx-ring-2" />
-          <div className="dlx-orbit"><span className="dlx-orbit-dot" /></div>
-          <div className="dlx-emblem-tilt">
-            <div className="dlx-emblem-spin" ref={spinRef}>
-              {emblemLayers()}
+        <div className="dlx-hero-core">
+          <div className="dlx-emblem-stage" ref={emblemZoneRef}>
+            <div className="dlx-emblem-glow" />
+            <div className="dlx-ring dlx-ring-1" />
+            <div className="dlx-ring dlx-ring-2" />
+            <div className="dlx-orbit"><span className="dlx-orbit-dot" /></div>
+            <div className="dlx-emblem-tilt">
+              <div className="dlx-emblem-spin" ref={spinRef}>
+                {emblemLayers()}
+              </div>
             </div>
           </div>
-        </div>
 
-        <h1 className="dlx-wordmark" aria-label="DermLux">
-          {'DermLux'.split('').map((ch, i) => (
-            <span key={i} className="dlx-char" aria-hidden="true">{ch}</span>
-          ))}
-        </h1>
-        <div className="dlx-subtitle">Medical Aesthetics</div>
-        <div className="dlx-divider"><span /></div>
-        <p className="dlx-tagline">
-          {firstName ? <>Καλώς ήρθες, <em>{firstName}</em>.</> : 'Καλώς ήρθες.'}
-        </p>
+          <h1 className="dlx-wordmark" aria-label="DermLux">
+            {'DermLux'.split('').map((ch, i) => (
+              <span key={i} className="dlx-char" aria-hidden="true" onPointerEnter={onCharEnter}>{ch}</span>
+            ))}
+          </h1>
+          <div className="dlx-subtitle">Medical Aesthetics</div>
+          <div className="dlx-divider"><span /></div>
+          <p className="dlx-tagline">
+            {firstName ? <>Καλώς ήρθες, <em>{firstName}</em>.</> : 'Καλώς ήρθες.'}
+          </p>
 
-        <div className="dlx-stats" aria-label="DermLux σε αριθμούς">
-          {STATS.map(s => (
-            <div key={s.label} className="dlx-stat">
-              <span className="dlx-stat-num" data-count={s.n}>0</span>
-              <span className="dlx-stat-lbl">{s.label}</span>
-            </div>
-          ))}
+          <div className="dlx-stats" aria-label="DermLux σε αριθμούς">
+            {STATS.map(s => (
+              <div key={s.label} className="dlx-stat">
+                <span className="dlx-stat-num" data-count={s.n}>0</span>
+                <span className="dlx-stat-lbl">{s.label}</span>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="dlx-scroll-hint" aria-hidden="true">
@@ -327,7 +425,10 @@ export default function Home() {
         <div className="dlx-grid">
           {visibleCards.map((c) => (
             <Link
-              key={c.to} to={c.to} className="dlx-card" onMouseMove={onCardMove}
+              key={c.to} to={c.to} className="dlx-card"
+              onMouseMove={onCardMove}
+              onMouseEnter={onCardEnter}
+              onMouseLeave={onCardLeave}
               style={{ '--accent': c.accent }}
             >
               <div className="dlx-card-icon">

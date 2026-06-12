@@ -94,6 +94,14 @@
   justify-content: center;
   padding: 48px 24px 80px;
   text-align: center;
+  perspective: 1100px; /* the whole hero recedes in 3D on scroll */
+}
+.dlx-hero-core {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform-style: preserve-3d;
+  will-change: transform, opacity;
 }
 
 /* emblem stage: rings + orbit + spinning monogram */
@@ -206,6 +214,7 @@
   transform-origin: 50% 100%;
   backface-visibility: hidden;
   will-change: transform, opacity;
+  cursor: default; /* letters bounce when the cursor brushes them */
 }
 .dlx-subtitle {
   margin-top: 10px;
@@ -239,6 +248,7 @@
   display: flex;
   gap: 44px;
   margin-top: 30px;
+  perspective: 600px; /* stats flip up in 3D */
 }
 .dlx-stat {
   display: flex;
@@ -284,6 +294,7 @@
   margin: 0 auto;
   padding: 30px 24px 70px;
 }
+.dlx-tools-head { perspective: 700px; /* header tips up in 3D */ }
 .dlx-tools-label {
   font-size: 10px;
   font-weight: 700;
@@ -305,6 +316,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
   gap: 18px;
+  perspective: 1400px; /* shared 3D space — cards tilt toward the cursor */
 }
 
 .dlx-card {
@@ -318,11 +330,14 @@
   border: 1px solid rgba(238, 236, 224, 0.09);
   text-decoration: none;
   color: inherit;
-  overflow: hidden;
   backdrop-filter: blur(6px);
-  opacity: 0; /* anime.js scroll reveal with stagger */
+  opacity: 0; /* anime.js scroll-scrubbed reveal */
+  /* preserve-3d requires overflow visible — children float at
+     different Z depths and the anime.js tilt reveals the parallax */
+  transform-style: preserve-3d;
+  will-change: transform;
   /* hover lift uses `translate` (not `transform`) so it composes
-     with the inline transform anime.js leaves after the entrance */
+     with the inline transform anime.js drives */
   translate: 0 0;
   transition: translate 0.35s cubic-bezier(0.22, 1, 0.36, 1),
               border-color 0.35s, background 0.35s;
@@ -337,6 +352,7 @@
   content: '';
   position: absolute;
   inset: 0;
+  border-radius: 18px;
   background: radial-gradient(280px circle at var(--cx) var(--cy),
               color-mix(in srgb, var(--accent) 22%, transparent) 0%, transparent 65%);
   opacity: 0;
@@ -354,10 +370,10 @@
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 13%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s;
+  /* the 3D barrel roll on hover is driven by anime.js */
+  transition: box-shadow 0.35s;
 }
 .dlx-card:hover .dlx-card-icon {
-  transform: scale(1.1) rotate(-6deg);
   box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 .dlx-card-icon svg { width: 24px; height: 24px; }
