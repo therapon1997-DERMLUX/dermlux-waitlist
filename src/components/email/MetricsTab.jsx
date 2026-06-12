@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { collection, getDocs, query, where, orderBy } from 'firebase/firestore'
+import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -18,7 +18,7 @@ function fmtDate(val) {
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-export default function MetricsTab() {
+export default function MetricsTab({ contacts = [] }) {
   const [campaigns,  setCampaigns]  = useState([])
   const [testSends,  setTestSends]  = useState([])
   const [loading,    setLoading]    = useState(true)
@@ -246,10 +246,10 @@ export default function MetricsTab() {
       </div>
 
       {/* Opt-out per campaign section */}
-      <OptOutSection campaigns={campaigns} />
+      <OptOutSection campaigns={campaigns} contacts={contacts} />
 
       {/* Bounces & Spam section */}
-      <BouncesSection onSync={refresh} />
+      <BouncesSection contacts={contacts} onSync={refresh} />
 
       {/* Bar chart (only when multiple campaigns, excluded ones omitted) */}
       {included.length > 1 && (
@@ -293,13 +293,8 @@ export default function MetricsTab() {
 }
 
 // ─── Opt-out per campaign section ─────────────────────────────────────────────
-function OptOutSection({ campaigns }) {
-  const [optOuts, setOptOuts] = useState([])
-
-  useEffect(() => {
-    getDocs(query(collection(db, 'email_contacts'), where('status', '==', 'unsubscribed')))
-      .then(snap => setOptOuts(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-  }, [])
+function OptOutSection({ campaigns, contacts }) {
+  const optOuts = contacts.filter(c => c.status === 'unsubscribed')
 
   const byCampaign = useMemo(() => {
     const map = {}
@@ -367,23 +362,10 @@ function OptOutSection({ campaigns }) {
 }
 
 // ─── Bounces & Spam section ────────────────────────────────────────────────────
-function BouncesSection({ onSync }) {
-  const [contacts, setContacts] = useState([])
-  const [loading,  setLoading]  = useState(true)
+function BouncesSection({ contacts, onSync }) {
+  const [loading,  setLoading]  = useState(false)
   const [syncing,  setSyncing]  = useState(false)
   const [syncMsg,  setSyncMsg]  = useState(null)
-
-  function loadBounces() {
-    setLoading(true)
-    getDocs(query(
-      collection(db, 'email_contacts'),
-      where('status', 'in', ['bounced', 'complained'])
-    ))
-      .then(snap => setContacts(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-      .finally(() => setLoading(false))
-  }
-
-  useEffect(() => { loadBounces() }, [])
 
   async function handleSync() {
     setSyncing(true)
@@ -396,7 +378,6 @@ function BouncesSection({ onSync }) {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Σφάλμα')
       setSyncMsg({ ok: true, text: `✅ Ανανεώθηκαν ${data.updated} επαφές από ${data.total} bounced/complained` })
-      loadBounces()
       onSync?.()
     } catch (e) {
       setSyncMsg({ ok: false, text: `❌ ${e.message}` })

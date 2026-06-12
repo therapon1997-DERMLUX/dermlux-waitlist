@@ -136,7 +136,7 @@ export default function EmailMarketing() {
       )}
       {tab === 'campaigns' && <CampaignsTab />}
       {tab === 'templates' && <TemplatesTab />}
-      {tab === 'metrics'   && <MetricsTab />}
+      {tab === 'metrics'   && <MetricsTab contacts={contacts} />}
     </div>
   )
 }
