@@ -4,3 +4,4 @@ dist
 *.local
 serviceAccountKey.json
 backups/
+scripts/claude-bridge/node_modules/
