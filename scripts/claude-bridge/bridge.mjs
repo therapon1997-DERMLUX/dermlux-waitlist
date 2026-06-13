@@ -136,9 +136,13 @@ while (true) {
   try {
     await pushUsage()
     await syncManifesto()
-    const q = await MSGS.where('role','==','user').where('kind','==','prompt')
-      .where('status','==','pending').orderBy('createdAt','asc').limit(1).get()
-    if (!q.empty) await run(q.docs[0])
+    // single-field equality uses Firestore's automatic index (no composite index needed);
+    // filter role/kind and pick the oldest client-side
+    const q = await MSGS.where('status','==','pending').get()
+    const pend = q.docs
+      .filter(d => { const x = d.data(); return x.role === 'user' && x.kind === 'prompt' })
+      .sort((a,b) => (a.data().createdAt?.toMillis?.() || 0) - (b.data().createdAt?.toMillis?.() || 0))
+    if (pend.length) await run(pend[0])
   } catch (e) {
     console.error('loop error:', e?.message || e)
   }
