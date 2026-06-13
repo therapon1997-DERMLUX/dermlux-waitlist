@@ -1,49 +1,49 @@
 /**
- * DermLux ⇄ Claude Code bridge.
- *
- * Runs on the laptop (which is logged into Claude Code). It watches Firestore
- * for prompts written from the portal /claude page, runs each through the
- * Claude Agent SDK, and writes back ONLY what the owner should see:
- *   - approval requests (yes/no) for sensitive tools  → manifesto rule #3
- *   - the final answer text
- * The intermediate process (tool calls, thinking) is NOT surfaced.
- *
- * It also: keeps a heartbeat + "busy" flag, an estimated session-limit bar,
- * and two-way syncs the manifesto with C:\Users\User\CLAUDE.md.
+ * DermLux ⇄ Claude Code bridge (v2).
+ * Runs on the laptop. Watches Firestore for prompts from the portal /claude
+ * page, runs them through the Claude Agent SDK, and writes back ONLY:
+ *   - SHORT approval asks (yes/no) for sensitive tools (full detail on tap)
+ *   - the final answer (rich markdown/tables/charts allowed)
+ * Features: Remote ON/OFF, model selector, auto-approve (read-only), image
+ * prompts, stop button, multi-turn continuity, session-usage estimate,
+ * manifesto ↔ CLAUDE.md sync.
  *
  * Setup:  cd scripts/claude-bridge && npm install && npm start
- * Needs:  Claude Code logged in on this machine (uses your subscription),
- *         service account key at C:\Users\User\Downloads\serviceaccountkey.json
  */
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
 const admin = require('firebase-admin')
 const { query } = await import('@anthropic-ai/claude-agent-sdk')
 
-// ── config ──────────────────────────────────────────────────────────────────
 const KEY_PATH      = 'C:\\Users\\User\\Downloads\\serviceaccountkey.json'
-const PROJECT_CWD   = 'C:/Users/User'                   // Claude runs with full context here
+const PROJECT_CWD   = 'C:/Users/User'
 const MANIFESTO_PATH= 'C:\\Users\\User\\CLAUDE.md'
-// The SDK's bundled binary fails to launch on this machine — point it at the
-// natively-installed Claude Code CLI (verified working, uses your subscription).
 const CLAUDE_EXE    = 'C:/Users/User/.local/bin/claude.exe'
-const POLL_MS       = 4000
-const WINDOW_MS     = 5 * 60 * 60 * 1000                // rolling 5h Claude Code window
-const SOFT_LIMIT    = 45                                // est. prompts per window (tune to taste)
+const STORAGE_BUCKET= 'dermlux-waitlist.firebasestorage.app'
+const POLL_MS = 4000, WINDOW_MS = 5*60*60*1000, SOFT_LIMIT = 45
 
-// Tools that run without asking (read-only / safe). Everything else needs a yes/no.
+const MODEL_MAP = { opus:'claude-opus-4-8', sonnet:'claude-sonnet-4-6', haiku:'claude-haiku-4-5', fable:'claude-fable-5' }
 const AUTO_ALLOW = new Set([
   'Read','Glob','Grep','LS','NotebookRead','WebFetch','WebSearch','TodoWrite','Task',
   'mcp__base44__query_entities','mcp__base44__list_entity_schemas','mcp__base44__list_user_apps',
 ])
+// read-only shell heuristic (used when Auto-approve is on)
+const RO_BASH = /^(\s*(cat|ls|dir|pwd|echo|grep|rg|find|head|tail|wc|type|node -e|python -c|python3 -c|git (status|log|diff|show|branch)|where|which)\b)/i
+const DANGER  = /(\brm\b|\bdel\b|\bmv\b|\bmove\b|>\s|>>|\bgit (push|reset|checkout|rebase)|\bnpm (publish|install)|curl|wget|format)/i
 
-admin.initializeApp({ credential: admin.credential.cert(JSON.parse(readFileSync(KEY_PATH,'utf8'))) })
+admin.initializeApp({ credential: admin.credential.cert(JSON.parse(readFileSync(KEY_PATH,'utf8'))), storageBucket: STORAGE_BUCKET })
 const db = admin.firestore()
+const bucket = admin.storage().bucket()
 const MSGS  = db.collection('claude_remote_messages')
 const STATE = db.collection('claude_remote_state').doc('state')
 const TS = () => admin.firestore.FieldValue.serverTimestamp()
 const sleep = ms => new Promise(r => setTimeout(r, ms))
+
+let cancelFlag = false, lastSessionId = null
+STATE.onSnapshot(s => { if (s.exists && s.data().cancelRequested) cancelFlag = true })
 
 // ── manifesto two-way sync ────────────────────────────────────────────────────
 let lastManifesto = ''
@@ -51,100 +51,116 @@ async function syncManifesto() {
   const snap = await STATE.get()
   const remote = snap.exists ? (snap.data().manifesto || '') : ''
   const local  = existsSync(MANIFESTO_PATH) ? readFileSync(MANIFESTO_PATH,'utf8') : ''
-  if (!remote && local) {                       // seed portal from disk
-    await STATE.set({ manifesto: local }, { merge: true }); lastManifesto = local
-  } else if (remote && remote !== lastManifesto && remote !== local) {
-    writeFileSync(MANIFESTO_PATH, remote, 'utf8')  // owner edited it in the portal → apply to disk
-    lastManifesto = remote
-    console.log('• Manifesto updated from portal → CLAUDE.md')
-  } else {
-    lastManifesto = remote || local
-  }
+  if (!remote && local) { await STATE.set({ manifesto: local }, { merge:true }); lastManifesto = local }
+  else if (remote && remote !== lastManifesto && remote !== local) {
+    writeFileSync(MANIFESTO_PATH, remote, 'utf8'); lastManifesto = remote
+    console.log('• Manifesto: portal → CLAUDE.md')
+  } else lastManifesto = remote || local
 }
 
-// ── session-limit estimate ────────────────────────────────────────────────────
 let win = { start: Date.now(), count: 0 }
 async function pushUsage() {
   if (Date.now() - win.start > WINDOW_MS) win = { start: Date.now(), count: 0 }
-  const usedPct = Math.min(100, Math.round((win.count / SOFT_LIMIT) * 100))
-  await STATE.set({ sessionUsage: {
-    usedPct, resetAt: new Date(win.start + WINDOW_MS).toISOString(),
-    label: `≈ ${win.count}/${SOFT_LIMIT} prompts αυτό το 5ωρο (εκτίμηση)`,
-  }, bridgeHeartbeat: new Date().toISOString() }, { merge: true })
+  await STATE.set({
+    sessionUsage: { usedPct: Math.min(100, Math.round(win.count/SOFT_LIMIT*100)),
+      resetAt: new Date(win.start+WINDOW_MS).toISOString(),
+      label: `≈ ${win.count}/${SOFT_LIMIT} prompts αυτό το 5ωρο (εκτίμηση)` },
+    bridgeHeartbeat: new Date().toISOString(),
+  }, { merge:true })
 }
 
-// ── approval round-trip (manifesto rule #3) ───────────────────────────────────
-async function askApproval(text) {
-  const ref = await MSGS.add({ role:'assistant', kind:'approval', text, status:'pending', createdAt: TS() })
-  while (true) {
-    await sleep(2500)
+// ── SHORT approval (gist) + full detail on tap ────────────────────────────────
+async function askApproval(summary, detail) {
+  const ref = await MSGS.add({ role:'assistant', kind:'approval', text: summary, detail, status:'pending', createdAt: TS() })
+  while (!cancelFlag) {
+    await sleep(2000)
     const d = (await ref.get()).data()
     if (d?.status === 'answered') return d.decision === 'yes'
   }
+  return false
 }
-function describe(tool, input) {
-  let detail = ''
-  if (tool === 'Bash')        detail = input.command || ''
-  else if (tool === 'Write')  detail = `Γράψιμο αρχείου: ${input.file_path || ''}`
-  else if (tool === 'Edit' || tool === 'MultiEdit') detail = `Επεξεργασία: ${input.file_path || ''}`
-  else if (tool.startsWith('mcp__base44__')) detail = `Base44 ${tool.replace('mcp__base44__','')} (ΠΡΟΣΟΧΗ: read-only κανόνας)`
-  else detail = JSON.stringify(input).slice(0, 300)
-  return `Το Claude Code θέλει να εκτελέσει: ${tool}\n\n${detail}\n\nΝα προχωρήσει;`
+function summarize(tool, input) {
+  if (tool === 'Bash') {
+    const c = (input.command || '').trim()
+    const verb = /^cat|^ls|^grep|^rg|^find|^head|^tail|^git (status|log|diff)/i.test(c) ? 'Διάβασμα' : 'Εκτέλεση εντολής'
+    return { summary: `${verb} στο τερματικό`, detail: c }
+  }
+  if (tool === 'Write')    return { summary: `Δημιουργία/εγγραφή: ${(input.file_path||'').split(/[\\/]/).pop()}`, detail: input.file_path }
+  if (tool === 'Edit' || tool === 'MultiEdit') return { summary: `Επεξεργασία: ${(input.file_path||'').split(/[\\/]/).pop()}`, detail: input.file_path }
+  if (tool.startsWith('mcp__base44__')) return { summary: `Base44 ${tool.replace('mcp__base44__','')} (read-only κανόνας!)`, detail: JSON.stringify(input).slice(0,500) }
+  return { summary: `Εργαλείο: ${tool}`, detail: JSON.stringify(input).slice(0,500) }
 }
 
-// ── run one prompt through Claude ─────────────────────────────────────────────
-async function run(promptDoc) {
-  const { text } = promptDoc.data()
-  await promptDoc.ref.update({ status: 'running' })
-  await STATE.set({ busy: true, activity: 'Επεξεργασία prompt…' }, { merge: true })
-  win.count++
+// ── download a portal image to a temp file Claude can Read ────────────────────
+async function fetchImage(path) {
+  try {
+    const dir = join(tmpdir(), 'claude-bridge'); mkdirSync(dir, { recursive:true })
+    const dest = join(dir, path.split('/').pop())
+    await bucket.file(path).download({ destination: dest })
+    return dest
+  } catch (e) { console.error('image fetch failed:', e.message); return null }
+}
+
+async function run(promptDoc, state) {
+  const data = promptDoc.data()
+  let text = data.text || ''
+  await promptDoc.ref.update({ status:'running' })
+  await STATE.set({ busy:true, activity:'Επεξεργασία prompt…', cancelRequested:false }, { merge:true })
+  cancelFlag = false; win.count++
+
+  if (data.imagePath) {
+    const local = await fetchImage(data.imagePath)
+    if (local) text += `\n\n[Ο χρήστης επισύναψε εικόνα. Διάβασέ την με το Read tool: ${local}]`
+  }
+
+  const auto = !!state.autoApprove
+  const modelId = MODEL_MAP[state.model || 'opus'] || MODEL_MAP.opus
+  const ac = new AbortController()
+  const cancelWatch = setInterval(() => { if (cancelFlag) ac.abort() }, 1500)
+
   let finalText = ''
   try {
-    const res = query({
-      prompt: text,
-      options: {
-        cwd: PROJECT_CWD,
-        permissionMode: 'default',
-        pathToClaudeCodeExecutable: CLAUDE_EXE,
-        canUseTool: async (toolName, input) => {
-          if (AUTO_ALLOW.has(toolName)) return { behavior: 'allow', updatedInput: input }
-          const ok = await askApproval(describe(toolName, input))
-          return ok ? { behavior: 'allow', updatedInput: input }
-                    : { behavior: 'deny', message: 'Ο χρήστης απέρριψε αυτή την ενέργεια.' }
-        },
+    const res = query({ prompt: text, options: {
+      cwd: PROJECT_CWD, permissionMode:'default', pathToClaudeCodeExecutable: CLAUDE_EXE,
+      model: modelId, abortController: ac,
+      ...(lastSessionId ? { resume: lastSessionId } : {}),
+      canUseTool: async (toolName, input) => {
+        if (AUTO_ALLOW.has(toolName)) return { behavior:'allow', updatedInput: input }
+        if (auto && toolName === 'Bash') {
+          const c = input.command || ''
+          if (RO_BASH.test(c) && !DANGER.test(c)) return { behavior:'allow', updatedInput: input }
+        }
+        const { summary, detail } = summarize(toolName, input)
+        const ok = await askApproval(summary, detail)
+        return ok ? { behavior:'allow', updatedInput: input } : { behavior:'deny', message:'Απορρίφθηκε από τον χρήστη.' }
       },
-    })
+    }})
     for await (const msg of res) {
+      if (msg.session_id) lastSessionId = msg.session_id
       if (msg.type === 'assistant' && msg.message?.content) {
         for (const b of msg.message.content) if (b.type === 'text') finalText = b.text
-      } else if (msg.type === 'result') {
-        finalText = msg.result || finalText
-      }
+      } else if (msg.type === 'result') finalText = msg.result || finalText
     }
   } catch (e) {
-    finalText = '⚠️ Σφάλμα: ' + (e?.message || String(e))
-  }
+    finalText = cancelFlag ? '⏹ Σταματήθηκε από τον χρήστη.' : ('⚠️ Σφάλμα: ' + (e?.message || String(e)))
+  } finally { clearInterval(cancelWatch) }
+
   await MSGS.add({ role:'assistant', kind:'answer', text: finalText || '(κενή απάντηση)', createdAt: TS() })
-  await promptDoc.ref.update({ status: 'done' })
-  await STATE.set({ busy: false, activity: '' }, { merge: true })
+  await promptDoc.ref.update({ status:'done' })
+  await STATE.set({ busy:false, activity:'', cancelRequested:false }, { merge:true })
 }
 
-// ── main loop ─────────────────────────────────────────────────────────────────
-console.log('Claude bridge online. Watching for prompts from the portal…')
+console.log('Claude bridge v2 online. Watching for prompts…')
 await syncManifesto()
 while (true) {
   try {
-    await pushUsage()
-    await syncManifesto()
-    // single-field equality uses Firestore's automatic index (no composite index needed);
-    // filter role/kind and pick the oldest client-side
+    await pushUsage(); await syncManifesto()
+    const snap = await STATE.get(); const st = snap.exists ? snap.data() : {}
+    if (st.remoteEnabled === false) { await sleep(POLL_MS); continue }   // Remote OFF
     const q = await MSGS.where('status','==','pending').get()
-    const pend = q.docs
-      .filter(d => { const x = d.data(); return x.role === 'user' && x.kind === 'prompt' })
-      .sort((a,b) => (a.data().createdAt?.toMillis?.() || 0) - (b.data().createdAt?.toMillis?.() || 0))
-    if (pend.length) await run(pend[0])
-  } catch (e) {
-    console.error('loop error:', e?.message || e)
-  }
+    const pend = q.docs.filter(d => { const x=d.data(); return x.role==='user' && x.kind==='prompt' })
+      .sort((a,b)=>(a.data().createdAt?.toMillis?.()||0)-(b.data().createdAt?.toMillis?.()||0))
+    if (pend.length) await run(pend[0], st)
+  } catch (e) { console.error('loop error:', e?.message || e) }
   await sleep(POLL_MS)
 }

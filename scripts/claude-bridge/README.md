@@ -33,6 +33,17 @@ Leave the window open. The portal shows **● online** when the bridge is runnin
 - The **session-limit bar** is an estimate (rolling 5h window); tune `SOFT_LIMIT`
   in `bridge.mjs` to match your plan.
 
+## v2 features (portal /claude)
+- **Remote ON/OFF** + **model chips** (Opus/Sonnet/Haiku/Fable, default = last) + **Auto-approve (read-only)** toggle.
+- **Voice input** (🎤, Greek-first) · **image attach** (📎, photo → prompt) · **Stop** button.
+- Answers render **markdown, tables and charts** (assistant can emit a ```chart block).
+- Approvals are **short** (the gist) with full detail on tap.
+
+## Optional: mirror this terminal into the portal
+Run `mirror-hook.mjs` as a Claude Code **Stop** hook (see the file header) so what
+you do in the terminal here also shows in the portal as small notes. Opt-in — it
+doesn't touch your existing hooks unless you add it.
+
 ## Security
 Admin-only page. The bridge uses the service-account key already on this machine.
 Anyone who can reach the portal as an admin can run Claude Code here — keep admin
