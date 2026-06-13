@@ -23,8 +23,11 @@ const { query } = await import('@anthropic-ai/claude-agent-sdk')
 
 // ── config ──────────────────────────────────────────────────────────────────
 const KEY_PATH      = 'C:\\Users\\User\\Downloads\\serviceaccountkey.json'
-const PROJECT_CWD   = 'C:\\Users\\User'                 // Claude runs with full context here
+const PROJECT_CWD   = 'C:/Users/User'                   // Claude runs with full context here
 const MANIFESTO_PATH= 'C:\\Users\\User\\CLAUDE.md'
+// The SDK's bundled binary fails to launch on this machine — point it at the
+// natively-installed Claude Code CLI (verified working, uses your subscription).
+const CLAUDE_EXE    = 'C:/Users/User/.local/bin/claude.exe'
 const POLL_MS       = 4000
 const WINDOW_MS     = 5 * 60 * 60 * 1000                // rolling 5h Claude Code window
 const SOFT_LIMIT    = 45                                // est. prompts per window (tune to taste)
@@ -102,6 +105,7 @@ async function run(promptDoc) {
       options: {
         cwd: PROJECT_CWD,
         permissionMode: 'default',
+        pathToClaudeCodeExecutable: CLAUDE_EXE,
         canUseTool: async (toolName, input) => {
           if (AUTO_ALLOW.has(toolName)) return { behavior: 'allow', updatedInput: input }
           const ok = await askApproval(describe(toolName, input))
