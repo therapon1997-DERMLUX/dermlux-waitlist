@@ -26,8 +26,12 @@ export const missingFields = e => {
   if (!e.category)        m.push('category')
   return m
 }
-// Short category code, e.g. "8203 · ΔΙΑΦΗΜΙΣΕΙΣ" → "8203"
-const catCode = c => (c || '').split('·')[0].trim() || '—'
+// Category name without the code, e.g. "8203 · ΔΙΑΦΗΜΙΣΕΙΣ" → "ΔΙΑΦΗΜΙΣΕΙΣ"
+const catName = c => {
+  if (!c) return '—'
+  const parts = c.split('·')
+  return (parts[1] || parts[0]).trim()
+}
 
 export default function Bookkeeping() {
   const [expenses, setExpenses] = useState([])
@@ -191,19 +195,31 @@ export default function Bookkeeping() {
       {/* Category breakdown bars */}
       {groups.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-xl p-4 mb-6">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Ανά κατηγορία</h3>
-          <div className="space-y-2">
-            {groups.map(({ category: c, catTotal: v }) => (
-              <div key={c} className="flex items-center gap-3 text-sm">
-                <span className="w-52 text-gray-600 shrink-0 truncate">{c}</span>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Ανά κατηγορία</h3>
+            {cat && (
+              <button onClick={() => setCat('')} className="text-xs text-green-600 hover:underline font-medium">
+                ✕ καθαρισμός φίλτρου
+              </button>
+            )}
+          </div>
+          <div className="space-y-1">
+            {groups.map(({ category: c, catTotal: v }) => {
+              const active = cat === c
+              return (
+              <button key={c} onClick={() => setCat(active ? '' : c)}
+                className={`w-full flex items-center gap-3 text-sm rounded-lg px-2 py-1.5 -mx-2 transition-colors text-left ${
+                  active ? 'bg-green-50 ring-1 ring-green-300' : 'hover:bg-gray-50'}`}>
+                <span className={`w-52 shrink-0 truncate ${active ? 'text-green-800 font-semibold' : 'text-gray-600'}`}>{c}</span>
                 <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-green-400 to-green-600 rounded-full"
+                  <div className={`h-full rounded-full ${active ? 'bg-gradient-to-r from-green-500 to-green-700' : 'bg-gradient-to-r from-green-400 to-green-600'}`}
                        style={{ width: `${(v / maxCat) * 100}%` }} />
                 </div>
-                <span className="w-24 text-right font-semibold text-gray-700 shrink-0">{eur(v)}</span>
-              </div>
-            ))}
+                <span className={`w-24 text-right font-semibold shrink-0 ${active ? 'text-green-800' : 'text-gray-700'}`}>{eur(v)}</span>
+              </button>
+            )})}
           </div>
+          <p className="text-xs text-gray-400 mt-2">Κάνε κλικ σε μια κατηγορία για να δεις τις αποδείξεις της παρακάτω.</p>
         </div>
       )}
 
@@ -273,7 +289,7 @@ export default function Bookkeeping() {
 
                   {/* Category */}
                   <span className={`hidden md:block text-xs truncate ${miss.includes('category') ? 'text-red-600 font-semibold' : 'text-gray-500'}`} title={e.category || ''}>
-                    {catCode(e.category)}
+                    {catName(e.category)}
                   </span>
 
                   {/* Net */}
