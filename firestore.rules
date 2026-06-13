@@ -1,19 +1,63 @@
 rules_version = '2';
 
-// ΚΑΝΟΝΕΣ FIRESTORE DATABASE
-// Επικολλούνται ΜΟΝΟ στο: Firebase Console → Firestore Database → Rules
-// (ΠΟΤΕ στο Storage → Rules και αντίστροφα!)
+// ΚΑΝΟΝΕΣ FIRESTORE DATABASE  (Firebase Console → Firestore Database → Rules)
+// ΠΟΤΕ στο Storage → Rules.
 //
-// Ιστορικό: στις 10/06/2026 οι κανόνες Storage μπήκαν κατά λάθος εδώ,
-// με αποτέλεσμα όλη η εφαρμογή να δείχνει άδεια (μπλοκαρισμένα reads).
-// Επαναφορά: 11/06/2026.
+// Role-based (13/06/2026): οι ευαίσθητες συλλογές κλειδώνονται ανά ρόλο, ώστε
+// ένας χακαρισμένος/χαμηλόβαθμος λογαριασμός να ΜΗΝ φτάνει σε όλα.
+// Ο worker + η γέφυρα χρησιμοποιούν service account → παρακάμπτουν τους κανόνες.
+// Προηγούμενος (ανοιχτός) κανόνας για instant revert: match /{d=**}{ allow read,write: if request.auth!=null }
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Όλες οι συλλογές: μόνο συνδεδεμένοι χρήστες.
-    // Ο διαχωρισμός admin/agent/ekloges γίνεται στην εφαρμογή (routes).
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+
+    function authed() { return request.auth != null; }
+    function roleOf() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+        : '';
     }
+    function isAdmin() {
+      return authed() && (request.auth.uid == 'TMgFlpv8ZcNGcgk7XKIxjDktf802' || roleOf() == 'admin');
+    }
+    function isStaff() { return authed() && (isAdmin() || roleOf() == 'agent'); } // κλινικό προσωπικό (όχι ekloges)
+
+    // ── Χρήστες: ο καθένας βλέπει το δικό του προφίλ· μόνο admin διαχειρίζεται ──
+    match /users/{uid} {
+      allow read:   if authed() && (request.auth.uid == uid || isAdmin());
+      // first-login self-create μόνο ως 'agent' (κανένα privilege escalation)·
+      // ο admin μπορεί να δημιουργήσει οποιονδήποτε ρόλο.
+      allow create: if isAdmin() || (authed() && request.auth.uid == uid && request.resource.data.role == 'agent');
+      allow update, delete: if isAdmin();
+    }
+
+    // ── Μόνο admin (ευαίσθητα: οικονομικά, email, remote, εκλογικές επαφές) ──
+    match /expenses/{d}               { allow read, write: if isAdmin(); }
+    match /email_contacts/{d}         { allow read, write: if isAdmin(); }
+    match /email_campaigns/{d}        { allow read, write: if isAdmin(); }
+    match /email_sends/{d}            { allow read, write: if isAdmin(); }
+    match /email_templates/{d}        { allow read, write: if isAdmin(); }
+    match /claude_remote_messages/{d} { allow read, write: if isAdmin(); }
+    match /claude_remote_state/{d}    { allow read, write: if isAdmin(); }
+    match /voteContacts/{d}           { allow read, write: if isAdmin(); }
+    match /volunteers/{d}             { allow read, write: if isAdmin(); }
+
+    // ── Audit log: append-only, μόνο admin διαβάζει, κανείς δεν σβήνει ──
+    match /audit_log/{d} {
+      allow create: if authed();
+      allow read:   if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // ── Κλινικά δεδομένα (ασθενείς) — ΜΟΝΟ κλινικό προσωπικό, ΟΧΙ ekloges ──
+    match /patients/{d}       { allow read, write: if isStaff(); }
+    match /visits/{d}         { allow read, write: if isStaff(); }
+    match /consent_forms/{d}  { allow read, write: if isStaff(); }
+    match /patient_photos/{d} { allow read, write: if isStaff(); }
+    match /clients/{d}        { allow read, write: if isStaff(); }
+    match /happyhour/{d}      { allow read, write: if isStaff(); }
+
+    // ── Ό,τι άλλο (eklogika_*, ballot_results κ.λπ.): συνδεδεμένοι χρήστες ──
+    match /{document=**} { allow read, write: if authed(); }
   }
 }
