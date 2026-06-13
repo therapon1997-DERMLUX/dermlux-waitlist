@@ -81,6 +81,19 @@ export function AuthProvider({ children }) {
     return unsub
   }, [])
 
+  // Security: auto-logout after inactivity (no impact on connectivity/perf —
+  // just a passive timer that resets on user activity).
+  useEffect(() => {
+    if (!currentUser) return
+    const IDLE_MS = 30 * 60 * 1000 // 30 minutes
+    let timer
+    const reset = () => { clearTimeout(timer); timer = setTimeout(() => { signOut(auth) }, IDLE_MS) }
+    const evts = ['mousedown', 'keydown', 'touchstart', 'scroll']
+    evts.forEach(e => window.addEventListener(e, reset, { passive: true }))
+    reset()
+    return () => { clearTimeout(timer); evts.forEach(e => window.removeEventListener(e, reset)) }
+  }, [currentUser])
+
   const ADMIN_UID = 'TMgFlpv8ZcNGcgk7XKIxjDktf802'
   const isAdmin = userProfile?.role === 'admin' || currentUser?.uid === ADMIN_UID
   const isEkloges = userProfile?.role === 'ekloges' || isAdmin

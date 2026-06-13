@@ -10,8 +10,8 @@
  *
  * Setup:  cd scripts/claude-bridge && npm install && npm start
  */
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
+import { tmpdir, homedir } from 'node:os'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
@@ -23,7 +23,12 @@ const PROJECT_CWD   = 'C:/Users/User'
 const MANIFESTO_PATH= 'C:\\Users\\User\\CLAUDE.md'
 const CLAUDE_EXE    = 'C:/Users/User/.local/bin/claude.exe'
 const STORAGE_BUCKET= 'dermlux-waitlist.firebasestorage.app'
-const POLL_MS = 4000, WINDOW_MS = 5*60*60*1000, SOFT_LIMIT = 45
+const POLL_MS = 4000, WINDOW_MS = 5*60*60*1000
+// Real usage is measured from Claude Code's own transcripts (terminal + portal +
+// bridge — everything on this machine). BUDGET = your rough token allowance per
+// 5h window; tune to your plan. The label always shows the real token count too.
+const PROJECTS_DIR = join(homedir(), '.claude', 'projects')
+const BUDGET_TOKENS = 10_000_000   // ~billable tokens per 5h (input+output+cache_creation); tune to your plan
 
 const MODEL_MAP = { opus:'claude-opus-4-8', sonnet:'claude-sonnet-4-6', haiku:'claude-haiku-4-5', fable:'claude-fable-5' }
 const AUTO_ALLOW = new Set([
@@ -58,15 +63,46 @@ async function syncManifesto() {
   } else lastManifesto = remote || local
 }
 
-let win = { start: Date.now(), count: 0 }
+// Walk all transcript files and sum real token usage in the rolling 5h window.
+function listTranscripts(dir, out = []) {
+  let entries; try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return out }
+  for (const e of entries) {
+    const p = join(dir, e.name)
+    if (e.isDirectory()) listTranscripts(p, out)
+    else if (e.name.endsWith('.jsonl')) out.push(p)
+  }
+  return out
+}
+function computeRealUsage() {
+  const now = Date.now(), since = now - WINDOW_MS
+  let tokens = 0, oldest = now
+  for (const fp of listTranscripts(PROJECTS_DIR)) {
+    try { if (statSync(fp).mtimeMs < since) continue } catch { continue }   // skip files untouched in window
+    let text; try { text = readFileSync(fp, 'utf8') } catch { continue }
+    for (const ln of text.split('\n')) {
+      if (!ln) continue
+      let o; try { o = JSON.parse(ln) } catch { continue }
+      const u = o?.message?.usage; if (!u) continue
+      const t = Date.parse(o.timestamp || '') || 0
+      if (t < since || t > now) continue
+      // billable throughput: exclude cache_read (cheap re-read of cached context)
+      tokens += (u.input_tokens||0) + (u.output_tokens||0) + (u.cache_creation_input_tokens||0)
+      if (t < oldest) oldest = t
+    }
+  }
+  const usedPct = Math.min(100, Math.round(tokens / BUDGET_TOKENS * 100))
+  const m = (tokens/1e6).toFixed(2)
+  return { usedPct, resetAt: new Date(oldest + WINDOW_MS).toISOString(),
+    label: `≈ ${m}M tokens το τελευταίο 5ωρο · όλες οι χρήσεις (terminal + portal)` }
+}
+
+let lastUsageAt = 0, cachedUsage = null
 async function pushUsage() {
-  if (Date.now() - win.start > WINDOW_MS) win = { start: Date.now(), count: 0 }
-  await STATE.set({
-    sessionUsage: { usedPct: Math.min(100, Math.round(win.count/SOFT_LIMIT*100)),
-      resetAt: new Date(win.start+WINDOW_MS).toISOString(),
-      label: `≈ ${win.count}/${SOFT_LIMIT} prompts αυτό το 5ωρο (εκτίμηση)` },
-    bridgeHeartbeat: new Date().toISOString(),
-  }, { merge:true })
+  if (!cachedUsage || Date.now() - lastUsageAt > 60000) {   // recompute at most once a minute
+    try { cachedUsage = computeRealUsage() } catch { cachedUsage = cachedUsage || { usedPct:0, label:'—' } }
+    lastUsageAt = Date.now()
+  }
+  await STATE.set({ sessionUsage: cachedUsage, bridgeHeartbeat: new Date().toISOString() }, { merge:true })
 }
 
 // ── SHORT approval (gist) + full detail on tap ────────────────────────────────
@@ -106,7 +142,7 @@ async function run(promptDoc, state) {
   let text = data.text || ''
   await promptDoc.ref.update({ status:'running' })
   await STATE.set({ busy:true, activity:'Επεξεργασία prompt…', cancelRequested:false }, { merge:true })
-  cancelFlag = false; win.count++
+  cancelFlag = false
 
   if (data.imagePath) {
     const local = await fetchImage(data.imagePath)

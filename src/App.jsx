@@ -20,6 +20,7 @@ const PatientProfile  = lazy(() => import('./components/medical/PatientProfile')
 const Bookkeeping     = lazy(() => import('./components/bookkeeping/Bookkeeping'))
 const ImportExpensify = lazy(() => import('./components/bookkeeping/ImportExpensify'))
 const ClaudeRemote    = lazy(() => import('./components/claude/ClaudeRemote'))
+const ClaudePinGate   = lazy(() => import('./components/claude/ClaudePinGate'))
 const UnsubscribePage = lazy(() => import('./components/email/UnsubscribePage'))
 
 function PageLoader() {
@@ -77,7 +78,7 @@ export default function App() {
               <Route path="/medical/:id" element={<ProtectedRoute><PatientProfile /></ProtectedRoute>} />
               <Route path="/bookkeeping" element={<AdminRoute><Bookkeeping /></AdminRoute>} />
               <Route path="/import-expensify" element={<AdminRoute><ImportExpensify /></AdminRoute>} />
-              <Route path="/claude" element={<AdminRoute><ClaudeRemote /></AdminRoute>} />
+              <Route path="/claude" element={<AdminRoute><ClaudePinGate><ClaudeRemote /></ClaudePinGate></AdminRoute>} />
               <Route path="/unsubscribe" element={<UnsubscribePage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

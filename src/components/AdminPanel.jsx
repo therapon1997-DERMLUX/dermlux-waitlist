@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useRef } from 'react'
 import { collection, onSnapshot, query, doc, updateDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { useAuth } from '../contexts/AuthContext'
+import { logAudit } from '../utils/audit'
 import { startOfDay, endOfDay, startOfWeek, endOfWeek, isWithinInterval } from 'date-fns'
 import { toDate } from '../utils/dateHelpers'
 
@@ -49,6 +50,8 @@ export default function AdminPanel() {
       if (!res.ok) {
         const e = await res.json().catch(() => ({}))
         alert('Η διαγραφή απέτυχε: ' + (e.error || res.status))
+      } else {
+        logAudit('user_delete', { email: u.email, name: u.displayName })
       }
       // onSnapshot refreshes the list automatically
     } catch (e) {
@@ -312,6 +315,7 @@ function PasswordCell({ userId, email, password }) {
         return
       }
       // worker already synced the Firestore note; onSnapshot will refresh
+      logAudit('user_password_set', { email })
       setEditing(false)
     } catch (e) {
       setErr(e.message || 'Σφάλμα')

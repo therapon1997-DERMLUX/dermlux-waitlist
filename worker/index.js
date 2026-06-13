@@ -122,6 +122,10 @@ export default {
       // without it the browser preflight blocks those cross-origin requests.
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       'Vary': 'Origin',
+      // Lightweight hardening headers — no effect on functionality/connectivity
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
     }
 
     if (request.method === 'OPTIONS') {

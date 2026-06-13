@@ -5,6 +5,7 @@ import {
 import { ref as sRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage } from '../../firebase/config'
 import { useAuth } from '../../contexts/AuthContext'
+import { logAudit } from '../../utils/audit'
 import MessageContent from './MessageContent'
 
 /* Mobile-first remote control for Claude Code on the laptop.
@@ -89,6 +90,7 @@ export default function ClaudeRemote() {
         ...(image ? { imageUrl: image.url, imagePath: image.path } : {}),
         model, createdAt: serverTimestamp(), createdBy: userProfile?.displayName || '',
       })
+      logAudit('claude_prompt', { model, hasImage: !!image, chars: text.length })
       setInput(''); setImage(null)
     } finally { setSending(false) }
   }
