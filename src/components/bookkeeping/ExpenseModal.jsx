@@ -303,6 +303,11 @@ export default function ExpenseModal({ existing, onClose }) {
   const needsAction = Object.values(errs).some(Boolean)
   const fld = k => (errs[k] ? fieldErr : field)
 
+  // Line items extracted from the receipt (stored as a JSON string)
+  let lineItems = []
+  try { lineItems = existing?.lineItems ? JSON.parse(existing.lineItems) : [] } catch { lineItems = [] }
+  const money = n => (n == null || n === '' ? '—' : '€' + Number(n).toLocaleString('el-CY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+
   // Receipt preview panel — shown on the left when editing an expense that has an image
   const previewPanel = (
     <div className="shrink-0 md:w-[240px]">
@@ -497,6 +502,31 @@ export default function ExpenseModal({ existing, onClose }) {
             </div>
             </div>{/* /right column */}
             </div>{/* /flex row */}
+
+            {/* Line items — what the invoice actually contains */}
+            {lineItems.length > 0 && (
+              <div className="pt-1">
+                <label className={label}>Ανάλυση τιμολογίου ({lineItems.length} είδη)</label>
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="grid grid-cols-[1fr_3rem_5rem_5rem] gap-x-2 px-3 py-1.5 bg-gray-50 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                    <span>Περιγραφή</span>
+                    <span className="text-right">Ποσ.</span>
+                    <span className="text-right">Τιμή/μον.</span>
+                    <span className="text-right">Σύνολο</span>
+                  </div>
+                  <div className="max-h-56 overflow-y-auto">
+                    {lineItems.map((it, i) => (
+                      <div key={i} className="grid grid-cols-[1fr_3rem_5rem_5rem] gap-x-2 px-3 py-1.5 text-xs border-t border-gray-100">
+                        <span className="text-gray-700 break-words">{it.description || '—'}</span>
+                        <span className="text-right text-gray-500">{it.quantity ?? ''}</span>
+                        <span className="text-right text-gray-500">{it.unit_price != null ? money(it.unit_price) : ''}</span>
+                        <span className="text-right font-medium text-gray-800">{it.amount != null ? money(it.amount) : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </form>
         )}
         </div>{/* /scroll area */}
