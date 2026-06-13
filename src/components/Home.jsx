@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  animate, createScope, createTimeline, createTimer,
+  animate, createScope, createTimeline,
   onScroll, stagger, svg, utils,
 } from 'animejs'
 import { useAuth } from '../contexts/AuthContext'
@@ -11,18 +11,33 @@ import './Home.css'
 /* Official DermLux monogram (from the brandbook), transparent PNG.
    Rendered as a stack of layers in Z so the spinning "coin" has real
    3D thickness when seen edge-on. */
-const EMBLEM_LAYERS = 7
+/* Many thin slices stacked along Z fake a solid extruded coin: the
+   middle slices are hidden, the outer ones read as real thickness when
+   the monogram turns edge-on. Inner slices are dimmed so the edge reads
+   like brushed metal rather than a flat white blob. */
+const EMBLEM_LAYERS = 26
+const EMBLEM_DEPTH  = 46 // px total thickness
 function emblemLayers() {
-  return Array.from({ length: EMBLEM_LAYERS }, (_, i) => (
-    <img
-      key={i}
-      className="dlx-emblem-layer"
-      src={`${import.meta.env.BASE_URL}brand/emblem-motif.png`}
-      style={{ transform: `translateZ(${(i - (EMBLEM_LAYERS - 1) / 2) * 1.15}px)` }}
-      alt=""
-      draggable="false"
-    />
-  ))
+  const half = (EMBLEM_LAYERS - 1) / 2
+  return Array.from({ length: EMBLEM_LAYERS }, (_, i) => {
+    const z = (i - half) / half * (EMBLEM_DEPTH / 2)
+    const isFace = i === 0 || i === EMBLEM_LAYERS - 1
+    // core slices darker (the "metal" body), faces bright
+    const bright = isFace ? 1 : 0.34
+    return (
+      <img
+        key={i}
+        className="dlx-emblem-layer"
+        src={`${import.meta.env.BASE_URL}brand/emblem-motif.png`}
+        style={{
+          transform: `translateZ(${z}px)`,
+          filter: isFace ? 'none' : `brightness(${bright})`,
+        }}
+        alt=""
+        draggable="false"
+      />
+    )
+  })
 }
 
 const CARDS = [
@@ -79,10 +94,6 @@ export default function Home() {
      the prefers-reduced-motion media query flips.
      ════════════════════════════════════════════════════════════ */
   useEffect(() => {
-    /* shared coin-physics state: the anime timer (inside the scope)
-       reads it; the pointer listeners (outside) write to it */
-    const physics = { rot: 0, vel: 26, base: 26, dragging: false, lastX: 0, lastT: 0 }
-
     const scope = createScope({
       root: heroRef,
       mediaQueries: { reduceMotion: '(prefers-reduced-motion: reduce)' },
@@ -92,8 +103,6 @@ export default function Home() {
       const D = ms => (reduced ? 0 : ms)
       /* scroll-scrubbed autoplay — degrades to an instant set */
       const scrub = params => (reduced ? true : onScroll(params))
-      physics.base = reduced ? 0 : 26
-      physics.vel = physics.base
 
       /* ── 1 · Hero entrance — one orchestrated timeline ─────── */
       createTimeline({ defaults: { ease: 'outExpo', duration: D(1000) } })
@@ -126,33 +135,7 @@ export default function Home() {
         })
       })
 
-      /* ── 2 · 3D coin cruise on an anime timer ──────────────── */
-      const spin = spinRef.current
-      if (spin) {
-        const shadow = emblemShadowRef.current
-        createTimer({
-          onUpdate: t => {
-            const dt = Math.min(t.deltaTime / 1000, 0.05)
-            if (!physics.dragging) {
-              /* fling inertia decays back to cruise speed */
-              physics.vel = physics.base + (physics.vel - physics.base) * Math.exp(-dt * 1.3)
-              physics.rot += physics.vel * dt
-              spin.style.transform = `rotateY(${physics.rot}deg)`
-            }
-            /* cast shadow follows the spin: drifts side-to-side and
-               fades/widens as the coin turns edge-on — every frame,
-               even while dragging, so it stays glued to the monogram */
-            if (shadow) {
-              const rad    = physics.rot * Math.PI / 180
-              const facing = Math.cos(rad)          // +1 front, -1 back, 0 edge
-              const edge   = 1 - Math.abs(facing)   // 0 flat → 1 edge-on
-              shadow.style.opacity   = (0.12 + edge * 0.30).toFixed(3)
-              shadow.style.transform =
-                `translateX(${(-facing * 18).toFixed(1)}px) scaleX(${(0.55 + 0.45 * Math.abs(facing)).toFixed(3)})`
-            }
-          },
-        })
-      }
+      /* (the 3D coin spin runs in its own requestAnimationFrame effect below) */
 
       /* ── 3 · Scroll-scrubbed depth — the page moves WITH you ── */
 
@@ -239,49 +222,72 @@ export default function Home() {
     })
 
     /* coin drag/fling + hover — listeners feed the shared physics state */
-    const zone = emblemZoneRef.current
-    const spin = spinRef.current
-    const cruise = () => (reducedRef.current ? 0 : 26)
-    let down, move, up, enter, leave
-    if (zone && spin) {
-      down = e => {
-        physics.dragging = true
-        physics.lastX = e.clientX
-        physics.lastT = performance.now()
-        zone.setPointerCapture?.(e.pointerId)
-        zone.classList.add('dlx-grabbing')
-      }
-      move = e => {
-        if (!physics.dragging) return
-        const now = performance.now()
-        const dx = e.clientX - physics.lastX
-        physics.rot += dx * 0.55
-        const ms = Math.max(now - physics.lastT, 1)
-        physics.vel = Math.max(-900, Math.min(900, (dx * 0.55) / (ms / 1000)))
-        physics.lastX = e.clientX
-        physics.lastT = now
-        spin.style.transform = `rotateY(${physics.rot}deg)`
-      }
-      up = () => { physics.dragging = false; zone.classList.remove('dlx-grabbing') }
-      /* hover: the coin lights up and spins faster while the cursor is over it */
-      enter = () => { if (reducedRef.current) return; zone.classList.add('dlx-emblem-hot'); physics.base = 78 }
-      leave = () => { zone.classList.remove('dlx-emblem-hot'); physics.base = cruise() }
-      zone.addEventListener('pointerdown', down)
-      window.addEventListener('pointermove', move)
-      window.addEventListener('pointerup', up)
-      zone.addEventListener('pointerenter', enter)
-      zone.addEventListener('pointerleave', leave)
-    }
+    return () => scope.revert()
+  }, [])
 
-    return () => {
-      scope.revert()
-      if (zone && down) {
-        zone.removeEventListener('pointerdown', down)
-        zone.removeEventListener('pointerenter', enter)
-        zone.removeEventListener('pointerleave', leave)
-        window.removeEventListener('pointermove', move)
-        window.removeEventListener('pointerup', up)
+  /* ════════════════════════════════════════════════════════════
+     The 3D spinning coin — its own requestAnimationFrame loop so it
+     runs continuously and independently of the anime.js scope.
+     Drag to fling it, hover to light it up & speed it up; a cast
+     shadow drifts and fades in sync with the rotation.
+     ════════════════════════════════════════════════════════════ */
+  useEffect(() => {
+    const zone   = emblemZoneRef.current
+    const spin   = spinRef.current
+    const shadow = emblemShadowRef.current
+    if (!zone || !spin) return
+
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const CRUISE  = reduced ? 0 : 30          // deg/sec resting spin
+    const p = { rot: 0, vel: CRUISE, base: CRUISE, dragging: false, lastX: 0, lastT: 0 }
+    let raf = 0, prev = performance.now()
+
+    const frame = (now) => {
+      raf = requestAnimationFrame(frame)
+      const dt = Math.min((now - prev) / 1000, 0.05)
+      prev = now
+      if (!p.dragging) {
+        p.vel = p.base + (p.vel - p.base) * Math.exp(-dt * 1.4)  // inertia → cruise
+        p.rot += p.vel * dt
       }
+      spin.style.transform = `rotateY(${p.rot}deg)`
+      if (shadow) {
+        const facing = Math.cos(p.rot * Math.PI / 180)   // +1 front · 0 edge · -1 back
+        const edge   = 1 - Math.abs(facing)
+        shadow.style.opacity   = (0.14 + edge * 0.34).toFixed(3)
+        shadow.style.transform =
+          `translateX(${(-facing * 20).toFixed(1)}px) scaleX(${(0.5 + 0.5 * Math.abs(facing)).toFixed(3)})`
+      }
+    }
+    raf = requestAnimationFrame(frame)
+
+    const down = e => {
+      p.dragging = true; p.lastX = e.clientX; p.lastT = performance.now()
+      zone.setPointerCapture?.(e.pointerId); zone.classList.add('dlx-grabbing')
+    }
+    const move = e => {
+      if (!p.dragging) return
+      const now = performance.now(), dx = e.clientX - p.lastX
+      p.rot += dx * 0.55
+      p.vel = Math.max(-900, Math.min(900, (dx * 0.55) / (Math.max(now - p.lastT, 1) / 1000)))
+      p.lastX = e.clientX; p.lastT = now
+    }
+    const up    = () => { p.dragging = false; zone.classList.remove('dlx-grabbing') }
+    const enter = () => { if (reduced) return; zone.classList.add('dlx-emblem-hot'); p.base = 95 }
+    const leave = () => { zone.classList.remove('dlx-emblem-hot'); p.base = CRUISE }
+
+    zone.addEventListener('pointerdown', down)
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    zone.addEventListener('pointerenter', enter)
+    zone.addEventListener('pointerleave', leave)
+    return () => {
+      cancelAnimationFrame(raf)
+      zone.removeEventListener('pointerdown', down)
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      zone.removeEventListener('pointerenter', enter)
+      zone.removeEventListener('pointerleave', leave)
     }
   }, [])
 
