@@ -169,6 +169,11 @@ async function run(promptDoc, state) {
     const res = query({ prompt: text, options: {
       cwd: PROJECT_CWD, permissionMode:'default', pathToClaudeCodeExecutable: CLAUDE_EXE,
       model: modelId, abortController: ac,
+      // Same brain as the terminal: load CLAUDE.md (manifesto), memory, settings
+      // AND the configured MCP servers (Base44) so it understands context like
+      // "τζίρο σήμερα" → Dermlux revenue → query Base44.
+      systemPrompt: { type: 'preset', preset: 'claude_code' },
+      settingSources: ['user', 'project', 'local'],
       ...(lastSessionId ? { resume: lastSessionId } : {}),
       canUseTool: async (toolName, input) => {
         setAct(`🔧 ${toolName}…`)
