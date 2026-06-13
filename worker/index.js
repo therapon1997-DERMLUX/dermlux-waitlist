@@ -200,8 +200,16 @@ async function sendCampaign(request, env, json) {
   const { campaignId, campaign, contacts } = await request.json()
 
   // Build email objects for Resend batch API (max 100 per call — caller already chunks)
-  // Strip placeholder emails that would fail Resend validation
-  const validContacts = contacts.filter(c => fsValidEmail(c.email))
+  // Strip placeholder emails that would fail Resend validation AND collapse any
+  // duplicate email addresses so the same person never receives the campaign twice.
+  const seenEmails = new Set()
+  const validContacts = contacts.filter(c => {
+    if (!fsValidEmail(c.email)) return false
+    const key = c.email.trim().toLowerCase()
+    if (seenEmails.has(key)) return false
+    seenEmails.add(key)
+    return true
+  })
   const emails = validContacts.map(contact => {
     const unsub = `${APP_URL}/#/unsubscribe?c=${encodeURIComponent(contact.id)}&cid=${encodeURIComponent(campaignId)}&cn=${encodeURIComponent(campaign.name || '')}&e=${encodeURIComponent(contact.email)}`
     const html = (campaign.htmlBody || '')
@@ -676,8 +684,16 @@ async function sendAutoBatch(campaign, token, project, env, now) {
     ...(cursorRef ? { startAt: { values: [{ referenceValue: cursorRef }], before: false } } : {}),
   })
 
-  // ── 2. Apply audience segment filter ────────────────────────────────────────
-  const eligible = slice.filter(c => fsValidEmail(c.email) && matchesSegment(c, seg))
+  // ── 2. Apply audience segment filter + collapse duplicate emails ─────────────
+  //    (two contact records sharing one address must never both be mailed)
+  const seenBatchEmails = new Set()
+  const eligible = slice.filter(c => {
+    if (!fsValidEmail(c.email) || !matchesSegment(c, seg)) return false
+    const key = c.email.trim().toLowerCase()
+    if (seenBatchEmails.has(key)) return false
+    seenBatchEmails.add(key)
+    return true
+  })
 
   // ── 3. Check sent status via batchGet — 1 subrequest instead of N ─
   //    Cloudflare free plan allows only 50 subrequests per invocation.
@@ -961,8 +977,12 @@ async function extractInvoice(request, env, json) {
     `{"vendor": string|null, "vat_number": string|null, "invoice_number": string|null, ` +
     `"date": "YYYY-MM-DD"|null, "net": number|null, "vat": number|null, "vat_rate": number|null, ` +
     `"total": number|null, "currency": string|null, ` +
+    `"line_items": [{"description": string, "quantity": number|null, "unit_price": number|null, "amount": number|null}], ` +
     `"category": one of ["6201 · ΑΓΟΡΕΣ","8103 · ΕΝΟΙΚΙΑ","8105 · ΠΛΗΡΩΜΕΣ ΕΙΣ ΤΡΙΤΟΥΣ","8106 · ΤΗΛΕΦΩΝΙΚΑ","8108 · ΗΛΕΚΤΡΙΣΜΟΣ","8109 · ΝΕΡΟ","8110 · ΚΑΘΑΡΙΟΤΗΤΑ","8111 · ΓΡΑΦΙΚΗ ΥΛΗ","8112 · ΣΥΝΤΗΡΙΣΗ ΜΗΧΑΝΗΜΑΤΩΝ","8115 · ΕΛΕΓΚΤΙΚΑ","8116 · ΑΣΦΑΛΙΣΤΡΑ","8117 · ΔΙΚΗΓΟΡΙΚΑ","8119 · ΔΙΑΦΟΡΑ ΕΞΟΔΑ","8120 · ΦΟΡΟΙ & ΑΔΕΙΕΣ","8122 · ΕΙΣΦΟΡΕΣ - ΣΥΝΔΡΟΜΕΣ","8133 · ΣΥΝΤΗΡΙΣΗ ΚΤΙΡΙΩΝ","8136 · ΑΛΛΑ ΕΞΟΔΑ ΠΡΟΣΩΠΙΚΟΥ","8138 · ΕΦΟΔΙΑ & ΣΥΝΤΗΡΙΣΗ Η/Υ","8144 · ΕΚΤΕΛΩΝΙΣΤΙΚΑ","8151 · ΑΝΑΛΥΣΕΙΣ ΧΗΜΕΙΟΥ","8201 · ΠΡΟΜΗΘΕΙΑ - BONUS","8202 · ΠΕΡΙΠΟΙΗΣΗ ΠΕΛΑΤΩΝ","8203 · ΔΙΑΦΗΜΙΣΕΙΣ","8204 · ΜΕΤΑΦΟΡΙΚΑ","8205 · ΕΞΟΔΑ ΟΧΗΜΑΤΩΝ","8400 · ΤΟΚΟΙ & ΕΞΟΔΑ ΤΡΕΧΟΥΜΕΝΟΥ"]}. ` +
     `Rules: use null when a field is not present. Numbers are plain (no symbols, dot decimals). ` +
+    `line_items: transcribe EVERY product/service line on the invoice exactly as written (keep the original language, e.g. Greek). ` +
+    `description = the item text; quantity = units; unit_price = price per unit before line discounts; amount = the line total. ` +
+    `If the receipt shows no itemised lines (e.g. a bank/ad/utility summary), return line_items as []. Do not invent lines. ` +
     `vat_rate is a percent number (Cyprus is usually 19, sometimes 9/5/0). currency is an ISO code like "EUR". ` +
     `Pick the best-fitting category from the vendor name and line items. Examples: rent invoice → 8103, electricity/water bill → 8108/8109, Facebook/Google ads → 8203, product supplies for treatments → 6201, phone bill → 8106, accountant fee → 8115, lawyer → 8117, insurance → 8116.`
 
@@ -975,7 +995,7 @@ async function extractInvoice(request, env, json) {
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5',
-      max_tokens: 1024,
+      max_tokens: 3072,
       messages: [{ role: 'user', content: [docBlock, { type: 'text', text: prompt }] }],
     }),
   })

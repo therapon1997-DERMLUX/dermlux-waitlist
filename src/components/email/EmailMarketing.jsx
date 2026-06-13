@@ -19,6 +19,25 @@ function fmtSync(ts) {
   return new Date(ts).toLocaleString('el-GR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
+// Safety net: collapse any contacts that share an email so a person can
+// never appear (or be emailed) twice — even if the cache or DB has a stray
+// duplicate. When duplicates exist, keep the suppressed one (opt-out/bounce/
+// spam) so we never email someone who unsubscribed on their other record.
+const SUPPRESSED = new Set(['opt-out', 'optout', 'unsubscribed', 'bounced', 'bounce', 'spam', 'complained'])
+export function dedupeByEmail(list) {
+  const byEmail = new Map()
+  for (const c of list) {
+    const key = (c.email || '').trim().toLowerCase()
+    if (!key) continue
+    const existing = byEmail.get(key)
+    if (!existing) { byEmail.set(key, c); continue }
+    const curSupp  = SUPPRESSED.has((c.status || '').toLowerCase())
+    const prevSupp = SUPPRESSED.has((existing.status || '').toLowerCase())
+    if (curSupp && !prevSupp) byEmail.set(key, c)         // prefer suppressed record
+  }
+  return [...byEmail.values()]
+}
+
 export default function EmailMarketing() {
   const [tab, setTab]                 = useState('contacts')
   const [contacts, setContacts]       = useState([])
@@ -35,7 +54,7 @@ export default function EmailMarketing() {
     setError(null)
     try {
       const snap = await getDocs(query(collection(db, 'email_contacts'), orderBy('email')))
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const list = dedupeByEmail(snap.docs.map(d => ({ id: d.id, ...d.data() })))
       setContacts(list)
       const now = Date.now()
       setLastSync(now)
@@ -57,11 +76,14 @@ export default function EmailMarketing() {
       const cached = await loadContactsCache()
       if (cancelled) return
       if (cached?.contacts?.length) {
-        setContacts(cached.contacts)
+        const deduped = dedupeByEmail(cached.contacts)
+        setContacts(deduped)
         setLastSync(cached.savedAt)
         setContactsLoading(false)
         loadedRef.current = true
-        if (Date.now() - cached.savedAt > STALE_MS) fetchFresh() // silent background refresh
+        // if the cache still carried duplicates, it's from before the merge —
+        // refresh from Firestore now rather than waiting for the 24h staleness
+        if (deduped.length < cached.contacts.length || Date.now() - cached.savedAt > STALE_MS) fetchFresh()
       } else {
         fetchFresh()
       }
