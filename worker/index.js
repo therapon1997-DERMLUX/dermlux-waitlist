@@ -118,7 +118,9 @@ export default {
     const cors = {
       'Access-Control-Allow-Origin':  origin === ALLOWED_ORIGIN ? ALLOWED_ORIGIN : '',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      // Authorization is required for the invoice-image GET + upload/extract POSTs;
+      // without it the browser preflight blocks those cross-origin requests.
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       'Vary': 'Origin',
     }
 

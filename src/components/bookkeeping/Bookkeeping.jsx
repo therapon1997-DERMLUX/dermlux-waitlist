@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
+import { collection, onSnapshot, query, orderBy, doc, updateDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import ExpenseModal, { CATEGORIES, LOCATIONS } from './ExpenseModal'
 import ExportPrint from './ExportPrint'
@@ -42,6 +42,17 @@ export default function Bookkeeping() {
   const [cat, setCat]           = useState('')
   const [loc, setLoc]           = useState('')
   const [onlyNeeds, setOnlyNeeds] = useState(false)
+  const [viewMode, setViewMode]   = useState('invoice')   // 'invoice' | 'merchant'
+  const [openMerchant, setOpenMerchant] = useState(null)  // expanded merchant key
+  const [savingCat, setSavingCat] = useState(null)        // docId being recategorised
+
+  // Change an expense's category inline (onSnapshot refreshes the list)
+  async function changeCategory(id, newCat) {
+    setSavingCat(id)
+    try { await updateDoc(doc(db, 'expenses', id), { category: newCat }) }
+    catch (e) { console.error('recategorise failed', e) }
+    finally { setSavingCat(null) }
+  }
 
   useEffect(() => {
     const q = query(collection(db, 'expenses'), orderBy('date', 'desc'))
@@ -107,6 +118,25 @@ export default function Bookkeeping() {
   }, [filtered, totals])
 
   const maxCat = groups[0]?.catTotal || 1
+
+  // Group by merchant (normalised so "MJ Mediscience" == "MJ MEDISCIENCE LTD")
+  const merchants = useMemo(() => {
+    const norm = v => (v || '').toLowerCase().trim()
+      .replace(/[.,]/g, '')
+      .replace(/\b(ltd|limited|λτδ|epe|ε\.π\.ε)\b/g, '')
+      .replace(/\s+/g, ' ').trim()
+    const map = {}
+    for (const e of filtered) {
+      const k = norm(e.vendor) || '—'
+      if (!map[k]) map[k] = { key: k, name: e.vendor || '—', rows: [], total: 0, cats: {} }
+      const g = map[k]
+      g.rows.push(e)
+      g.total += Number(e.total) || 0
+      if ((e.vendor || '').length > g.name.length) g.name = e.vendor   // keep fullest name
+      if (e.category) g.cats[e.category] = (g.cats[e.category] || 0) + (Number(e.total) || 0)
+    }
+    return Object.values(map).sort((a, b) => b.total - a.total)
+  }, [filtered])
 
   const sel = 'border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white text-gray-700'
 
@@ -223,12 +253,82 @@ export default function Bookkeeping() {
         </div>
       )}
 
-      {/* Expense table — grouped by category like Expensify */}
+      {/* View toggle: per invoice vs per merchant */}
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-xs font-bold text-gray-400 uppercase tracking-wide mr-1">Προβολή</span>
+        {[['invoice', '🧾 Ανά τιμολόγιο'], ['merchant', '🏷️ Ανά προμηθευτή']].map(([m, lbl]) => (
+          <button key={m} onClick={() => setViewMode(m)}
+            className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+              viewMode === m
+                ? 'bg-green-600 border-green-600 text-white shadow-sm'
+                : 'bg-white border-gray-200 text-gray-600 hover:border-green-400 hover:text-green-700'}`}>
+            {lbl}
+          </button>
+        ))}
+        {viewMode === 'merchant' && <span className="text-sm text-gray-500 ml-1">{merchants.length} προμηθευτές</span>}
+      </div>
+
+      {/* ─────────── MERCHANT VIEW ─────────── */}
+      {!loading && filtered.length > 0 && viewMode === 'merchant' && (
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          {merchants.map((mch) => {
+            const open = openMerchant === mch.key
+            const topCat = Object.entries(mch.cats).sort((a, b) => b[1] - a[1])[0]?.[0]
+            const mNeeds = mch.rows.filter(e => missingFields(e).length > 0).length
+            return (
+              <div key={mch.key} className="border-b border-gray-100 last:border-0">
+                <button onClick={() => setOpenMerchant(open ? null : mch.key)}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-green-50 transition-colors">
+                  <span className={`text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="text-sm font-semibold text-gray-800 truncate block">{mch.name}</span>
+                    <span className="text-xs text-gray-400">{mch.rows.length} τιμολόγια{topCat ? ` · κυρίως ${catName(topCat)}` : ''}</span>
+                  </span>
+                  {mNeeds > 0 && (
+                    <span className="text-[10px] font-bold uppercase bg-red-100 text-red-600 px-1.5 py-0.5 rounded">{mNeeds} needs action</span>
+                  )}
+                  <span className="text-sm font-bold text-gray-900 shrink-0">{eur(mch.total)}</span>
+                </button>
+                {open && (
+                  <div className="bg-gray-50/60 border-t border-gray-100">
+                    {mch.rows.map(e => {
+                      const miss = missingFields(e)
+                      return (
+                        <div key={e.id} onClick={() => setModal(e)}
+                          className={`flex items-center gap-3 pl-10 pr-4 py-2.5 cursor-pointer border-b border-gray-100 last:border-0 transition-colors ${miss.length ? 'hover:bg-red-50' : 'hover:bg-green-50'}`}>
+                          <span className="text-xs text-gray-500 w-24 shrink-0">{fmtDate(e.date)}</span>
+                          <select value={e.category || ''}
+                            onClick={ev => ev.stopPropagation()}
+                            onChange={ev => { ev.stopPropagation(); changeCategory(e.id, ev.target.value) }}
+                            className={`flex-1 min-w-0 text-xs bg-transparent border border-transparent rounded px-1 cursor-pointer hover:border-gray-300 hover:bg-white focus:bg-white focus:border-green-400 focus:outline-none ${savingCat === e.id ? 'opacity-40' : ''} ${miss.includes('category') ? 'text-red-600 font-semibold' : 'text-gray-600'}`}>
+                            {!CATEGORIES.includes(e.category) && e.category && <option value={e.category}>{catName(e.category)}</option>}
+                            {CATEGORIES.map(c => <option key={c} value={c}>{catName(c)}</option>)}
+                          </select>
+                          {e.fileUrl
+                            ? <span className="text-green-500 text-xs shrink-0" title="Έχει αποδεικτικό">📎</span>
+                            : <span className="w-3 shrink-0" />}
+                          <span className={`text-sm font-semibold text-right w-20 shrink-0 ${miss.includes('total') ? 'text-red-600' : 'text-gray-900'}`}>{eur(e.total)}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+          <div className="flex items-center justify-between px-4 py-3 bg-green-50 border-t border-green-200">
+            <span className="text-sm font-semibold text-green-800">Σύνολο ({merchants.length} προμηθευτές)</span>
+            <span className="text-lg font-bold text-green-900">{eur(totals.total)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────── INVOICE VIEW (grouped by category) ─────────── */}
       {loading ? (
         <div className="text-center py-16 text-gray-400">Φόρτωση…</div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 text-gray-400">Δεν υπάρχουν έξοδα για αυτά τα φίλτρα</div>
-      ) : (
+      ) : viewMode === 'invoice' ? (
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
           {/* Column headers */}
           <div className="hidden md:grid grid-cols-[1.6rem_6rem_1fr_6rem_7rem_4.5rem_5rem_5.5rem] gap-x-3 px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-400 uppercase tracking-wide">
@@ -287,10 +387,15 @@ export default function Bookkeeping() {
                   {/* Notes — hidden on mobile */}
                   <span className="hidden md:block text-xs text-gray-400 truncate">{e.notes || e.invoiceNumber || ''}</span>
 
-                  {/* Category */}
-                  <span className={`hidden md:block text-xs truncate ${miss.includes('category') ? 'text-red-600 font-semibold' : 'text-gray-500'}`} title={e.category || ''}>
-                    {catName(e.category)}
-                  </span>
+                  {/* Category — inline editable */}
+                  <select value={e.category || ''}
+                    onClick={ev => ev.stopPropagation()}
+                    onChange={ev => { ev.stopPropagation(); changeCategory(e.id, ev.target.value) }}
+                    title="Αλλαγή κατηγορίας"
+                    className={`hidden md:block text-xs truncate bg-transparent border border-transparent rounded px-1 -ml-1 cursor-pointer hover:border-gray-300 hover:bg-gray-50 focus:bg-white focus:border-green-400 focus:outline-none ${savingCat === e.id ? 'opacity-40' : ''} ${miss.includes('category') ? 'text-red-600 font-semibold' : 'text-gray-600'}`}>
+                    {!CATEGORIES.includes(e.category) && e.category && <option value={e.category}>{catName(e.category)}</option>}
+                    {CATEGORIES.map(c => <option key={c} value={c}>{catName(c)}</option>)}
+                  </select>
 
                   {/* Net */}
                   <span className={`hidden md:block text-sm text-right ${miss.includes('net') ? 'text-red-500 font-semibold' : 'text-gray-600'}`}>
@@ -321,7 +426,7 @@ export default function Bookkeeping() {
             <span className="text-lg font-bold text-green-900">{eur(totals.total)}</span>
           </div>
         </div>
-      )}
+      ) : null}
 
       {modal && (
         <ExpenseModal
