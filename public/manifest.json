@@ -1,0 +1,14 @@
+{
+  "name": "DermLux Clinics",
+  "short_name": "DermLux",
+  "description": "DermLux Clinics — εσωτερικό portal",
+  "start_url": "/dermlux-waitlist/",
+  "scope": "/dermlux-waitlist/",
+  "display": "standalone",
+  "background_color": "#100f0d",
+  "theme_color": "#100f0d",
+  "icons": [
+    { "src": "/dermlux-waitlist/brand/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/dermlux-waitlist/brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

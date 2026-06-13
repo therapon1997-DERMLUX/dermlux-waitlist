@@ -7,6 +7,8 @@ import { toDate } from '../utils/dateHelpers'
 
 const CITIES   = ['Paphos', 'Nicosia', 'Limassol', 'Larnaca']
 const SERVICES = ['Laser', 'Facial', 'Injectable', 'Body']
+const WORKER      = import.meta.env.VITE_WORKER_URL || ''
+const OWNER_EMAIL = 'therapon1997@gmail.com'  // protected — never deletable
 
 function isToday(ts) {
   const d = toDate(ts)
@@ -26,11 +28,35 @@ function isThisWeek(ts) {
 }
 
 export default function AdminPanel() {
-  const { createUser } = useAuth()
+  const { createUser, currentUser } = useAuth()
   const [clients,   setClients]   = useState([])
   const [hhClients, setHhClients] = useState([])
   const [users,     setUsers]     = useState([])
   const [showCreateUser, setShowCreateUser] = useState(false)
+  const [deletingId, setDeletingId] = useState(null)
+
+  async function handleDeleteUser(u) {
+    if ((u.email || '').toLowerCase() === OWNER_EMAIL) return
+    if (!confirm(`Οριστική διαγραφή του χρήστη «${u.displayName || u.email}»;\n\nΔιαγράφεται ο λογαριασμός σύνδεσης ΚΑΙ το προφίλ του. Δεν αναιρείται.`)) return
+    setDeletingId(u.id)
+    try {
+      const idToken = await currentUser.getIdToken()
+      const res = await fetch(`${WORKER}/delete-user`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ uid: u.id, email: u.email }),
+      })
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        alert('Η διαγραφή απέτυχε: ' + (e.error || res.status))
+      }
+      // onSnapshot refreshes the list automatically
+    } catch (e) {
+      alert('Η διαγραφή απέτυχε: ' + e.message)
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   useEffect(() => {
     const u1 = onSnapshot(query(collection(db, 'clients')), snap =>
@@ -199,6 +225,7 @@ export default function AdminPanel() {
                 <th className="text-left pb-2">Κωδικός</th>
                 <th className="text-left pb-2">Ρόλος</th>
                 <th className="text-left pb-2">Κατάσταση</th>
+                <th className="text-right pb-2"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -207,7 +234,7 @@ export default function AdminPanel() {
                   <td className="py-2 font-medium">{u.displayName}</td>
                   <td className="py-2 text-gray-500">{u.email}</td>
                   <td className="py-2">
-                    <PasswordCell userId={u.id} password={u.password} />
+                    <PasswordCell userId={u.id} email={u.email} password={u.password} />
                   </td>
                   <td className="py-2">
                     <span className={`badge ${u.role === 'admin' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
@@ -222,6 +249,17 @@ export default function AdminPanel() {
                       {u.active ? 'Ενεργός' : 'Ανενεργός'}
                     </button>
                   </td>
+                  <td className="py-2 text-right">
+                    {(u.email || '').toLowerCase() === OWNER_EMAIL ? (
+                      <span className="text-xs text-gray-300" title="Ο ιδιοκτήτης δεν διαγράφεται">🔒</span>
+                    ) : (
+                      <button onClick={() => handleDeleteUser(u)} disabled={deletingId === u.id}
+                        title="Οριστική διαγραφή χρήστη"
+                        className="text-gray-300 hover:text-red-600 transition-colors text-sm disabled:opacity-40">
+                        {deletingId === u.id ? '…' : '🗑'}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -235,27 +273,51 @@ export default function AdminPanel() {
 }
 
 // ── Password cell with reveal / copy / edit ────────────────────────────────────
-function PasswordCell({ userId, password }) {
+// Editing here sets the user's REAL Firebase Auth login password (via the worker),
+// and keeps the visible note in sync — so the password shown actually works.
+function PasswordCell({ userId, email, password }) {
+  const { currentUser } = useAuth()
   const [visible,  setVisible]  = useState(false)
   const [editing,  setEditing]  = useState(false)
   const [draft,    setDraft]    = useState('')
   const [copied,   setCopied]   = useState(false)
   const [saving,   setSaving]   = useState(false)
+  const [err,      setErr]      = useState('')
   const inputRef = useRef(null)
 
   function startEdit() {
     setDraft(password || '')
     setEditing(true)
     setVisible(true)
+    setErr('')
     setTimeout(() => inputRef.current?.focus(), 50)
   }
 
   async function saveEdit() {
-    if (!draft.trim() || draft === password) { setEditing(false); return }
-    setSaving(true)
-    await updateDoc(doc(db, 'users', userId), { password: draft.trim() })
-    setSaving(false)
-    setEditing(false)
+    const pw = draft.trim()
+    if (!pw || pw === password) { setEditing(false); return }
+    if (pw.length < 6) { setErr('Τουλάχιστον 6 χαρακτήρες'); return }
+    setSaving(true); setErr('')
+    try {
+      const idToken = await currentUser.getIdToken()
+      const res = await fetch(`${WORKER}/set-user-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ uid: userId, email, password: pw }),
+      })
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        setErr(e.error || 'Σφάλμα')
+        setSaving(false)
+        return
+      }
+      // worker already synced the Firestore note; onSnapshot will refresh
+      setEditing(false)
+    } catch (e) {
+      setErr(e.message || 'Σφάλμα')
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function copyPw() {
@@ -293,6 +355,7 @@ function PasswordCell({ userId, password }) {
           className="text-xs text-gray-400 hover:text-red-500 px-1">
           ✕
         </button>
+        {err && <span className="text-xs text-red-500 ml-1">{err}</span>}
       </div>
     )
   }

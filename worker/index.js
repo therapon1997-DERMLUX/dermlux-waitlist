@@ -185,6 +185,14 @@ export default {
       if (url.pathname.startsWith('/invoices/') && request.method === 'GET') {
         return await serveInvoiceImage(request, env, url, origin)
       }
+      // Admin: set/reset a user's REAL Firebase Auth password (+ store the note)
+      if (url.pathname === '/set-user-password' && request.method === 'POST') {
+        return await setUserPassword(request, env, json)
+      }
+      // Admin: fully delete a user (Firebase Auth account + Firestore profile)
+      if (url.pathname === '/delete-user' && request.method === 'POST') {
+        return await deleteUserAccount(request, env, json)
+      }
       return json({ error: 'Not found' }, 404)
     } catch (e) {
       console.error('Worker error:', e)
@@ -1188,6 +1196,97 @@ async function serveInvoiceImage(request, env, url, origin) {
   obj.writeHttpMetadata(headers)
   headers.set('Cache-Control', 'private, max-age=3600')
   return new Response(obj.body, { headers })
+}
+
+// ─── Admin user management (Identity Toolkit admin via service account) ───────
+const OWNER_EMAIL = 'therapon1997@gmail.com'  // the owner — can never be deleted
+
+// Verify the CALLER is a signed-in admin; returns { uid, email, token, project }
+async function requireAdminCaller(request, env) {
+  const authHeader = request.headers.get('Authorization') || ''
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
+  if (!idToken) throw new Error('Unauthorized')
+  const payload = await verifyFirebaseToken(idToken, env.FIREBASE_PROJECT_ID)
+  const uid     = payload.user_id || payload.sub
+  const token   = await getFirebaseToken(env)
+  const project = env.FIREBASE_PROJECT_ID
+  const r = await fetch(
+    `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/users/${uid}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
+  if (!r.ok) throw new Error('Caller profile not found')
+  const role = (await r.json()).fields?.role?.stringValue
+  if (role !== 'admin') throw new Error('Forbidden: admin only')
+  return { uid, email: payload.email, token, project }
+}
+
+// Resolve a Firebase Auth account (by uid or email) → { localId, email }
+async function lookupAuthUser({ uid, email }, token, project) {
+  const body = uid ? { localId: [uid] } : { email: [email] }
+  const r = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/projects/${project}/accounts:lookup`,
+    { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+  )
+  const u = (await r.json()).users?.[0]
+  return u ? { localId: u.localId, email: (u.email || '').toLowerCase() } : null
+}
+
+async function setUserPassword(request, env, json) {
+  let caller
+  try { caller = await requireAdminCaller(request, env) }
+  catch (e) { return json({ error: e.message }, e.message.includes('Forbidden') ? 403 : 401) }
+
+  const { uid, email, password } = await request.json().catch(() => ({}))
+  if (!password || String(password).length < 6) return json({ error: 'Password must be at least 6 characters' }, 400)
+
+  const target = await lookupAuthUser({ uid, email }, caller.token, caller.project)
+  if (!target) return json({ error: 'User not found' }, 404)
+
+  // 1. Update the REAL Firebase Auth password
+  const up = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/projects/${caller.project}/accounts:update`,
+    { method: 'POST', headers: { Authorization: `Bearer ${caller.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ localId: target.localId, password: String(password) }) }
+  )
+  if (!up.ok) return json({ error: 'Auth update failed: ' + (await up.text()).slice(0, 200) }, 502)
+
+  // 2. Keep the visible note in Firestore in sync
+  await fetch(
+    `https://firestore.googleapis.com/v1/projects/${caller.project}/databases/(default)/documents/users/${target.localId}?updateMask.fieldPaths=password`,
+    { method: 'PATCH', headers: { Authorization: `Bearer ${caller.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: { password: { stringValue: String(password) } } }) }
+  ).catch(() => {})
+
+  return json({ ok: true })
+}
+
+async function deleteUserAccount(request, env, json) {
+  let caller
+  try { caller = await requireAdminCaller(request, env) }
+  catch (e) { return json({ error: e.message }, e.message.includes('Forbidden') ? 403 : 401) }
+
+  const { uid, email } = await request.json().catch(() => ({}))
+  const target = await lookupAuthUser({ uid, email }, caller.token, caller.project)
+  if (!target) return json({ error: 'User not found' }, 404)
+
+  // Hard guard: the owner account can never be deleted
+  if (target.email === OWNER_EMAIL) return json({ error: 'Ο λογαριασμός του ιδιοκτήτη δεν διαγράφεται.' }, 403)
+
+  // 1. Delete the Firebase Auth account
+  const del = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/projects/${caller.project}/accounts:delete`,
+    { method: 'POST', headers: { Authorization: `Bearer ${caller.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ localId: target.localId }) }
+  )
+  if (!del.ok) return json({ error: 'Auth delete failed: ' + (await del.text()).slice(0, 200) }, 502)
+
+  // 2. Delete the Firestore profile
+  await fetch(
+    `https://firestore.googleapis.com/v1/projects/${caller.project}/databases/(default)/documents/users/${target.localId}`,
+    { method: 'DELETE', headers: { Authorization: `Bearer ${caller.token}` } }
+  ).catch(() => {})
+
+  return json({ ok: true })
 }
 
 // ─── Verify Firebase ID token (RS256 JWT from securetoken.google.com) ─────────
