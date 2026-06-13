@@ -144,8 +144,15 @@ async function run(promptDoc, state) {
   let text = data.text || ''
   console.log(`\n📩 [από portal] prompt (${data.model || 'opus'}${data.imagePath ? ' +εικόνα' : ''}):\n   ${text.slice(0, 300)}`)
   await promptDoc.ref.update({ status:'running' })
-  await STATE.set({ busy:true, activity:'Επεξεργασία prompt…', cancelRequested:false }, { merge:true })
+  const startMs = Date.now()
+  await STATE.set({ busy:true, activity:'σκέφτεται…', busyStartedAt: new Date().toISOString(), cancelRequested:false }, { merge:true })
   cancelFlag = false
+
+  // playful "thinking" words like the terminal, throttled so we don't spam Firestore
+  const WORDS = ['σκέφτεται…','ψάχνει…','συνδυάζει…','υπολογίζει…','διαβάζει…','συνθέτει…','μαγειρεύει…','ζυγίζει…','σκαλίζει…','δουλεύει…']
+  let lastAct = 0, wi = 0
+  const setAct = (w) => { const n = Date.now(); if (n - lastAct < 1400) return; lastAct = n
+    STATE.set({ activity: w || WORDS[wi++ % WORDS.length] }, { merge:true }).catch(()=>{}) }
 
   if (data.imagePath) {
     const local = await fetchImage(data.imagePath)
@@ -164,6 +171,7 @@ async function run(promptDoc, state) {
       model: modelId, abortController: ac,
       ...(lastSessionId ? { resume: lastSessionId } : {}),
       canUseTool: async (toolName, input) => {
+        setAct(`🔧 ${toolName}…`)
         if (AUTO_ALLOW.has(toolName)) return { behavior:'allow', updatedInput: input }
         if (auto && toolName === 'Bash') {
           const c = input.command || ''
@@ -178,13 +186,14 @@ async function run(promptDoc, state) {
       if (msg.session_id) lastSessionId = msg.session_id
       if (msg.type === 'assistant' && msg.message?.content) {
         for (const b of msg.message.content) if (b.type === 'text') finalText = b.text
+        setAct()  // rotate a thinking word
       } else if (msg.type === 'result') finalText = msg.result || finalText
     }
   } catch (e) {
     finalText = cancelFlag ? '⏹ Σταματήθηκε από τον χρήστη.' : ('⚠️ Σφάλμα: ' + (e?.message || String(e)))
   } finally { clearInterval(cancelWatch) }
 
-  await MSGS.add({ role:'assistant', kind:'answer', text: finalText || '(κενή απάντηση)', createdAt: TS() })
+  await MSGS.add({ role:'assistant', kind:'answer', text: finalText || '(κενή απάντηση)', thinkingMs: Date.now() - startMs, createdAt: TS() })
   await promptDoc.ref.update({ status:'done' })
   await STATE.set({ busy:false, activity:'', cancelRequested:false }, { merge:true })
   console.log(`💬 [προς portal] απάντηση στάλθηκε (${(finalText||'').length} χαρακτήρες)\n`)

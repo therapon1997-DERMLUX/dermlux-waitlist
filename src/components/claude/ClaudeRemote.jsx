@@ -54,7 +54,8 @@ export default function ClaudeRemote() {
   useEffect(() => onSnapshot(STATE_DOC, s => setState(s.exists() ? s.data() : {})), [])
   useEffect(() => onSnapshot(query(MSGS, orderBy('createdAt', 'asc')), snap =>
     setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() }))) ), [])
-  useEffect(() => { const t = setInterval(() => tick(x => x + 1), 30000); return () => clearInterval(t) }, [])
+  // tick every second while busy (live timer), else every 30s (reset countdown)
+  useEffect(() => { const t = setInterval(() => tick(x => x + 1), state?.busy ? 1000 : 30000); return () => clearInterval(t) }, [state?.busy])
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   const usage   = state?.sessionUsage || {}
@@ -65,8 +66,15 @@ export default function ClaudeRemote() {
   const remoteOn = state?.remoteEnabled !== false
   const autoApprove = !!state?.autoApprove
   const bridgeOnline = state?.bridgeHeartbeat ? (Date.now() - new Date(state.bridgeHeartbeat).getTime() < 90000) : false
+  const busyElapsed = state?.busy && state?.busyStartedAt ? Math.max(0, Math.round((Date.now() - new Date(state.busyStartedAt).getTime()) / 1000)) : 0
 
   const setFlag = (k, v) => setDoc(STATE_DOC, { [k]: v }, { merge: true })
+
+  // paste a screenshot straight from the clipboard into the chat
+  function onPaste(e) {
+    const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'))
+    if (item) { e.preventDefault(); pickImage(item.getAsFile()) }
+  }
 
   async function pickImage(file) {
     if (!file) return
@@ -185,18 +193,28 @@ export default function ClaudeRemote() {
         </div>
       )}
 
+      {/* hidden-until-scroll scrollbar, Messenger-style */}
+      <style>{`
+        .cc-scroll{scrollbar-width:thin;scrollbar-color:transparent transparent}
+        .cc-scroll:hover,.cc-scroll:focus-within{scrollbar-color:#cbd5e1 transparent}
+        .cc-scroll::-webkit-scrollbar{width:6px}
+        .cc-scroll::-webkit-scrollbar-thumb{background:transparent;border-radius:3px}
+        .cc-scroll:hover::-webkit-scrollbar-thumb,.cc-scroll:active::-webkit-scrollbar-thumb{background:#cbd5e1}
+      `}</style>
+
       {/* Chat */}
       <div className="flex-1 bg-white border border-gray-200 rounded-xl flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+        <div className="cc-scroll flex-1 overflow-y-auto p-3 space-y-2.5" onPaste={onPaste}>
           {visible.length === 0 && (
             <div className="text-center text-gray-400 text-sm py-10">Γράψε ή μίλα ένα prompt 👇<br/>Βλέπεις μόνο εγκρίσεις & αποτελέσματα.</div>
           )}
           {visible.map(m => <Bubble key={m.id} m={m} onDecide={decide} />)}
           {state?.busy && (
-            <div className="flex items-center gap-2 text-sm text-gray-400">
-              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              {state.activity || 'Δουλεύει…'}
-              <button onClick={stopRun} className="ml-2 text-xs text-red-500 border border-red-200 rounded-full px-2 py-0.5">⏹ Στοπ</button>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse shrink-0" />
+              <span className="text-gray-500 italic">{state.activity || 'σκέφτεται…'}</span>
+              <span className="text-xs text-gray-400 font-mono tabular-nums">⏱ {busyElapsed}s</span>
+              <button onClick={stopRun} className="ml-auto text-xs text-red-500 border border-red-200 rounded-full px-2 py-0.5">⏹ Στοπ</button>
             </div>
           )}
           <div ref={endRef} />
@@ -217,9 +235,9 @@ export default function ClaudeRemote() {
             <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => pickImage(e.target.files?.[0])} />
             <button onClick={toggleVoice} title="Φωνή"
               className={`shrink-0 w-10 h-10 rounded-lg border text-lg ${listening ? 'bg-red-500 border-red-500 text-white animate-pulse' : 'border-gray-200 text-gray-500'}`}>🎤</button>
-            <textarea value={input} onChange={e => setInput(e.target.value)}
+            <textarea value={input} onChange={e => setInput(e.target.value)} onPaste={onPaste}
               onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send() }}
-              rows={1} placeholder={listening ? 'Μιλάω…' : 'Γράψε ή μίλα…'}
+              rows={1} placeholder={listening ? 'Μιλάω…' : 'Γράψε, μίλα ή επικόλλησε εικόνα…'}
               className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 resize-none max-h-32" />
             <button onClick={send} disabled={sending || (!input.trim() && !image)}
               className="shrink-0 h-10 px-4 rounded-lg bg-gray-800 text-white text-sm font-semibold disabled:opacity-40">➤</button>
@@ -241,7 +259,10 @@ function Bubble({ m, onDecide }) {
   )
   if (m.kind === 'answer') return (
     <div className="flex justify-start">
-      <div className="max-w-[92%] bg-gray-50 border border-gray-200 rounded-2xl rounded-bl-sm px-3 py-2"><MessageContent text={m.text || ''} /></div>
+      <div className="max-w-[92%] bg-gray-50 border border-gray-200 rounded-2xl rounded-bl-sm px-3 py-2">
+        <MessageContent text={m.text || ''} />
+        {m.thinkingMs > 0 && <div className="text-[10px] text-gray-400 mt-1">⏱ σκέφτηκε {Math.round(m.thinkingMs / 1000)}s</div>}
+      </div>
     </div>
   )
   if (m.kind === 'note') return (
