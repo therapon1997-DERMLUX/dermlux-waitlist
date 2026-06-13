@@ -37,8 +37,8 @@ export default function Bookkeeping() {
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading]   = useState(true)
   const [modal, setModal]       = useState(null)
-  const [selYears, setSelYears]   = useState([nowYear])   // multi-select
-  const [selMonths, setSelMonths] = useState([nowMonth])  // multi-select
+  const [selYears, setSelYears]   = useState([nowYear])   // default: current year
+  const [selMonths, setSelMonths] = useState([])          // default: all months of the year
   const [cat, setCat]           = useState('')
   const [loc, setLoc]           = useState('')
   const [onlyNeeds, setOnlyNeeds] = useState(false)
@@ -70,6 +70,12 @@ export default function Bookkeeping() {
 
   const toggleIn = (arr, set, v) =>
     set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v])
+
+  // Toggling a year resets the month filter → show ALL months of the selected year(s)
+  const toggleYear = (y) => {
+    setSelYears(prev => prev.includes(y) ? prev.filter(x => x !== y) : [...prev, y])
+    setSelMonths([])
+  }
 
   const filtered = useMemo(() => expenses.filter(e => {
     const y = (e.date || '').slice(0, 4)
@@ -162,7 +168,7 @@ export default function Bookkeeping() {
         <div className="flex gap-1.5 flex-wrap items-center">
           <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wide w-12 shrink-0">Έτος</span>
           {years.map(y => (
-            <button key={y} onClick={() => toggleIn(selYears, setSelYears, y)}
+            <button key={y} onClick={() => toggleYear(y)}
               className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
                 selYears.includes(y)
                   ? 'bg-green-600 border-green-600 text-white shadow-sm'
