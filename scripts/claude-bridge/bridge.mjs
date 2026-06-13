@@ -107,11 +107,13 @@ async function pushUsage() {
 
 // ── SHORT approval (gist) + full detail on tap ────────────────────────────────
 async function askApproval(summary, detail) {
+  console.log(`\n  🔐 [portal ζητά έγκριση] ${summary}`)
+  if (detail) console.log(`     ↳ ${String(detail).slice(0, 200)}`)
   const ref = await MSGS.add({ role:'assistant', kind:'approval', text: summary, detail, status:'pending', createdAt: TS() })
   while (!cancelFlag) {
     await sleep(2000)
     const d = (await ref.get()).data()
-    if (d?.status === 'answered') return d.decision === 'yes'
+    if (d?.status === 'answered') { console.log(`     → ${d.decision === 'yes' ? '✓ ΝΑΙ' : '✕ ΟΧΙ'}`); return d.decision === 'yes' }
   }
   return false
 }
@@ -140,6 +142,7 @@ async function fetchImage(path) {
 async function run(promptDoc, state) {
   const data = promptDoc.data()
   let text = data.text || ''
+  console.log(`\n📩 [από portal] prompt (${data.model || 'opus'}${data.imagePath ? ' +εικόνα' : ''}):\n   ${text.slice(0, 300)}`)
   await promptDoc.ref.update({ status:'running' })
   await STATE.set({ busy:true, activity:'Επεξεργασία prompt…', cancelRequested:false }, { merge:true })
   cancelFlag = false
@@ -184,13 +187,18 @@ async function run(promptDoc, state) {
   await MSGS.add({ role:'assistant', kind:'answer', text: finalText || '(κενή απάντηση)', createdAt: TS() })
   await promptDoc.ref.update({ status:'done' })
   await STATE.set({ busy:false, activity:'', cancelRequested:false }, { merge:true })
+  console.log(`💬 [προς portal] απάντηση στάλθηκε (${(finalText||'').length} χαρακτήρες)\n`)
 }
 
-console.log('Claude bridge v2 online. Watching for prompts…')
+console.log('Claude bridge v2 online. Watching for prompts… (terminal preview ενεργό)')
 await syncManifesto()
+// Independent heartbeat + usage push — keeps the portal "online" even while a
+// long prompt is running inside run() (which otherwise blocks the main loop).
+setInterval(() => { pushUsage().catch(() => {}) }, 15000)
+pushUsage().catch(() => {})
 while (true) {
   try {
-    await pushUsage(); await syncManifesto()
+    await syncManifesto()
     const snap = await STATE.get(); const st = snap.exists ? snap.data() : {}
     if (st.remoteEnabled === false) { await sleep(POLL_MS); continue }   // Remote OFF
     const q = await MSGS.where('status','==','pending').get()
