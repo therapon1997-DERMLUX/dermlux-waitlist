@@ -137,9 +137,9 @@ export default function ClaudeRemote() {
   const visible = useMemo(() => messages.filter(m => ['prompt','answer','approval','note'].includes(m.kind)), [messages])
 
   return (
-    <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4 flex flex-col" style={{ minHeight: 'calc(100vh - 56px)' }}>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-2 gap-2">
+    <div className="max-w-3xl mx-auto px-3 sm:px-4 pt-3 pb-2 flex flex-col overflow-hidden" style={{ height: 'calc(100dvh - 56px)' }}>
+      {/* Header (frozen top) */}
+      <div className="flex items-center justify-between mb-2 gap-2 shrink-0">
         <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
           💻 Claude
           <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${bridgeOnline ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'}`}>
@@ -150,7 +150,7 @@ export default function ClaudeRemote() {
       </div>
 
       {/* Controls row — remote toggle + auto-approve + model chips */}
-      <div className="flex flex-wrap items-center gap-2 mb-2">
+      <div className="flex flex-wrap items-center gap-2 mb-2 shrink-0">
         <button onClick={() => setFlag('remoteEnabled', !remoteOn)}
           className={`px-2.5 py-1.5 rounded-full text-xs font-semibold border ${remoteOn ? 'bg-green-600 border-green-600 text-white' : 'bg-white border-gray-300 text-gray-500'}`}>
           {remoteOn ? '🟢 Remote ON' : '⚪ Remote OFF'}
@@ -170,7 +170,7 @@ export default function ClaudeRemote() {
       </div>
 
       {/* Session limit bar */}
-      <div className="bg-white border border-gray-200 rounded-xl px-3 py-2 mb-2">
+      <div className="bg-white border border-gray-200 rounded-xl px-3 py-2 mb-2 shrink-0">
         <div className="flex items-center justify-between text-[11px] text-gray-500 mb-1">
           <span className="font-semibold uppercase tracking-wide">Όριο session (εκτίμηση)</span>
           <span>{pct}%{resetIn != null && <> · ανανέωση σε <strong>{fmtClock(resetIn)}</strong></>}</span>
@@ -180,7 +180,7 @@ export default function ClaudeRemote() {
 
       {/* Manifesto */}
       {showManifesto && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-2">
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-2 shrink-0">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-semibold text-amber-800">📜 Manifesto</span>
             {!manifestoEditing
@@ -202,8 +202,8 @@ export default function ClaudeRemote() {
         .cc-scroll:hover::-webkit-scrollbar-thumb,.cc-scroll:active::-webkit-scrollbar-thumb{background:#cbd5e1}
       `}</style>
 
-      {/* Chat */}
-      <div className="flex-1 bg-white border border-gray-200 rounded-xl flex flex-col overflow-hidden">
+      {/* Chat (only this scrolls) */}
+      <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-xl flex flex-col overflow-hidden">
         <div className="cc-scroll flex-1 overflow-y-auto p-3 space-y-2.5" onPaste={onPaste}>
           {visible.length === 0 && (
             <div className="text-center text-gray-400 text-sm py-10">Γράψε ή μίλα ένα prompt 👇<br/>Βλέπεις μόνο εγκρίσεις & αποτελέσματα.</div>
