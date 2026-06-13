@@ -70,6 +70,7 @@ export default function Home() {
   const rafRef = useRef(0)
   const spinRef = useRef(null)
   const emblemZoneRef = useRef(null)
+  const emblemShadowRef = useRef(null)
   const reducedRef = useRef(false)
 
   /* ════════════════════════════════════════════════════════════
@@ -128,6 +129,7 @@ export default function Home() {
       /* ── 2 · 3D coin cruise on an anime timer ──────────────── */
       const spin = spinRef.current
       if (spin) {
+        const shadow = emblemShadowRef.current
         createTimer({
           onUpdate: t => {
             const dt = Math.min(t.deltaTime / 1000, 0.05)
@@ -136,6 +138,17 @@ export default function Home() {
               physics.vel = physics.base + (physics.vel - physics.base) * Math.exp(-dt * 1.3)
               physics.rot += physics.vel * dt
               spin.style.transform = `rotateY(${physics.rot}deg)`
+            }
+            /* cast shadow follows the spin: drifts side-to-side and
+               fades/widens as the coin turns edge-on — every frame,
+               even while dragging, so it stays glued to the monogram */
+            if (shadow) {
+              const rad    = physics.rot * Math.PI / 180
+              const facing = Math.cos(rad)          // +1 front, -1 back, 0 edge
+              const edge   = 1 - Math.abs(facing)   // 0 flat → 1 edge-on
+              shadow.style.opacity   = (0.12 + edge * 0.30).toFixed(3)
+              shadow.style.transform =
+                `translateX(${(-facing * 18).toFixed(1)}px) scaleX(${(0.55 + 0.45 * Math.abs(facing)).toFixed(3)})`
             }
           },
         })
@@ -225,10 +238,11 @@ export default function Home() {
       })
     })
 
-    /* coin drag/fling — listeners feed the shared physics state */
+    /* coin drag/fling + hover — listeners feed the shared physics state */
     const zone = emblemZoneRef.current
     const spin = spinRef.current
-    let down, move, up
+    const cruise = () => (reducedRef.current ? 0 : 26)
+    let down, move, up, enter, leave
     if (zone && spin) {
       down = e => {
         physics.dragging = true
@@ -249,15 +263,22 @@ export default function Home() {
         spin.style.transform = `rotateY(${physics.rot}deg)`
       }
       up = () => { physics.dragging = false; zone.classList.remove('dlx-grabbing') }
+      /* hover: the coin lights up and spins faster while the cursor is over it */
+      enter = () => { if (reducedRef.current) return; zone.classList.add('dlx-emblem-hot'); physics.base = 78 }
+      leave = () => { zone.classList.remove('dlx-emblem-hot'); physics.base = cruise() }
       zone.addEventListener('pointerdown', down)
       window.addEventListener('pointermove', move)
       window.addEventListener('pointerup', up)
+      zone.addEventListener('pointerenter', enter)
+      zone.addEventListener('pointerleave', leave)
     }
 
     return () => {
       scope.revert()
       if (zone && down) {
         zone.removeEventListener('pointerdown', down)
+        zone.removeEventListener('pointerenter', enter)
+        zone.removeEventListener('pointerleave', leave)
         window.removeEventListener('pointermove', move)
         window.removeEventListener('pointerup', up)
       }
@@ -378,6 +399,10 @@ export default function Home() {
             keeps spinning steadily, exactly like the original */}
         <div className="dlx-emblem-stage" ref={emblemZoneRef}>
           <div className="dlx-emblem-glow" />
+          {/* cast shadow — a dark silhouette of the monogram that drifts
+              and fades in sync with the rotation (driven by the timer) */}
+          <img className="dlx-emblem-shadow" ref={emblemShadowRef}
+            src={`${import.meta.env.BASE_URL}brand/emblem-motif.png`} alt="" draggable="false" />
           <div className="dlx-emblem-tilt">
             <div className="dlx-emblem-spin" ref={spinRef}>
               {emblemLayers()}

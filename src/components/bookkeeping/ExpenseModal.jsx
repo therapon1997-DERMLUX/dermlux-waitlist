@@ -289,7 +289,19 @@ export default function ExpenseModal({ existing, onClose }) {
   }
 
   const field = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+  const fieldErr = 'w-full border-2 border-red-400 bg-red-50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500'
   const label = 'block text-sm font-medium text-gray-700 mb-1'
+
+  // Which required fields are still empty — drives the red highlighting + banner
+  const PLACEHOLDER = /να συμπληρωθεί/i
+  const errs = {
+    vendor: !form.vendor?.trim() || PLACEHOLDER.test(form.vendor),
+    total:  !(parseFloat(form.total) > 0),
+    net:    form.net === '' || form.net == null,
+    vat:    form.vat === '' || form.vat == null,
+  }
+  const needsAction = Object.values(errs).some(Boolean)
+  const fld = k => (errs[k] ? fieldErr : field)
 
   // Receipt preview panel — shown on the left when editing an expense that has an image
   const previewPanel = (
@@ -388,6 +400,20 @@ export default function ExpenseModal({ existing, onClose }) {
               </div>
             )}
 
+            {needsAction && (
+              <div className="bg-red-50 border-2 border-red-300 rounded-lg px-3 py-2.5 text-sm flex items-start gap-2">
+                <span className="text-red-500 text-base">⚠️</span>
+                <div>
+                  <span className="font-bold text-red-700 uppercase text-xs tracking-wide">Needs action</span>
+                  <p className="text-red-600 mt-0.5">
+                    Συμπλήρωσε τα κόκκινα πεδία:&nbsp;
+                    {[errs.vendor && 'Προμηθευτής', errs.total && 'Σύνολο', errs.net && 'Καθαρό', errs.vat && 'ΦΠΑ']
+                      .filter(Boolean).join(' · ')}
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="flex flex-col md:flex-row gap-5">
             {/* Receipt preview — left column when an image exists */}
             {editing && fileUrl && previewPanel}
@@ -395,7 +421,7 @@ export default function ExpenseModal({ existing, onClose }) {
             <div className="flex-1 space-y-4 min-w-0">
             <div>
               <label className={label}>Προμηθευτής *</label>
-              <input className={field} value={form.vendor} onChange={e => set('vendor', e.target.value)} placeholder="Επωνυμία προμηθευτή" />
+              <input className={fld('vendor')} value={form.vendor} onChange={e => set('vendor', e.target.value)} placeholder="Επωνυμία προμηθευτή" />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -424,7 +450,7 @@ export default function ExpenseModal({ existing, onClose }) {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className={label}>Καθαρό</label>
-                <input type="number" step="0.01" className={field} value={form.net}
+                <input type="number" step="0.01" className={fld('net')} value={form.net}
                   onChange={e => setForm(f => recalc({ ...f, net: e.target.value }))} />
               </div>
               <div>
@@ -434,13 +460,13 @@ export default function ExpenseModal({ existing, onClose }) {
               </div>
               <div>
                 <label className={label}>Ποσό ΦΠΑ</label>
-                <input type="number" step="0.01" className={field} value={form.vat} onChange={e => set('vat', e.target.value)} />
+                <input type="number" step="0.01" className={fld('vat')} value={form.vat} onChange={e => set('vat', e.target.value)} />
               </div>
             </div>
 
             <div>
               <label className={label}>Σύνολο</label>
-              <input type="number" step="0.01" className={`${field} font-semibold`} value={form.total} onChange={e => set('total', e.target.value)} />
+              <input type="number" step="0.01" className={`${fld('total')} font-semibold`} value={form.total} onChange={e => set('total', e.target.value)} />
             </div>
 
             <div className="grid grid-cols-2 gap-3">

@@ -15,6 +15,20 @@ const MONTH_NAMES = ['Ιαν','Φεβ','Μαρ','Απρ','Μαΐ','Ιουν','Ι
 const nowYear  = String(new Date().getFullYear())
 const nowMonth = new Date().getMonth() + 1
 
+const PLACEHOLDER = /να συμπληρωθεί/i
+// Returns the list of required fields that are still missing on an expense.
+export const missingFields = e => {
+  const m = []
+  if (!e.vendor || PLACEHOLDER.test(e.vendor)) m.push('vendor')
+  if (e.total == null || Number(e.total) === 0)  m.push('total')
+  if (e.net == null)      m.push('net')
+  if (e.vat == null)      m.push('vat')
+  if (!e.category)        m.push('category')
+  return m
+}
+// Short category code, e.g. "8203 · ΔΙΑΦΗΜΙΣΕΙΣ" → "8203"
+const catCode = c => (c || '').split('·')[0].trim() || '—'
+
 export default function Bookkeeping() {
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading]   = useState(true)
@@ -23,6 +37,7 @@ export default function Bookkeeping() {
   const [selMonths, setSelMonths] = useState([nowMonth])  // multi-select
   const [cat, setCat]           = useState('')
   const [loc, setLoc]           = useState('')
+  const [onlyNeeds, setOnlyNeeds] = useState(false)
 
   useEffect(() => {
     const q = query(collection(db, 'expenses'), orderBy('date', 'desc'))
@@ -48,8 +63,20 @@ export default function Bookkeeping() {
     if (selMonths.length && !selMonths.includes(m)) return false
     if (cat && e.category !== cat) return false
     if (loc && e.location !== loc) return false
+    if (onlyNeeds && missingFields(e).length === 0) return false
     return true
-  }), [expenses, selYears, selMonths, cat, loc])
+  }), [expenses, selYears, selMonths, cat, loc, onlyNeeds])
+
+  // How many of the currently date/cat/loc-filtered expenses still need action
+  const needsCount = useMemo(() => expenses.filter(e => {
+    const y = (e.date || '').slice(0, 4)
+    const m = parseInt((e.date || '').slice(5, 7), 10)
+    if (selYears.length  && !selYears.includes(y))  return false
+    if (selMonths.length && !selMonths.includes(m)) return false
+    if (cat && e.category !== cat) return false
+    if (loc && e.location !== loc) return false
+    return missingFields(e).length > 0
+  }).length, [expenses, selYears, selMonths, cat, loc])
 
   const totals = useMemo(() => {
     const t = { total: 0, vat: 0, net: 0, count: filtered.length, byCat: {} }
@@ -132,7 +159,7 @@ export default function Bookkeeping() {
             </button>
           )}
         </div>
-        <div className="flex gap-3 flex-wrap">
+        <div className="flex gap-3 flex-wrap items-center">
           <select className={sel} value={cat} onChange={e => setCat(e.target.value)}>
             <option value="">Όλες οι κατηγορίες</option>
             {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
@@ -141,6 +168,15 @@ export default function Bookkeeping() {
             <option value="">Όλες οι τοποθεσίες</option>
             {LOCATIONS.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
+          {needsCount > 0 && (
+            <button onClick={() => setOnlyNeeds(v => !v)}
+              className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                onlyNeeds
+                  ? 'bg-red-600 border-red-600 text-white shadow-sm'
+                  : 'bg-white border-red-200 text-red-600 hover:border-red-400'}`}>
+              ⚠ {needsCount} χρειάζονται συμπλήρωση
+            </button>
+          )}
         </div>
       </div>
 
@@ -179,11 +215,12 @@ export default function Bookkeeping() {
       ) : (
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
           {/* Column headers */}
-          <div className="hidden md:grid grid-cols-[1.6rem_7rem_1fr_9rem_5rem_5.5rem_6rem] gap-x-4 px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-400 uppercase tracking-wide">
+          <div className="hidden md:grid grid-cols-[1.6rem_6rem_1fr_6rem_7rem_4.5rem_5rem_5.5rem] gap-x-3 px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-400 uppercase tracking-wide">
             <span />
             <span>Ημερομηνία</span>
             <span>Προμηθευτής</span>
             <span>Σημειώσεις</span>
+            <span>Κατηγορία</span>
             <span className="text-right">Καθαρό</span>
             <span className="text-right">ΦΠΑ</span>
             <span className="text-right">Σύνολο</span>
@@ -198,9 +235,12 @@ export default function Bookkeeping() {
               </div>
 
               {/* Rows */}
-              {rows.map((e, i) => (
+              {rows.map((e, i) => {
+                const miss = missingFields(e)
+                const needs = miss.length > 0
+                return (
                 <div key={e.id} onClick={() => setModal(e)}
-                  className={`grid grid-cols-[1.6rem_1fr] md:grid-cols-[1.6rem_7rem_1fr_9rem_5rem_5.5rem_6rem] gap-x-4 items-center px-4 py-3 cursor-pointer hover:bg-green-50 transition-colors ${i < rows.length - 1 ? 'border-b border-gray-100' : ''}`}>
+                  className={`grid grid-cols-[1.6rem_1fr] md:grid-cols-[1.6rem_6rem_1fr_6rem_7rem_4.5rem_5rem_5.5rem] gap-x-3 items-center px-4 py-3 cursor-pointer transition-colors ${i < rows.length - 1 ? 'border-b border-gray-100' : ''} ${needs ? 'bg-red-50/60 hover:bg-red-50 border-l-2 border-l-red-400' : 'hover:bg-green-50'}`}>
 
                   {/* Receipt icon */}
                   <span className="text-gray-300 text-base" title={e.fileUrl ? 'Έχει αποδεικτικό' : 'Χωρίς αποδεικτικό'}>
@@ -218,25 +258,39 @@ export default function Bookkeeping() {
                   {/* Date */}
                   <span className="text-sm text-gray-500 whitespace-nowrap">{fmtDate(e.date)}</span>
 
-                  {/* Vendor */}
-                  <span className="text-sm font-medium text-gray-800 truncate">{e.vendor || '—'}</span>
+                  {/* Vendor (+ needs-action badge) */}
+                  <span className="text-sm font-medium text-gray-800 truncate flex items-center gap-1.5 min-w-0">
+                    <span className={`truncate ${miss.includes('vendor') ? 'text-red-600' : ''}`}>{e.vendor || '— προμηθευτής'}</span>
+                    {needs && (
+                      <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide bg-red-100 text-red-600 px-1.5 py-0.5 rounded">
+                        needs action
+                      </span>
+                    )}
+                  </span>
 
                   {/* Notes — hidden on mobile */}
                   <span className="hidden md:block text-xs text-gray-400 truncate">{e.notes || e.invoiceNumber || ''}</span>
 
+                  {/* Category */}
+                  <span className={`hidden md:block text-xs truncate ${miss.includes('category') ? 'text-red-600 font-semibold' : 'text-gray-500'}`} title={e.category || ''}>
+                    {catCode(e.category)}
+                  </span>
+
                   {/* Net */}
-                  <span className="hidden md:block text-sm text-right text-gray-600">{e.net != null ? eur(e.net) : '—'}</span>
+                  <span className={`hidden md:block text-sm text-right ${miss.includes('net') ? 'text-red-500 font-semibold' : 'text-gray-600'}`}>
+                    {e.net != null ? eur(e.net) : 'λείπει'}
+                  </span>
 
                   {/* VAT */}
-                  <span className="hidden md:block text-sm text-right text-amber-600">
-                    {e.vat != null ? eur(e.vat) : '—'}
+                  <span className={`hidden md:block text-sm text-right ${miss.includes('vat') ? 'text-red-500 font-semibold' : 'text-amber-600'}`}>
+                    {e.vat != null ? eur(e.vat) : 'λείπει'}
                     {e.vatRate != null ? <span className="text-xs text-gray-400 ml-1">{e.vatRate}%</span> : null}
                   </span>
 
                   {/* Total */}
-                  <span className="text-sm font-semibold text-right text-gray-900">{eur(e.total)}</span>
+                  <span className={`text-sm font-semibold text-right ${miss.includes('total') ? 'text-red-600' : 'text-gray-900'}`}>{eur(e.total)}</span>
                 </div>
-              ))}
+              )})}
 
               {/* Group subtotal */}
               <div className="flex justify-end px-4 py-2 bg-gray-50 border-t border-gray-100 text-sm font-bold text-gray-700">
