@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import {
   collection, addDoc, doc, updateDoc, deleteDoc, serverTimestamp,
   query, where, getDocs, limit,
@@ -80,8 +81,52 @@ export default function ExpenseModal({ existing, onClose }) {
   const [error, setError]       = useState('')
   const [duplicate, setDuplicate] = useState(null) // { id, vendor, date, total, invoiceNumber }
   const [dupOverride, setDupOverride] = useState(false)
+  const [preview, setPreview]   = useState('')   // blob URL of the receipt for inline preview
+  const [previewState, setPreviewState] = useState('idle') // idle | loading | error
+  const [lightbox, setLightbox] = useState(false) // full-screen image viewer
   const inputRef  = useRef(null)
   const dupTimer  = useRef(null)
+
+  // Lock body scroll while the modal is open
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  // Esc closes the lightbox first, then the modal
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key !== 'Escape') return
+      if (lightbox) setLightbox(false)
+      else onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [lightbox, onClose])
+
+  // Fetch the receipt image (authenticated) as a blob URL for inline preview
+  useEffect(() => {
+    if (!fileUrl || !WORKER) { setPreview(''); return }
+    let revoked = false
+    let blobUrl = ''
+    setPreviewState('loading')
+    ;(async () => {
+      try {
+        const idToken = await currentUser.getIdToken()
+        const res = await fetch(fileUrl, { headers: { Authorization: `Bearer ${idToken}` } })
+        if (!res.ok) throw new Error('load failed')
+        const blob = await res.blob()
+        if (revoked) return
+        blobUrl = URL.createObjectURL(blob)
+        setPreview(blobUrl)
+        setPreviewState('idle')
+      } catch {
+        if (!revoked) setPreviewState('error')
+      }
+    })()
+    return () => { revoked = true; if (blobUrl) URL.revokeObjectURL(blobUrl) }
+  }, [fileUrl, currentUser])
 
   // Allow pasting a screenshot (snip) straight into the modal
   useEffect(() => {
@@ -194,19 +239,6 @@ export default function ExpenseModal({ existing, onClose }) {
     }
   }
 
-  async function openInvoice(url) {
-    try {
-      const idToken = await currentUser.getIdToken()
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${idToken}` } })
-      if (!res.ok) throw new Error('Failed to load')
-      const blob    = await res.blob()
-      const blobUrl = URL.createObjectURL(blob)
-      window.open(blobUrl, '_blank')
-    } catch (e) {
-      setError('Αδυναμία φόρτωσης αρχείου: ' + e.message)
-    }
-  }
-
   async function save(e) {
     e.preventDefault()
     if (!form.vendor.trim()) { setError('Ο προμηθευτής είναι υποχρεωτικός.'); return }
@@ -259,16 +291,48 @@ export default function ExpenseModal({ existing, onClose }) {
   const field = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
   const label = 'block text-sm font-medium text-gray-700 mb-1'
 
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg my-8">
-        <div className="flex items-center justify-between px-6 py-4 border-b sticky top-0 bg-white rounded-t-xl">
+  // Receipt preview panel — shown on the left when editing an expense that has an image
+  const previewPanel = (
+    <div className="shrink-0 md:w-[240px]">
+      <div className="md:sticky md:top-0">
+        <span className={label}>Αποδεικτικό</span>
+        {previewState === 'loading' && (
+          <div className="h-44 rounded-lg border border-gray-200 bg-gray-50 grid place-items-center">
+            <div className="w-6 h-6 border-2 border-green-200 border-t-green-600 rounded-full animate-spin" />
+          </div>
+        )}
+        {previewState === 'error' && (
+          <div className="h-44 rounded-lg border border-red-200 bg-red-50 grid place-items-center text-center px-3">
+            <span className="text-xs text-red-500">Αδυναμία φόρτωσης εικόνας</span>
+          </div>
+        )}
+        {previewState === 'idle' && preview && (
+          <button type="button" onClick={() => setLightbox(true)}
+            className="group relative block w-full rounded-lg border border-gray-200 overflow-hidden hover:border-green-400 transition-colors">
+            <img src={preview} alt="Αποδεικτικό" className="w-full max-h-[300px] object-contain bg-gray-50" />
+            <span className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors grid place-items-center">
+              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-white text-xs font-medium bg-black/60 px-3 py-1.5 rounded-full">
+                🔍 Μεγέθυνση
+              </span>
+            </span>
+          </button>
+        )}
+        {fileName && <p className="text-[11px] text-gray-400 mt-1 truncate" title={fileName}>{fileName}</p>}
+      </div>
+    </div>
+  )
+
+  return createPortal(
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[92vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b bg-white rounded-t-xl shrink-0">
           <h2 className="font-bold text-gray-800 text-lg">{editing ? 'Επεξεργασία Εξόδου' : 'Νέο Έξοδο'}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>
 
-        {error && <div className="mx-6 mt-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{error}</div>}
+        {error && <div className="mx-6 mt-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2 shrink-0">{error}</div>}
 
+        <div className="flex-1 overflow-y-auto">
         {/* Upload stage */}
         {stage === 'upload' && (
           <div className="px-6 py-6">
@@ -301,7 +365,7 @@ export default function ExpenseModal({ existing, onClose }) {
 
         {/* Form stage */}
         {stage === 'form' && (
-          <form onSubmit={save} className="px-6 py-4 space-y-4">
+          <form id="expense-form" onSubmit={save} className="px-6 py-4 space-y-4">
             {aiMsg && <div className="bg-blue-50 text-blue-700 text-sm rounded-lg px-3 py-2">{aiMsg}</div>}
 
             {duplicate && (
@@ -323,13 +387,12 @@ export default function ExpenseModal({ existing, onClose }) {
                 </div>
               </div>
             )}
-            {fileUrl && (
-              <button type="button" onClick={() => openInvoice(fileUrl)}
-                className="inline-flex items-center gap-2 text-sm text-blue-600 hover:underline">
-                📎 {fileName || 'Συνημμένο αρχείο'}
-              </button>
-            )}
 
+            <div className="flex flex-col md:flex-row gap-5">
+            {/* Receipt preview — left column when an image exists */}
+            {editing && fileUrl && previewPanel}
+
+            <div className="flex-1 space-y-4 min-w-0">
             <div>
               <label className={label}>Προμηθευτής *</label>
               <input className={field} value={form.vendor} onChange={e => set('vendor', e.target.value)} placeholder="Επωνυμία προμηθευτή" />
@@ -406,28 +469,47 @@ export default function ExpenseModal({ existing, onClose }) {
               <label className={label}>Σημειώσεις</label>
               <textarea rows={2} className={field} value={form.notes} onChange={e => set('notes', e.target.value)} />
             </div>
-
-            <div className="flex gap-3 pt-2">
-              {editing && (
-                <button type="button" onClick={remove} disabled={saving}
-                  className="px-4 border border-red-300 text-red-600 py-2 rounded-lg text-sm hover:bg-red-50 transition-colors">
-                  Διαγραφή
-                </button>
-              )}
-              <button type="button" onClick={onClose} className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors">
-                Ακύρωση
-              </button>
-              <button type="submit" disabled={saving || (duplicate && !dupOverride)}
-                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50
-                  ${duplicate && !dupOverride
-                    ? 'bg-amber-500 text-white cursor-not-allowed'
-                    : 'bg-green-600 hover:bg-green-700 text-white'}`}>
-                {saving ? 'Αποθήκευση…' : duplicate && !dupOverride ? '⚠️ Duplicate' : 'Αποθήκευση'}
-              </button>
-            </div>
+            </div>{/* /right column */}
+            </div>{/* /flex row */}
           </form>
         )}
+        </div>{/* /scroll area */}
+
+        {/* Sticky action footer */}
+        {stage === 'form' && (
+          <div className="flex gap-3 px-6 py-4 border-t bg-white rounded-b-xl shrink-0">
+            {editing && (
+              <button type="button" onClick={remove} disabled={saving}
+                className="px-4 border border-red-300 text-red-600 py-2 rounded-lg text-sm hover:bg-red-50 transition-colors">
+                Διαγραφή
+              </button>
+            )}
+            <button type="button" onClick={onClose} className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors">
+              Ακύρωση
+            </button>
+            <button type="submit" form="expense-form" disabled={saving || (duplicate && !dupOverride)}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50
+                ${duplicate && !dupOverride
+                  ? 'bg-amber-500 text-white cursor-not-allowed'
+                  : 'bg-green-600 hover:bg-green-700 text-white'}`}>
+              {saving ? 'Αποθήκευση…' : duplicate && !dupOverride ? '⚠️ Duplicate' : 'Αποθήκευση'}
+            </button>
+          </div>
+        )}
       </div>
-    </div>
+
+      {/* Full-screen receipt viewer */}
+      {lightbox && preview && (
+        <div className="fixed inset-0 z-[60] bg-black/85 flex items-center justify-center p-4"
+          onClick={() => setLightbox(false)}>
+          <button onClick={() => setLightbox(false)}
+            className="absolute top-4 right-5 text-white/80 hover:text-white text-4xl leading-none">×</button>
+          <img src={preview} alt="Αποδεικτικό"
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+            onClick={e => e.stopPropagation()} />
+        </div>
+      )}
+    </div>,
+    document.body
   )
 }
