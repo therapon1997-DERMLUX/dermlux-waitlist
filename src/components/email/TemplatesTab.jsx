@@ -5,6 +5,7 @@ import templateHtml from '../../../email-templates/dermlux-skin-hair-aesthetics.
 import template3colHtml from '../../../email-templates/dermlux-email-2-3col.html?raw'
 import templateSummerHtml from '../../../email-templates/dermlux-summer-preglow.html?raw'
 import templateInjectablesHtml from '../../../email-templates/dermlux-injectables-offer.html?raw'
+import templateLaser40Html from '../../../email-templates/dermlux-laser-40off.html?raw'
 import CreateCampaignModal from './CreateCampaignModal'
 import FigImporter from './FigImporter'
 
@@ -42,6 +43,14 @@ const BUILTINS = [
     description: '€50 έκπτωση σε κάθε injectable θεραπεία (Botox, Dermal Fillers, Skin Boosters, Polynucleotides). Ισχύει έως 30/06/2026.',
     htmlBody: templateInjectablesHtml,
     thumbUrl: `${BASE}/injectable-hq.jpg`,
+    builtin: true,
+  },
+  {
+    id: '__builtin_laser_40off__',
+    name: 'DermLux — Laser 40% Off For Life (8 Sessions)',
+    description: '8-session laser package με 40% lifetime discount. Ισχύει έως 15 Ιουλίου 2026. Με τιμοκατάλογο For Her & For Him.',
+    htmlBody: templateLaser40Html,
+    thumbUrl: `${BASE}/header-image-background.png`,
     builtin: true,
   },
 ]
