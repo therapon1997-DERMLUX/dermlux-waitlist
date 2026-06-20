@@ -60,8 +60,16 @@ service cloud.firestore {
     match /clients/{d}        { allow read, write: if isStaff(); }
     match /happyhour/{d}      { allow read, write: if isStaff(); }
 
-    // ── Ό,τι άλλο (eklogika_*, ballot_results κ.λπ.): συνδεδεμένοι χρήστες ──
-    // ΕΞΑΙΡΕΣΗ: ο marketer ΔΕΝ φτάνει σε τίποτα εκτός από τα email_* (containment).
-    match /{document=**} { allow read, write: if authed() && !isMarketer(); }
+    // ── Εκλογές / λοιπά: συνδεδεμένοι χρήστες (admin + ekloges), ΟΧΙ marketer ──
+    match /ballot_results/{d}   { allow read, write: if authed() && !isMarketer(); }
+    match /eklogika_staff/{d}   { allow read, write: if authed() && !isMarketer(); }
+    match /eklogika_matches/{d} { allow read, write: if authed() && !isMarketer(); }
+
+    // ── DEFAULT DENY (20/06/2026): ό,τι δεν επιτράπηκε ΡΗΤΑ πιο πάνω, απορρίπτεται.
+    //    Διορθώνει το παλιό catch-all `if authed()` που λόγω OR-semantics της Firestore
+    //    έδινε σε ΚΑΘΕ συνδεδεμένο χρήστη (agent/ekloges) πρόσβαση στα «admin-only»
+    //    (expenses, email_contacts κ.λπ.). Τώρα μόνο οι ρητοί κανόνες δίνουν πρόσβαση.
+    //    Instant revert αν χρειαστεί: match /{document=**}{ allow read,write: if authed() && !isMarketer() }
+    match /{document=**} { allow read, write: if false; }
   }
 }

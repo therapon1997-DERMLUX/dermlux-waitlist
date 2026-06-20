@@ -5,3 +5,5 @@ dist
 serviceAccountKey.json
 backups/
 scripts/claude-bridge/node_modules/
+
+scripts/.apikey.tmp
