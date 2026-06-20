@@ -21,6 +21,7 @@ service cloud.firestore {
       return authed() && (request.auth.uid == 'TMgFlpv8ZcNGcgk7XKIxjDktf802' || roleOf() == 'admin');
     }
     function isStaff() { return authed() && (isAdmin() || roleOf() == 'agent'); } // κλινικό προσωπικό (όχι ekloges)
+    function isMarketer() { return authed() && roleOf() == 'marketer'; } // ΜΟΝΟ email marketing — τίποτα άλλο
 
     // ── Χρήστες: ο καθένας βλέπει το δικό του προφίλ· μόνο admin διαχειρίζεται ──
     match /users/{uid} {
@@ -31,16 +32,18 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
-    // ── Μόνο admin (ευαίσθητα: οικονομικά, email, remote, εκλογικές επαφές) ──
+    // ── Μόνο admin (ευαίσθητα: οικονομικά, remote, εκλογικές επαφές) ──
     match /expenses/{d}               { allow read, write: if isAdmin(); }
-    match /email_contacts/{d}         { allow read, write: if isAdmin(); }
-    match /email_campaigns/{d}        { allow read, write: if isAdmin(); }
-    match /email_sends/{d}            { allow read, write: if isAdmin(); }
-    match /email_templates/{d}        { allow read, write: if isAdmin(); }
     match /claude_remote_messages/{d} { allow read, write: if isAdmin(); }
     match /claude_remote_state/{d}    { allow read, write: if isAdmin(); }
     match /voteContacts/{d}           { allow read, write: if isAdmin(); }
     match /volunteers/{d}             { allow read, write: if isAdmin(); }
+
+    // ── Email marketing: admin + marketer (ο ρόλος marketer ΔΕΝ φτάνει πουθενά αλλού) ──
+    match /email_contacts/{d}         { allow read, write: if isAdmin() || isMarketer(); }
+    match /email_campaigns/{d}        { allow read, write: if isAdmin() || isMarketer(); }
+    match /email_sends/{d}            { allow read, write: if isAdmin() || isMarketer(); }
+    match /email_templates/{d}        { allow read, write: if isAdmin() || isMarketer(); }
 
     // ── Audit log: append-only, μόνο admin διαβάζει, κανείς δεν σβήνει ──
     match /audit_log/{d} {
@@ -58,6 +61,7 @@ service cloud.firestore {
     match /happyhour/{d}      { allow read, write: if isStaff(); }
 
     // ── Ό,τι άλλο (eklogika_*, ballot_results κ.λπ.): συνδεδεμένοι χρήστες ──
-    match /{document=**} { allow read, write: if authed(); }
+    // ΕΞΑΙΡΕΣΗ: ο marketer ΔΕΝ φτάνει σε τίποτα εκτός από τα email_* (containment).
+    match /{document=**} { allow read, write: if authed() && !isMarketer(); }
   }
 }

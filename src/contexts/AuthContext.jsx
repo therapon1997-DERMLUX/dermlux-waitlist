@@ -97,9 +97,10 @@ export function AuthProvider({ children }) {
   const ADMIN_UID = 'TMgFlpv8ZcNGcgk7XKIxjDktf802'
   const isAdmin = userProfile?.role === 'admin' || currentUser?.uid === ADMIN_UID
   const isEkloges = userProfile?.role === 'ekloges' || isAdmin
+  const isMarketer = userProfile?.role === 'marketer'
 
   return (
-    <AuthContext.Provider value={{ currentUser, userProfile, isAdmin, isEkloges, login, logout, createUser, loading }}>
+    <AuthContext.Provider value={{ currentUser, userProfile, isAdmin, isEkloges, isMarketer, login, logout, createUser, loading }}>
       {loading
         ? <div className="min-h-screen flex items-center justify-center bg-blue-50">
             <div className="text-blue-600 text-lg font-medium">Φόρτωση…</div>
