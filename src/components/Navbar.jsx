@@ -43,6 +43,7 @@ export default function Navbar() {
             {isAdmin && <Link to="/email" className={linkClass('/email')}>Email</Link>}
             {isAdmin && <Link to="/bookkeeping" className={linkClass('/bookkeeping')}>Λογιστικά</Link>}
             {isAdmin && <Link to="/claude" className={linkClass('/claude')}>Claude</Link>}
+            {isAdmin && <Link to="/stavri" className={linkClass('/stavri')}>Σταύρη Μεταξά</Link>}
             {(isAdmin || isEkloges) && (
               <Link to="/election-archive" className={linkClass('/election-archive')}>🗳️ Εκλογές 2026</Link>
             )}
@@ -91,6 +92,7 @@ export default function Navbar() {
           {isAdmin && <Link to="/email" className={mobileLinkClass('/email')}>📧 Email</Link>}
           {isAdmin && <Link to="/bookkeeping" className={mobileLinkClass('/bookkeeping')}>📒 Λογιστικά</Link>}
           {isAdmin && <Link to="/claude" className={mobileLinkClass('/claude')}>💻 Claude</Link>}
+          {isAdmin && <Link to="/stavri" className={mobileLinkClass('/stavri')}>👩‍💻 Σταύρη Μεταξά</Link>}
           {(isAdmin || isEkloges) && (
             <Link to="/election-archive" className={mobileLinkClass('/election-archive')}>🗳️ Εκλογές 2026</Link>
           )}

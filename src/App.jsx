@@ -20,6 +20,7 @@ const PatientProfile  = lazy(() => import('./components/medical/PatientProfile')
 const Bookkeeping     = lazy(() => import('./components/bookkeeping/Bookkeeping'))
 const ImportExpensify = lazy(() => import('./components/bookkeeping/ImportExpensify'))
 const ClaudeRemote    = lazy(() => import('./components/claude/ClaudeRemote'))
+const StavriView      = lazy(() => import('./components/StavriView'))
 const ClaudePinGate   = lazy(() => import('./components/claude/ClaudePinGate'))
 const UnsubscribePage = lazy(() => import('./components/email/UnsubscribePage'))
 
@@ -79,6 +80,7 @@ export default function App() {
               <Route path="/bookkeeping" element={<AdminRoute><Bookkeeping /></AdminRoute>} />
               <Route path="/import-expensify" element={<AdminRoute><ImportExpensify /></AdminRoute>} />
               <Route path="/claude" element={<AdminRoute><ClaudePinGate><ClaudeRemote /></ClaudePinGate></AdminRoute>} />
+              <Route path="/stavri" element={<AdminRoute><StavriView /></AdminRoute>} />
               <Route path="/unsubscribe" element={<UnsubscribePage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
