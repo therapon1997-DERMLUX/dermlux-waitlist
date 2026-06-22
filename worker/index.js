@@ -145,6 +145,11 @@ export default {
       if (url.pathname === '/unsubscribe' && request.method === 'POST') {
         return await unsubscribeContact(request, env, json)
       }
+      // One-click + List-Unsubscribe header target (GET = browser, POST = RFC 8058 one-click).
+      // Public, no #fragment, processed server-side so the opt-out is always recorded.
+      if (url.pathname === '/u') {
+        return await handleUnsubscribeLink(request, env)
+      }
       if ((url.pathname === '/webhook' || url.pathname === '/resend-webhook') && request.method === 'POST') {
         return await handleWebhook(request, env, json)
       }
@@ -226,6 +231,9 @@ async function sendCampaign(request, env, json) {
   })
   const emails = validContacts.map(contact => {
     const unsub = `${APP_URL}/#/unsubscribe?c=${encodeURIComponent(contact.id)}&cid=${encodeURIComponent(campaignId)}&cn=${encodeURIComponent(campaign.name || '')}&e=${encodeURIComponent(contact.email)}`
+    // Header target: a real server endpoint (no #fragment) so Gmail/Apple one-click
+    // POST actually reaches the worker and records the opt-out.
+    const unsubHeader = `${WORKER_URL}/u?c=${encodeURIComponent(contact.id)}&cid=${encodeURIComponent(campaignId)}&cn=${encodeURIComponent(campaign.name || '')}&e=${encodeURIComponent(contact.email)}`
     const html = (campaign.htmlBody || '')
       .replaceAll('{{name}}', contact.name || 'Πελάτη')
       .replaceAll('{{unsubscribe_url}}', unsub)
@@ -239,7 +247,7 @@ async function sendCampaign(request, env, json) {
       subject: campaign.subject,
       html,
       headers: {
-        'List-Unsubscribe':      `<${unsub}>`,
+        'List-Unsubscribe':      `<${unsubHeader}>`,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
       },
       tags: [
@@ -291,16 +299,15 @@ async function sendCampaign(request, env, json) {
   return json({ results })
 }
 
-// ─── /unsubscribe ─────────────────────────────────────────────────────────────
-async function unsubscribeContact(request, env, json) {
-  const { contactId, campaignId, campaignName } = await request.json()
-  if (!contactId) return json({ error: 'Missing contactId' }, 400)
+// ─── unsubscribe core (shared by JSON endpoint + one-click link) ──────────────
+async function markContactUnsubscribed(env, { contactId, campaignId, campaignName }) {
+  if (!contactId) return { ok: false, status: 400, error: 'Missing contactId' }
 
   // Test sends use a fake contactId — acknowledge without touching Firestore
-  if (contactId.startsWith('test_')) return json({ ok: true, test: true })
+  if (contactId.startsWith('test_')) return { ok: true, test: true }
 
-  const token = await getFirebaseToken(env)
-  const now   = new Date().toISOString()
+  const token   = await getFirebaseToken(env)
+  const now     = new Date().toISOString()
   const project = env.FIREBASE_PROJECT_ID
 
   const fields = {
@@ -327,7 +334,7 @@ async function unsubscribeContact(request, env, json) {
   if (!res.ok) {
     const err = await res.text()
     console.error('Unsubscribe failed:', err)
-    return json({ error: err }, 500)
+    return { ok: false, status: 500, error: err }
   }
 
   // Also increment campaign unsubscribed stat
@@ -355,7 +362,57 @@ async function unsubscribeContact(request, env, json) {
     }
   }
 
-  return json({ success: true })
+  return { ok: true }
+}
+
+// ─── POST /unsubscribe (called by the in-app confirmation page) ───────────────
+async function unsubscribeContact(request, env, json) {
+  const body   = await request.json().catch(() => ({}))
+  const result = await markContactUnsubscribed(env, body)
+  if (!result.ok) return json({ error: result.error }, result.status || 500)
+  return json({ success: true, ...(result.test ? { test: true } : {}) })
+}
+
+// ─── GET|POST /u — header / one-click unsubscribe, processed server-side ───────
+//   GET  = recipient clicks the link → friendly confirmation page
+//   POST = Gmail/Apple RFC 8058 one-click (body "List-Unsubscribe=One-Click")
+async function handleUnsubscribeLink(request, env) {
+  const p = new URL(request.url).searchParams
+  const result = await markContactUnsubscribed(env, {
+    contactId:    p.get('c'),
+    campaignId:   p.get('cid') || null,
+    campaignName: p.get('cn')  || null,
+  })
+
+  // One-click clients ignore the body — just need a 2xx
+  if (request.method === 'POST') {
+    return new Response(result.ok ? 'OK' : (result.error || 'Error'), {
+      status:  result.ok ? 200 : (result.status || 500),
+      headers: { 'Content-Type': 'text/plain' },
+    })
+  }
+
+  // Browser GET → branded confirmation page
+  const ok        = result.ok
+  const email     = String(p.get('e') || '').replace(/[<>&"]/g, '')
+  const heading   = ok ? 'Διαγραφήκατε' : 'Σφάλμα'
+  const message   = ok
+    ? `Η διεύθυνση ${email ? `<b>${email}</b> ` : ''}αφαιρέθηκε από τη λίστα μας. Δεν θα λαμβάνετε πλέον ενημερωτικά emails από τη Dermlux.`
+    : 'Κάτι πήγε στραβά. Δοκιμάστε ξανά αργότερα ή απαντήστε σε αυτό το email.'
+  const html = `<!doctype html><html lang="el"><head><meta charset="utf-8">`
+    + `<meta name="viewport" content="width=device-width,initial-scale=1">`
+    + `<title>Dermlux — ${heading}</title></head>`
+    + `<body style="margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f5f5f5;display:flex;min-height:100vh;align-items:center;justify-content:center">`
+    + `<div style="background:#fff;max-width:420px;width:90%;padding:40px;border-radius:16px;box-shadow:0 1px 4px rgba(0,0,0,.08);text-align:center">`
+    + `<div style="font-size:24px;font-weight:700;color:#161616;letter-spacing:.5px">Dermlux</div>`
+    + `<div style="font-size:44px;margin:18px 0">${ok ? '✅' : '⚠️'}</div>`
+    + `<h1 style="font-size:20px;color:${ok ? '#15803d' : '#dc2626'};margin:0 0 10px">${heading}</h1>`
+    + `<p style="color:#6b7280;font-size:14px;line-height:1.6;margin:0">${message}</p>`
+    + `</div></body></html>`
+  return new Response(html, {
+    status:  ok ? 200 : 500,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  })
 }
 
 // ─── /webhook (Resend events) ─────────────────────────────────────────────────
@@ -782,6 +839,7 @@ async function sendAutoBatch(campaign, token, project, env, now) {
   // 4. Send via Resend batch API
   const emails = batch.map(contact => {
     const unsub = `${APP_URL}/#/unsubscribe?c=${encodeURIComponent(contact.id)}&cid=${encodeURIComponent(campaign.id)}&cn=${encodeURIComponent(campaign.name || '')}&e=${encodeURIComponent(contact.email)}`
+    const unsubHeader = `${WORKER_URL}/u?c=${encodeURIComponent(contact.id)}&cid=${encodeURIComponent(campaign.id)}&cn=${encodeURIComponent(campaign.name || '')}&e=${encodeURIComponent(contact.email)}`
     const html  = (campaign.htmlBody || '')
       .replaceAll('{{name}}',           contact.name || 'Πελάτη')
       .replaceAll('{{unsubscribe_url}}', unsub)
@@ -794,7 +852,7 @@ async function sendAutoBatch(campaign, token, project, env, now) {
       subject: campaign.subject,
       html,
       headers: {
-        'List-Unsubscribe':      `<${unsub}>`,
+        'List-Unsubscribe':      `<${unsubHeader}>`,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
       },
       tags: [
