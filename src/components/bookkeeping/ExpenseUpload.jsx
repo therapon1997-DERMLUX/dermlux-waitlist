@@ -6,12 +6,22 @@ import { db } from '../../firebase/config'
 import { useAuth } from '../../contexts/AuthContext'
 import { LOCATIONS } from './ExpenseModal'
 
-// Upload-only σελίδα για store managers (role 'expenses'): φωτογραφίζουν/ανεβάζουν
-// αποδείξεις του καταστήματός τους. ΔΕΝ βλέπουν οικονομικά — μόνο τα δικά τους
-// πρόσφατα uploads. Το AI διαβάζει το παραστατικό σιωπηλά και ο Θεράπων το
-// εγκρίνει από τα Λογιστικά (status: pending).
+// Σελίδα «Αποδείξεις»: φωτογραφία/upload απόδειξης → βήμα 2: από πού πληρώθηκε
+// (μετρητά ταμείου ή ποια τράπεζα) → αποθήκευση. Το paymentSource κάνει το
+// τραπεζικό matching πολύ πιο εύκολο. Χρήση από admin ΚΑΙ store managers
+// (role 'expenses' — βλέπουν μόνο τα δικά τους, χωρίς οικονομικά).
 
 const WORKER = import.meta.env.VITE_WORKER_URL || ''
+
+const PAY_SOURCES = [
+  { key: 'Ταμείο (μετρητά)', label: '💶 Μετρητά ταμείου', method: 'Μετρητά' },
+  { key: 'BoC Κύριος',       label: '🏦 Τρ. Κύπρου — Κύριος', method: 'Τραπεζική' },
+  { key: 'BoC Ταμείο',       label: '🏦 Τρ. Κύπρου — Ταμείο', method: 'Τραπεζική' },
+  { key: 'Eurobank',         label: '🏦 Eurobank', method: 'Τραπεζική' },
+  { key: 'Revolut',          label: '🏦 Revolut Business', method: 'Κάρτα' },
+  { key: 'ΑΤΜ Κατάθεση',     label: '🏧 Απόδειξη κατάθεσης ΑΤΜ', method: 'Κατάθεση', docType: 'deposit_slip' },
+  { key: '',                 label: '❓ Δεν ξέρω / άλλο', method: 'Άλλο' },
+]
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -23,16 +33,16 @@ function fileToBase64(file) {
 }
 
 export default function ExpenseUpload() {
-  const { userProfile, currentUser } = useAuth()
+  const { userProfile, currentUser, isAdmin } = useAuth()
   const [location, setLocation] = useState('')
   const [busy, setBusy]     = useState(false)
   const [msg, setMsg]       = useState('')
   const [error, setError]   = useState('')
   const [recent, setRecent] = useState([])
+  const [pending, setPending] = useState(null)   // { fileUrl, fileName, fields } — περιμένει επιλογή πληρωμής
   const inputRef  = useRef(null)
   const cameraRef = useRef(null)
 
-  // Προεπιλεγμένο location από το προφίλ του manager
   useEffect(() => {
     if (userProfile?.location && LOCATIONS.includes(userProfile.location)) setLocation(userProfile.location)
     else if (!location) setLocation(LOCATIONS[0])
@@ -53,14 +63,14 @@ export default function ExpenseUpload() {
   }
   useEffect(() => { loadRecent() }, [currentUser]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Βήμα 1: ανέβασμα + σιωπηλή ανάγνωση AI
   async function handleFile(file) {
-    if (!file || busy) return
+    if (!file || busy || pending) return
     if (file.size > 12 * 1024 * 1024) { setError('Το αρχείο είναι πολύ μεγάλο (max 12MB).'); return }
     setError(''); setMsg('Μεταφόρτωση…'); setBusy(true)
     try {
       const base64  = await fileToBase64(file)
       const idToken = await currentUser.getIdToken()
-
       const uploadRes = await fetch(`${WORKER}/upload-invoice-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
@@ -69,7 +79,6 @@ export default function ExpenseUpload() {
       if (!uploadRes.ok) throw new Error('Η μεταφόρτωση απέτυχε')
       const { fileUrl, fileName } = await uploadRes.json()
 
-      // Σιωπηλή ανάγνωση AI — αν αποτύχει, το παραστατικό μπαίνει κενό για συμπλήρωση
       let f = {}
       setMsg('Ανάγνωση παραστατικού…')
       try {
@@ -82,6 +91,24 @@ export default function ExpenseUpload() {
         if (res.ok && data.fields) f = data.fields
       } catch { /* extraction optional */ }
 
+      setPending({ fileUrl, fileName, fields: f })
+      setMsg('')
+    } catch (e) {
+      setError(e.message || 'Κάτι πήγε στραβά — δοκίμασε ξανά.')
+      setMsg('')
+    } finally {
+      setBusy(false)
+      if (inputRef.current)  inputRef.current.value = ''
+      if (cameraRef.current) cameraRef.current.value = ''
+    }
+  }
+
+  // Βήμα 2: επιλογή πηγής πληρωμής → αποθήκευση
+  async function saveWithSource(src) {
+    if (!pending || busy) return
+    setBusy(true); setError('')
+    const f = pending.fields || {}
+    try {
       await addDoc(collection(db, 'expenses'), {
         vendor:        f.vendor         || '',
         vatNumber:     f.vat_number     || '',
@@ -94,24 +121,26 @@ export default function ExpenseUpload() {
         currency: f.currency || 'EUR',
         category: f.category || '',
         location,
-        paymentMethod: 'Μετρητά',
+        paymentMethod: src.method,
+        paymentSource: src.key,
+        // deposit_slip = απόδειξη κατάθεσης μετρητών στο ΑΤΜ — ΔΕΝ είναι έξοδο,
+        // δικαιολογεί την αντίστοιχη πίστωση στην τράπεζα
+        docType: src.docType || 'expense',
         notes: '',
-        fileUrl, fileName,
+        fileUrl: pending.fileUrl, fileName: pending.fileName,
         status: 'pending',
         source: 'manager_upload',
         createdAt: serverTimestamp(),
         createdBy: userProfile?.displayName || '',
         createdByUid: currentUser.uid,
       })
+      setPending(null)
       setMsg('✓ Στάλθηκε! Μπορείς να ανεβάσεις και άλλη απόδειξη.')
       loadRecent()
     } catch (e) {
-      setError(e.message || 'Κάτι πήγε στραβά — δοκίμασε ξανά.')
-      setMsg('')
+      setError('Η αποθήκευση απέτυχε: ' + e.message)
     } finally {
       setBusy(false)
-      if (inputRef.current)  inputRef.current.value = ''
-      if (cameraRef.current) cameraRef.current.value = ''
     }
   }
 
@@ -131,31 +160,53 @@ export default function ExpenseUpload() {
       {error && <div className="mb-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{error}</div>}
       {msg && !error && <div className="mb-3 bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg px-3 py-2">{msg}</div>}
 
-      <div
-        onClick={() => !busy && inputRef.current?.click()}
-        onDragOver={e => e.preventDefault()}
-        onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files?.[0]) }}
-        className={`border-2 border-dashed border-gray-300 rounded-xl py-10 text-center transition-colors ${busy ? 'opacity-50' : 'cursor-pointer hover:border-green-400 hover:bg-green-50/40'}`}>
-        <div className="text-4xl mb-2">{busy ? '⏳' : '🧾'}</div>
-        <p className="text-gray-700 font-medium">{busy ? 'Επεξεργασία…' : 'Σύρε εδώ την απόδειξη'}</p>
-        <p className="text-sm text-gray-500 mt-1">ή κάνε κλικ για επιλογή αρχείου</p>
-      </div>
+      {pending ? (
+        /* ─── Βήμα 2: Από πού πληρώθηκε; ─── */
+        <div className="border-2 border-blue-200 bg-blue-50/40 rounded-xl p-4">
+          <p className="font-semibold text-gray-800 mb-0.5">💳 Από πού πληρώθηκε;</p>
+          <p className="text-xs text-gray-500 mb-3">
+            {pending.fields?.vendor ? `${pending.fields.vendor} — ` : ''}
+            {pending.fields?.total ? `€${pending.fields.total}` : 'η απόδειξη ανέβηκε'}
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {PAY_SOURCES.map(srcOpt => (
+              <button key={srcOpt.label} type="button" disabled={busy}
+                onClick={() => saveWithSource(srcOpt)}
+                className="border border-gray-200 bg-white rounded-xl py-3 px-2 text-sm font-medium text-gray-700 hover:border-blue-400 hover:bg-blue-50 active:bg-blue-100 disabled:opacity-50">
+                {srcOpt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <>
+          <div
+            onClick={() => !busy && inputRef.current?.click()}
+            onDragOver={e => e.preventDefault()}
+            onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files?.[0]) }}
+            className={`border-2 border-dashed border-gray-300 rounded-xl py-10 text-center transition-colors ${busy ? 'opacity-50' : 'cursor-pointer hover:border-green-400 hover:bg-green-50/40'}`}>
+            <div className="text-4xl mb-2">{busy ? '⏳' : '🧾'}</div>
+            <p className="text-gray-700 font-medium">{busy ? 'Επεξεργασία…' : 'Σύρε εδώ την απόδειξη'}</p>
+            <p className="text-sm text-gray-500 mt-1">ή κάνε κλικ για επιλογή αρχείου</p>
+          </div>
 
-      <input ref={inputRef} type="file" accept="image/*,application/pdf"
-             className="hidden" onChange={e => handleFile(e.target.files?.[0])} />
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment"
-             className="hidden" onChange={e => handleFile(e.target.files?.[0])} />
+          <input ref={inputRef} type="file" accept="image/*,application/pdf"
+                 className="hidden" onChange={e => handleFile(e.target.files?.[0])} />
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment"
+                 className="hidden" onChange={e => handleFile(e.target.files?.[0])} />
 
-      <div className="grid grid-cols-2 gap-3 mt-3">
-        <button type="button" disabled={busy} onClick={() => cameraRef.current?.click()}
-          className="flex flex-col items-center gap-1 border border-green-200 bg-green-50 text-green-700 rounded-xl py-4 text-sm font-semibold active:bg-green-100 disabled:opacity-50">
-          <span className="text-2xl">📷</span> Φωτογράφισε
-        </button>
-        <button type="button" disabled={busy} onClick={() => inputRef.current?.click()}
-          className="flex flex-col items-center gap-1 border border-gray-200 bg-gray-50 text-gray-700 rounded-xl py-4 text-sm font-semibold active:bg-gray-100 disabled:opacity-50">
-          <span className="text-2xl">🖼️</span> Από gallery
-        </button>
-      </div>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <button type="button" disabled={busy} onClick={() => cameraRef.current?.click()}
+              className="flex flex-col items-center gap-1 border border-green-200 bg-green-50 text-green-700 rounded-xl py-4 text-sm font-semibold active:bg-green-100 disabled:opacity-50">
+              <span className="text-2xl">📷</span> Φωτογράφισε
+            </button>
+            <button type="button" disabled={busy} onClick={() => inputRef.current?.click()}
+              className="flex flex-col items-center gap-1 border border-gray-200 bg-gray-50 text-gray-700 rounded-xl py-4 text-sm font-semibold active:bg-gray-100 disabled:opacity-50">
+              <span className="text-2xl">🖼️</span> Από gallery
+            </button>
+          </div>
+        </>
+      )}
 
       {recent.length > 0 && (
         <div className="mt-8">
@@ -166,8 +217,11 @@ export default function ExpenseUpload() {
                 <span className="text-green-500">🧾</span>
                 <span className="flex-1 min-w-0">
                   <span className="text-sm text-gray-800 truncate block">{r.vendor || r.fileName || 'Απόδειξη'}</span>
-                  <span className="text-xs text-gray-400">{r.date} · {r.location}</span>
+                  <span className="text-xs text-gray-400">
+                    {r.date} · {r.location}{r.paymentSource ? ` · ${r.paymentSource}` : ''}
+                  </span>
                 </span>
+                {isAdmin && r.total != null && <span className="text-sm font-semibold text-gray-700">€{Number(r.total).toFixed(2)}</span>}
                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${r.status === 'confirmed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
                   {r.status === 'confirmed' ? '✓ εγκρίθηκε' : 'σε έλεγχο'}
                 </span>

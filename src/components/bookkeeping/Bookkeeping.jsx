@@ -62,7 +62,8 @@ export default function Bookkeeping() {
   useEffect(() => {
     const q = query(collection(db, 'expenses'), orderBy('date', 'desc'))
     return onSnapshot(q, snap => {
-      setExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      // deposit_slip = αποδείξεις κατάθεσης ΑΤΜ — δικαιολογητικά τραπεζών, ΟΧΙ έξοδα
+      setExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.docType !== 'deposit_slip'))
       setLoading(false)
     }, () => setLoading(false))
   }, [])

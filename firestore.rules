@@ -22,6 +22,8 @@ service cloud.firestore {
     }
     function isStaff() { return authed() && (isAdmin() || roleOf() == 'agent'); } // κλινικό προσωπικό (όχι ekloges)
     function isMarketer() { return authed() && roleOf() == 'marketer'; } // ΜΟΝΟ email marketing — τίποτα άλλο
+    function isAccountant() { return authed() && roleOf() == 'accountant'; } // λογιστής: read-only λογιστικά
+    function isExpensesRole() { return authed() && roleOf() == 'expenses'; } // store managers: upload αποδείξεων μόνο
 
     // ── Χρήστες: ο καθένας βλέπει το δικό του προφίλ· μόνο admin διαχειρίζεται ──
     match /users/{uid} {
@@ -32,8 +34,20 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // ── Λογιστικά (07/07/2026): admin πλήρη· λογιστής read-only· store managers
+    //    (role 'expenses') μόνο δημιουργία δικών τους αποδείξεων + read τα δικά τους ──
+    match /expenses/{d} {
+      allow read:   if isAdmin() || isAccountant()
+                    || (isExpensesRole() && resource.data.createdByUid == request.auth.uid);
+      allow create: if isAdmin()
+                    || (isExpensesRole() && request.resource.data.createdByUid == request.auth.uid
+                        && request.resource.data.status == 'pending');
+      allow update, delete: if isAdmin();
+    }
+    match /bank_transactions/{d}      { allow read: if isAdmin() || isAccountant(); allow write: if isAdmin(); }
+    match /extraction_corrections/{d} { allow read, write: if isAdmin(); }
+
     // ── Μόνο admin (ευαίσθητα: οικονομικά, remote, εκλογικές επαφές) ──
-    match /expenses/{d}               { allow read, write: if isAdmin(); }
     match /claude_remote_messages/{d} { allow read, write: if isAdmin(); }
     match /claude_remote_state/{d}    { allow read, write: if isAdmin(); }
     match /voteContacts/{d}           { allow read, write: if isAdmin(); }

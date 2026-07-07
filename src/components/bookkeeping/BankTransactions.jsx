@@ -34,6 +34,10 @@ export const matchedIds = t => {
 }
 
 const FEE_RE = /CardTxnAdmin|COMMISSION|CHARGES|Ledger Fee|Maintenance|SUBSCR\.? FEE|Account Fee|Transfer Fees/i
+// Εστίαση/entertainment: το ΦΠΑ δεν εκπίπτει — δικαιολογείται ως φιλοξενία, δεν θέλει τιμολόγιο ΦΠΑ
+const ENTERTAIN_RE = /SMOCLOCK|FOODHAUS|PANDORA BAKERIES|STOP KIOSK|FLYING DRAGON|WOLT|FOODY|CAFFE|COFFEE|RESTAURANT|PIZZ|GRILL|SOUVLA|TAVERN|BAKERIES|ZORPAS|GREGORY/i
+// Διαφημίσεις πλατφορμών — όλες στην κάρτα BoC· invoices από τα Billing των πλατφορμών
+const ADS_RE = /FACEBK|GOOGLE ADS|GOOGLE INSTAGRAM|TIKTOK/i
 
 // Πώς δικαιολογείται η γραμμή; null = ΔΕΝ δικαιολογείται (θέλει δικαιολογητικό)
 function justification(t) {
@@ -52,6 +56,8 @@ function justification(t) {
   if (t.tag === 'Εισφορές')   return { label: '🏛️ Εισφορές ΚΑ',      cls: 'bg-violet-100 text-violet-700' }
   if (t.flow === 'internal')  return { label: '🔁 Εσωτερική',        cls: 'bg-gray-200 text-gray-600' }
   if (FEE_RE.test(t.description || '')) return { label: '🏦 Προμήθεια τράπεζας', cls: 'bg-sky-100 text-sky-700' }
+  if (ADS_RE.test(t.description || '')) return { label: '📣 Διαφημίσεις', cls: 'bg-blue-100 text-blue-700' }
+  if (ENTERTAIN_RE.test(t.description || '')) return { label: '🍽 Εστίαση (ΦΠΑ μη εκπιπτ.)', cls: 'bg-orange-100 text-orange-700' }
   return null
 }
 
