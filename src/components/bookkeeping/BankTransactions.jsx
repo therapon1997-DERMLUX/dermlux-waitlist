@@ -33,7 +33,7 @@ export const matchedIds = t => {
   return t.matchedExpenseId ? [t.matchedExpenseId] : []
 }
 
-const FEE_RE = /CardTxnAdmin|COMMISSION|CHARGES|Ledger Fee|Maintenance|SUBSCR\.? FEE|Account Fee/i
+const FEE_RE = /CardTxnAdmin|COMMISSION|CHARGES|Ledger Fee|Maintenance|SUBSCR\.? FEE|Account Fee|Transfer Fees/i
 
 // Πώς δικαιολογείται η γραμμή; null = ΔΕΝ δικαιολογείται (θέλει δικαιολογητικό)
 function justification(t) {
@@ -49,6 +49,7 @@ function justification(t) {
   if (ids.length === 1) return { label: '📎 παραστατικό', cls: 'bg-green-100 text-green-700', receipts: 1 }
   if (ids.length > 1)   return { label: `📎 ×${ids.length} ομαδική`, cls: 'bg-green-100 text-green-700', receipts: ids.length }
   if (t.tag === 'Μισθοί')     return { label: '👥 Μισθοί',           cls: 'bg-indigo-100 text-indigo-700' }
+  if (t.tag === 'Εισφορές')   return { label: '🏛️ Εισφορές ΚΑ',      cls: 'bg-violet-100 text-violet-700' }
   if (t.flow === 'internal')  return { label: '🔁 Εσωτερική',        cls: 'bg-gray-200 text-gray-600' }
   if (FEE_RE.test(t.description || '')) return { label: '🏦 Προμήθεια τράπεζας', cls: 'bg-sky-100 text-sky-700' }
   return null
