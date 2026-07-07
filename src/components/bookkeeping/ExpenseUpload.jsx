@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  collection, addDoc, serverTimestamp, query, where, orderBy, limit, getDocs,
+  collection, addDoc, serverTimestamp, query, where, limit, getDocs,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../contexts/AuthContext'
@@ -42,12 +42,14 @@ export default function ExpenseUpload() {
   async function loadRecent() {
     if (!currentUser) return
     try {
+      // Χωρίς orderBy ώστε να μη χρειάζεται composite index — sort client-side
       const snap = await getDocs(query(
         collection(db, 'expenses'),
-        where('createdByUid', '==', currentUser.uid),
-        orderBy('createdAt', 'desc'), limit(15)))
-      setRecent(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    } catch { /* index may be missing on first run — non-fatal */ }
+        where('createdByUid', '==', currentUser.uid), limit(50)))
+      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      rows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+      setRecent(rows.slice(0, 15))
+    } catch { /* non-fatal */ }
   }
   useEffect(() => { loadRecent() }, [currentUser]) // eslint-disable-line react-hooks/exhaustive-deps
 
