@@ -1,14 +1,17 @@
 import { useState, useRef, useEffect } from 'react'
+import bocLogo from '../../assets/banks/boc.svg'
+import eurobankLogo from '../../assets/banks/eurobank.svg'
+import revolutLogo from '../../assets/banks/revolut.svg'
 
-// Clickable bank tag chip: shows the bank "logo" (styled initials), click opens a
-// popover with the matched bank transaction's date, description, amount & reference.
+// Clickable bank tag chip: shows the bank's real logo, click opens a popover
+// with the matched bank transaction's date, description, amount & reference.
 // Cash payments render a Cash chip; bank-paid expenses without a matched statement
 // line render a subtle "πιθανόν cash;" hint only when explicitly asked (showUnmatched).
 
-const BANK_STYLE = {
-  'Bank of Cyprus': { label: 'BoC', cls: 'bg-red-600 text-white',    full: 'Bank of Cyprus' },
-  'Eurobank':       { label: 'EB',  cls: 'bg-blue-900 text-white',   full: 'Eurobank Cyprus' },
-  'Revolut':        { label: 'R',   cls: 'bg-gray-900 text-white',   full: 'Revolut Business' },
+export const BANK_STYLE = {
+  'Bank of Cyprus': { label: 'BoC', logo: bocLogo,      cls: 'bg-red-600 text-white',  full: 'Bank of Cyprus' },
+  'Eurobank':       { label: 'EB',  logo: eurobankLogo, cls: 'bg-blue-900 text-white', full: 'Eurobank Cyprus' },
+  'Revolut':        { label: 'R',   logo: revolutLogo,  cls: 'bg-gray-900 text-white', full: 'Revolut Business' },
 }
 
 const fmtDate = d => {
@@ -67,14 +70,18 @@ export default function BankChip({ expense, showUnmatched = false }) {
     <span className="relative inline-flex shrink-0" ref={ref}>
       <button
         onClick={e => { e.stopPropagation(); setOpen(v => !v) }}
-        className={`inline-flex items-center gap-1 text-[10px] font-black px-1.5 py-0.5 rounded-full shadow-sm hover:scale-105 transition-transform ${st.cls}`}
+        className={st.logo
+          ? 'inline-flex items-center bg-white border border-gray-200 px-1.5 py-0.5 rounded-full shadow-sm hover:scale-105 hover:border-gray-300 transition-transform'
+          : `inline-flex items-center gap-1 text-[10px] font-black px-1.5 py-0.5 rounded-full shadow-sm hover:scale-105 transition-transform ${st.cls}`}
         title={`Πληρώθηκε μέσω ${st.full} — κλικ για λεπτομέρειες`}>
-        🏦 {st.label}
+        {st.logo ? <img src={st.logo} alt={st.full} className="h-3 w-auto max-w-[4.5rem]" /> : <>🏦 {st.label}</>}
       </button>
       {open && (
         <span className="absolute z-30 top-6 right-0 w-72 bg-white border border-gray-200 rounded-xl shadow-xl p-3 text-left cursor-default"
               onClick={e => e.stopPropagation()}>
-          <span className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">{st.full}</span>
+          {st.logo
+            ? <img src={st.logo} alt={st.full} className="h-4 w-auto mb-1.5" />
+            : <span className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">{st.full}</span>}
           <span className="block text-sm font-semibold text-gray-800">{fmtDate(expense.bankTagDate)}</span>
           <span className="block text-xs text-gray-600 mt-1 break-words">{expense.bankTagDesc}</span>
           <span className="block text-sm font-bold text-gray-900 mt-1.5">{eur(expense.bankTagAmount)}</span>
