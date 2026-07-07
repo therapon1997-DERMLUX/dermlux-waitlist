@@ -1,4 +1,4 @@
-import{r as ue,j as v,u as un,L as hn}from"./index-DcTZ0IwU.js";/**
+import{r as ue,j as v,u as un,L as hn}from"./index-BuiopAW5.js";/**
  * Anime.js - core - ESM
  * @version v4.4.1
  * @license MIT
