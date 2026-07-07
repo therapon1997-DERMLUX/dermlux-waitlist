@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { collection, onSnapshot, query, orderBy, doc, updateDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
+import { useAuth } from '../../contexts/AuthContext'
 import ExpenseModal, { CATEGORIES, LOCATIONS } from './ExpenseModal'
 import ExportPrint from './ExportPrint'
 import BankChip from './BankChip'
@@ -35,6 +36,8 @@ const catName = c => {
 }
 
 export default function Bookkeeping() {
+  const { isAccountant } = useAuth()
+  const readOnly = isAccountant
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading]   = useState(true)
   const [modal, setModal]       = useState(null)
@@ -49,6 +52,7 @@ export default function Bookkeeping() {
 
   // Change an expense's category inline (onSnapshot refreshes the list)
   async function changeCategory(id, newCat) {
+    if (readOnly) return
     setSavingCat(id)
     try { await updateDoc(doc(db, 'expenses', id), { category: newCat }) }
     catch (e) { console.error('recategorise failed', e) }
@@ -157,10 +161,12 @@ export default function Bookkeeping() {
         </div>
         <div className="flex gap-2">
           <ExportPrint expenses={expenses} />
-          <button onClick={() => setModal('new')}
-            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm">
-            + Νέο Έξοδο
-          </button>
+          {!readOnly && (
+            <button onClick={() => setModal('new')}
+              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm">
+              + Νέο Έξοδο
+            </button>
+          )}
         </div>
       </div>
 
@@ -304,7 +310,7 @@ export default function Bookkeeping() {
                         <div key={e.id} onClick={() => setModal(e)}
                           className={`flex items-center gap-3 pl-10 pr-4 py-2.5 cursor-pointer border-b border-gray-100 last:border-0 transition-colors ${miss.length ? 'hover:bg-red-50' : 'hover:bg-green-50'}`}>
                           <span className="text-xs text-gray-500 w-24 shrink-0">{fmtDate(e.date)}</span>
-                          <select value={e.category || ''}
+                          <select value={e.category || ''} disabled={readOnly}
                             onClick={ev => ev.stopPropagation()}
                             onChange={ev => { ev.stopPropagation(); changeCategory(e.id, ev.target.value) }}
                             className={`flex-1 min-w-0 text-xs bg-transparent border border-transparent rounded px-1 cursor-pointer hover:border-gray-300 hover:bg-white focus:bg-white focus:border-green-400 focus:outline-none ${savingCat === e.id ? 'opacity-40' : ''} ${miss.includes('category') ? 'text-red-600 font-semibold' : 'text-gray-600'}`}>
@@ -397,7 +403,7 @@ export default function Bookkeeping() {
                   <span className="hidden md:block text-xs text-gray-400 truncate">{e.notes || e.invoiceNumber || ''}</span>
 
                   {/* Category — inline editable */}
-                  <select value={e.category || ''}
+                  <select value={e.category || ''} disabled={readOnly}
                     onClick={ev => ev.stopPropagation()}
                     onChange={ev => { ev.stopPropagation(); changeCategory(e.id, ev.target.value) }}
                     title="Αλλαγή κατηγορίας"
@@ -440,6 +446,7 @@ export default function Bookkeeping() {
       {modal && (
         <ExpenseModal
           existing={modal === 'new' ? null : modal}
+          readOnly={readOnly}
           onClose={() => setModal(null)}
         />
       )}

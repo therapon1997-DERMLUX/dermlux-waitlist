@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  collection, addDoc, doc, updateDoc, deleteDoc, serverTimestamp,
+  collection, addDoc, doc, updateDoc, deleteDoc, setDoc, serverTimestamp,
   query, where, getDocs, limit,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
@@ -55,7 +55,7 @@ function fileToBase64(file) {
   })
 }
 
-export default function ExpenseModal({ existing, onClose }) {
+export default function ExpenseModal({ existing, onClose, readOnly = false }) {
   const { userProfile, currentUser } = useAuth()
   const editing = !!existing
   const [form, setForm]       = useState(existing ? {
@@ -265,6 +265,22 @@ export default function ExpenseModal({ existing, onClose }) {
     try {
       if (editing) {
         await updateDoc(doc(db, 'expenses', existing.id), payload)
+        // Learning loop: αν διορθώθηκαν πεδία που είχε διαβάσει το AI, κράτα
+        // vendor-specific hint ώστε το /extract-invoice να μην ξανακάνει το ίδιο λάθος.
+        if (existing.source && existing.source !== 'manual') {
+          const watched = ['vendor', 'vatNumber', 'invoiceNumber', 'date', 'net', 'vat', 'vatRate', 'total', 'category']
+          const diffs = watched.filter(k => String(existing[k] ?? '') !== String(payload[k] ?? ''))
+          if (diffs.length && payload.vendor) {
+            const slug = payload.vendor.toLowerCase()
+              .replace(/[^a-z0-9Ͱ-Ͽἀ-῿]+/g, '-')
+              .replace(/^-+|-+$/g, '').slice(0, 60) || 'unknown'
+            setDoc(doc(db, 'extraction_corrections', slug), {
+              vendor: payload.vendor,
+              hint: `User corrected these fields for this vendor: ${diffs.map(k => `${k} → ${payload[k]}`).join('; ')}`,
+              updatedAt: serverTimestamp(),
+            }, { merge: true }).catch(() => {})
+          }
+        }
       } else {
         await addDoc(collection(db, 'expenses'), {
           ...payload,
@@ -397,6 +413,7 @@ export default function ExpenseModal({ existing, onClose }) {
         {/* Form stage */}
         {stage === 'form' && (
           <form id="expense-form" onSubmit={save} className="px-6 py-4 space-y-4">
+            <fieldset disabled={readOnly} className="contents">
             {aiMsg && <div className="bg-blue-50 text-blue-700 text-sm rounded-lg px-3 py-2">{aiMsg}</div>}
 
             {duplicate && (
@@ -541,12 +558,21 @@ export default function ExpenseModal({ existing, onClose }) {
                 </div>
               </div>
             )}
+            </fieldset>
           </form>
         )}
         </div>{/* /scroll area */}
 
         {/* Sticky action footer */}
-        {stage === 'form' && (
+        {stage === 'form' && readOnly && (
+          <div className="flex gap-3 px-6 py-4 border-t bg-white rounded-b-xl shrink-0">
+            <span className="flex-1 text-sm text-gray-400 self-center">Προβολή μόνο (read-only)</span>
+            <button type="button" onClick={onClose} className="px-6 border border-gray-300 text-gray-700 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors">
+              Κλείσιμο
+            </button>
+          </div>
+        )}
+        {stage === 'form' && !readOnly && (
           <div className="flex gap-3 px-6 py-4 border-t bg-white rounded-b-xl shrink-0">
             {editing && (
               <button type="button" onClick={remove} disabled={saving}

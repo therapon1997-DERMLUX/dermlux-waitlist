@@ -19,6 +19,7 @@ const MedicalRecords  = lazy(() => import('./components/medical/MedicalRecords')
 const PatientProfile  = lazy(() => import('./components/medical/PatientProfile'))
 const Bookkeeping     = lazy(() => import('./components/bookkeeping/Bookkeeping'))
 const BankTransactions = lazy(() => import('./components/bookkeeping/BankTransactions'))
+const ExpenseUpload   = lazy(() => import('./components/bookkeeping/ExpenseUpload'))
 const ImportExpensify = lazy(() => import('./components/bookkeeping/ImportExpensify'))
 const ClaudeRemote    = lazy(() => import('./components/claude/ClaudeRemote'))
 const StavriView      = lazy(() => import('./components/StavriView'))
@@ -37,6 +38,8 @@ function ProtectedRoute({ children }) {
   const { currentUser, userProfile } = useAuth()
   if (!currentUser) return <Navigate to="/login" replace />
   if (userProfile?.role === 'ekloges') return <Navigate to="/ekloges" replace />
+  if (userProfile?.role === 'expenses') return <Navigate to="/upload" replace />
+  if (userProfile?.role === 'accountant') return <Navigate to="/bookkeeping" replace />
   return children
 }
 
@@ -44,6 +47,22 @@ function AdminRoute({ children }) {
   const { currentUser, isAdmin } = useAuth()
   if (!currentUser) return <Navigate to="/login" replace />
   if (!isAdmin) return <Navigate to="/" replace />
+  return children
+}
+
+// Λογιστικά: admin πλήρη, λογιστής read-only
+function BooksRoute({ children }) {
+  const { currentUser, isAdmin, isAccountant } = useAuth()
+  if (!currentUser) return <Navigate to="/login" replace />
+  if (!isAdmin && !isAccountant) return <Navigate to="/" replace />
+  return children
+}
+
+// Ανέβασμα αποδείξεων: store managers (upload-only) + admin
+function UploadRoute({ children }) {
+  const { currentUser, isAdmin, isExpenses } = useAuth()
+  if (!currentUser) return <Navigate to="/login" replace />
+  if (!isAdmin && !isExpenses) return <Navigate to="/" replace />
   return children
 }
 
@@ -78,8 +97,9 @@ export default function App() {
               <Route path="/election-archive" element={<ProtectedRoute><ElectionArchive /></ProtectedRoute>} />
               <Route path="/medical" element={<ProtectedRoute><MedicalRecords /></ProtectedRoute>} />
               <Route path="/medical/:id" element={<ProtectedRoute><PatientProfile /></ProtectedRoute>} />
-              <Route path="/bookkeeping" element={<AdminRoute><Bookkeeping /></AdminRoute>} />
-              <Route path="/banks" element={<AdminRoute><BankTransactions /></AdminRoute>} />
+              <Route path="/bookkeeping" element={<BooksRoute><Bookkeeping /></BooksRoute>} />
+              <Route path="/banks" element={<BooksRoute><BankTransactions /></BooksRoute>} />
+              <Route path="/upload" element={<UploadRoute><ExpenseUpload /></UploadRoute>} />
               <Route path="/import-expensify" element={<AdminRoute><ImportExpensify /></AdminRoute>} />
               <Route path="/claude" element={<AdminRoute><ClaudePinGate><ClaudeRemote /></ClaudePinGate></AdminRoute>} />
               <Route path="/stavri" element={<AdminRoute><StavriView /></AdminRoute>} />

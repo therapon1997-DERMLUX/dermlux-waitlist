@@ -1044,6 +1044,30 @@ async function extractInvoice(request, env, json) {
     ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
     : { type: 'image',    source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: base64 } }
 
+  // Learning loop: vendor-specific hints saved in Firestore whenever the user
+  // corrects a misread field (collection extraction_corrections). Injected into
+  // the prompt so the same mistake is not repeated. Non-fatal if unavailable.
+  let hints = ''
+  try {
+    const token   = await getFirebaseToken(env)
+    const project = env.FIREBASE_PROJECT_ID
+    const res = await fetch(
+      `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/extraction_corrections?pageSize=50`,
+      { headers: { Authorization: `Bearer ${token}` } })
+    if (res.ok) {
+      const { documents = [] } = await res.json()
+      const lines = documents.map(d => {
+        const f = d.fields || {}
+        const parts = []
+        for (const [k, v] of Object.entries(f)) {
+          if (v.stringValue && k !== 'type') parts.push(`${k}: ${v.stringValue}`)
+        }
+        return parts.length ? '- ' + parts.join(' | ') : null
+      }).filter(Boolean)
+      if (lines.length) hints = `\nKnown vendor-specific corrections from past mistakes (apply when relevant):\n${lines.join('\n')}\n`
+    }
+  } catch { /* hints are best-effort */ }
+
   const prompt = `You are reading a single expense invoice/receipt for a beauty clinic in Cyprus. ` +
     `Return ONLY a JSON object (no markdown, no commentary) with exactly these keys: ` +
     `{"vendor": string|null, "vat_number": string|null, "invoice_number": string|null, ` +
@@ -1056,38 +1080,46 @@ async function extractInvoice(request, env, json) {
     `description = the item text; quantity = units; unit_price = price per unit before line discounts; amount = the line total. ` +
     `If the receipt shows no itemised lines (e.g. a bank/ad/utility summary), return line_items as []. Do not invent lines. ` +
     `vat_rate is a percent number (Cyprus is usually 19, sometimes 9/5/0). currency is an ISO code like "EUR". ` +
-    `Pick the best-fitting category from the vendor name and line items. Examples: rent invoice → 8103, electricity/water bill → 8108/8109, Facebook/Google ads → 8203, product supplies for treatments → 6201, phone bill → 8106, accountant fee → 8115, lawyer → 8117, insurance → 8116.`
+    `Pick the best-fitting category from the vendor name and line items. Examples: rent invoice → 8103, electricity/water bill → 8108/8109, Facebook/Google ads → 8203, product supplies for treatments → 6201, phone bill → 8106, accountant fee → 8115, lawyer → 8117, insurance → 8116. ` +
+    `Also include a "confidence" key: "high" if the document is clearly printed and all key fields are legible, ` +
+    `"low" if it is handwritten, blurry, partially cut off, or you had to guess vendor/total.` + hints
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method:  'POST',
-    headers: {
-      'x-api-key':         env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'content-type':      'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5',
-      max_tokens: 3072,
-      messages: [{ role: 'user', content: [docBlock, { type: 'text', text: prompt }] }],
-    }),
-  })
-
-  if (!res.ok) {
-    const err = await res.text()
-    console.error('Anthropic error:', res.status, err)
-    return json({ error: 'AI request failed', status: res.status }, 502)
+  async function callModel(model) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method:  'POST',
+      headers: {
+        'x-api-key':         env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type':      'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 3072,
+        messages: [{ role: 'user', content: [docBlock, { type: 'text', text: prompt }] }],
+      }),
+    })
+    if (!res.ok) {
+      console.error('Anthropic error:', res.status, await res.text())
+      return null
+    }
+    const data = await res.json()
+    const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('')
+    try {
+      const m = text.match(/\{[\s\S]*\}/)
+      return { fields: JSON.parse(m ? m[0] : text), usage: data.usage }
+    } catch { return null }
   }
 
-  const data = await res.json()
-  const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('')
-  let fields = null
-  try {
-    const m = text.match(/\{[\s\S]*\}/)
-    fields = JSON.parse(m ? m[0] : text)
-  } catch {
-    return json({ error: 'Could not parse AI response', raw: text }, 502)
+  let out = await callModel('claude-haiku-4-5')
+  let model = 'claude-haiku-4-5'
+  // Escalate to Sonnet for hard documents (handwritten/blurry) or unusable reads
+  const weak = !out || out.fields.confidence === 'low' || (!out.fields.vendor && out.fields.total == null)
+  if (weak) {
+    const better = await callModel('claude-sonnet-4-6')
+    if (better) { out = better; model = 'claude-sonnet-4-6' }
   }
-  return json({ ok: true, fields, usage: data.usage })
+  if (!out) return json({ error: 'AI request failed' }, 502)
+  return json({ ok: true, fields: out.fields, usage: out.usage, model })
 }
 
 // ─── Bulk import expenses (temporary, IMPORT_SECRET protected) ───────────────
