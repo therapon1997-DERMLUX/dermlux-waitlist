@@ -1,1 +1,0 @@
-import{i as c,c as s,b as o,g as u,t as r}from"./index-XGzPSFyW.js";function d(e,i={}){var a,t;try{c(s(o,"audit_log"),{action:e,detail:i,byEmail:((a=r.currentUser)==null?void 0:a.email)||"",byUid:((t=r.currentUser)==null?void 0:t.uid)||"",at:u(),ua:(navigator.userAgent||"").slice(0,180)}).catch(()=>{})}catch{}}export{d as l};
