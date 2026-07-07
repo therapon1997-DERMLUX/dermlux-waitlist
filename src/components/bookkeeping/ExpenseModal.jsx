@@ -85,6 +85,7 @@ export default function ExpenseModal({ existing, onClose }) {
   const [previewState, setPreviewState] = useState('idle') // idle | loading | error
   const [lightbox, setLightbox] = useState(false) // full-screen image viewer
   const inputRef  = useRef(null)
+  const cameraRef = useRef(null)
   const dupTimer  = useRef(null)
 
   // Lock body scroll while the modal is open
@@ -364,8 +365,21 @@ export default function ExpenseModal({ existing, onClose }) {
               <p className="text-sm text-gray-500 mt-1">ή κάντε κλικ για επιλογή αρχείου · ή επικολλήστε (Ctrl+V) στιγμιότυπο</p>
               <p className="text-xs text-gray-400 mt-2">Φωτογραφία ή PDF — το AI θα διαβάσει τα στοιχεία</p>
             </div>
-            <input ref={inputRef} type="file" accept="image/*,application/pdf" capture="environment"
+            <input ref={inputRef} type="file" accept="image/*,application/pdf"
               className="hidden" onChange={e => handleFile(e.target.files?.[0])} />
+            <input ref={cameraRef} type="file" accept="image/*" capture="environment"
+              className="hidden" onChange={e => handleFile(e.target.files?.[0])} />
+            {/* Mobile: camera + gallery as separate big buttons */}
+            <div className="grid grid-cols-2 gap-3 mt-3 md:hidden">
+              <button type="button" onClick={() => cameraRef.current?.click()}
+                className="flex flex-col items-center gap-1 border border-blue-200 bg-blue-50 text-blue-700 rounded-xl py-3 text-sm font-semibold active:bg-blue-100">
+                <span className="text-2xl">📷</span> Φωτογράφισε
+              </button>
+              <button type="button" onClick={() => inputRef.current?.click()}
+                className="flex flex-col items-center gap-1 border border-gray-200 bg-gray-50 text-gray-700 rounded-xl py-3 text-sm font-semibold active:bg-gray-100">
+                <span className="text-2xl">🖼️</span> Από gallery
+              </button>
+            </div>
             <button onClick={() => setStage('form')} className="mt-4 w-full text-sm text-blue-600 hover:underline">
               Παράλειψη — καταχώρηση χειροκίνητα
             </button>

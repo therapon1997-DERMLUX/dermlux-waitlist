@@ -42,6 +42,7 @@ export default function Navbar() {
             {isAdmin && <Link to="/admin" className={linkClass('/admin')}>Admin</Link>}
             {isAdmin && <Link to="/email" className={linkClass('/email')}>Email</Link>}
             {isAdmin && <Link to="/bookkeeping" className={linkClass('/bookkeeping')}>Λογιστικά</Link>}
+            {isAdmin && <Link to="/banks" className={linkClass('/banks')}>Τράπεζες</Link>}
             {isAdmin && <Link to="/claude" className={linkClass('/claude')}>Claude</Link>}
             {isAdmin && <Link to="/stavri" className={linkClass('/stavri')}>Σταύρη Μεταξά</Link>}
             {(isAdmin || isEkloges) && (
@@ -91,6 +92,7 @@ export default function Navbar() {
           {isAdmin && <Link to="/admin" className={mobileLinkClass('/admin')}>⚙️ Admin</Link>}
           {isAdmin && <Link to="/email" className={mobileLinkClass('/email')}>📧 Email</Link>}
           {isAdmin && <Link to="/bookkeeping" className={mobileLinkClass('/bookkeeping')}>📒 Λογιστικά</Link>}
+          {isAdmin && <Link to="/banks" className={mobileLinkClass('/banks')}>🏦 Τράπεζες</Link>}
           {isAdmin && <Link to="/claude" className={mobileLinkClass('/claude')}>💻 Claude</Link>}
           {isAdmin && <Link to="/stavri" className={mobileLinkClass('/stavri')}>👩‍💻 Σταύρη Μεταξά</Link>}
           {(isAdmin || isEkloges) && (

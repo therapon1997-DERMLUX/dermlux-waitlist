@@ -18,6 +18,7 @@ const ElectionArchive = lazy(() => import('./components/ElectionArchive'))
 const MedicalRecords  = lazy(() => import('./components/medical/MedicalRecords'))
 const PatientProfile  = lazy(() => import('./components/medical/PatientProfile'))
 const Bookkeeping     = lazy(() => import('./components/bookkeeping/Bookkeeping'))
+const BankTransactions = lazy(() => import('./components/bookkeeping/BankTransactions'))
 const ImportExpensify = lazy(() => import('./components/bookkeeping/ImportExpensify'))
 const ClaudeRemote    = lazy(() => import('./components/claude/ClaudeRemote'))
 const StavriView      = lazy(() => import('./components/StavriView'))
@@ -78,6 +79,7 @@ export default function App() {
               <Route path="/medical" element={<ProtectedRoute><MedicalRecords /></ProtectedRoute>} />
               <Route path="/medical/:id" element={<ProtectedRoute><PatientProfile /></ProtectedRoute>} />
               <Route path="/bookkeeping" element={<AdminRoute><Bookkeeping /></AdminRoute>} />
+              <Route path="/banks" element={<AdminRoute><BankTransactions /></AdminRoute>} />
               <Route path="/import-expensify" element={<AdminRoute><ImportExpensify /></AdminRoute>} />
               <Route path="/claude" element={<AdminRoute><ClaudePinGate><ClaudeRemote /></ClaudePinGate></AdminRoute>} />
               <Route path="/stavri" element={<AdminRoute><StavriView /></AdminRoute>} />

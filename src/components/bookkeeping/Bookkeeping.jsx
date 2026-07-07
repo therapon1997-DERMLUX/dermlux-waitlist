@@ -3,6 +3,7 @@ import { collection, onSnapshot, query, orderBy, doc, updateDoc } from 'firebase
 import { db } from '../../firebase/config'
 import ExpenseModal, { CATEGORIES, LOCATIONS } from './ExpenseModal'
 import ExportPrint from './ExportPrint'
+import BankChip from './BankChip'
 
 const eur = n => '€' + (Number(n) || 0).toLocaleString('el-CY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtDate = d => {
@@ -310,6 +311,7 @@ export default function Bookkeeping() {
                             {!CATEGORIES.includes(e.category) && e.category && <option value={e.category}>{catName(e.category)}</option>}
                             {CATEGORIES.map(c => <option key={c} value={c}>{catName(c)}</option>)}
                           </select>
+                          <BankChip expense={e} />
                           {e.fileUrl
                             ? <span className="text-green-500 text-xs shrink-0" title="Έχει αποδεικτικό">📎</span>
                             : <span className="w-3 shrink-0" />}
@@ -380,7 +382,7 @@ export default function Bookkeeping() {
                   {/* Date */}
                   <span className="text-sm text-gray-500 whitespace-nowrap">{fmtDate(e.date)}</span>
 
-                  {/* Vendor (+ needs-action badge) */}
+                  {/* Vendor (+ needs-action badge + bank/cash chip) */}
                   <span className="text-sm font-medium text-gray-800 truncate flex items-center gap-1.5 min-w-0">
                     <span className={`truncate ${miss.includes('vendor') ? 'text-red-600' : ''}`}>{e.vendor || '— προμηθευτής'}</span>
                     {needs && (
@@ -388,6 +390,7 @@ export default function Bookkeeping() {
                         needs action
                       </span>
                     )}
+                    <BankChip expense={e} />
                   </span>
 
                   {/* Notes — hidden on mobile */}
