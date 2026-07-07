@@ -58,6 +58,8 @@ function justification(t) {
   if (FEE_RE.test(t.description || '')) return { label: '🏦 Προμήθεια τράπεζας', cls: 'bg-sky-100 text-sky-700' }
   if (ADS_RE.test(t.description || '')) return { label: '📣 Διαφημίσεις', cls: 'bg-blue-100 text-blue-700' }
   if (ENTERTAIN_RE.test(t.description || '')) return { label: '🍽 Εστίαση (ΦΠΑ μη εκπιπτ.)', cls: 'bg-orange-100 text-orange-700' }
+  // Voiso: τα top-ups αντιστοιχούν στο μηνιαίο statement — δένεται όταν εισαχθεί το αντίστοιχο τρίμηνο
+  if (/SEMANTRONICS/i.test(t.description || '')) return { label: '📞 Voiso (τηλεφωνία)', cls: 'bg-cyan-100 text-cyan-700' }
   return null
 }
 
@@ -88,6 +90,7 @@ export default function BankTransactions() {
   const [openTx, setOpenTx]   = useState(null)
   const [openVendor, setOpenVendor] = useState(null)
   const [expCache, setExpCache] = useState({})
+  const [shown, setShown] = useState(150)   // σταδιακό rendering — δεν κολλάει το scroll
 
   useEffect(() => {
     let cancelled = false
@@ -136,6 +139,9 @@ export default function BankTransactions() {
     if (view === 'matched')  return matchedIds(t).length > 0
     return true
   }), [scoped, view])
+
+  // Νέα φίλτρα/περίοδος → ξεκίνα πάλι από τις πρώτες 150 γραμμές
+  useEffect(() => { setShown(150) }, [view, account, year, month, quarter, period])
 
   // Metrics — έσοδα ΧΩΡΙΣ εσωτερικές μεταφορές (αλλιώς διπλομετριούνται)
   const M = useMemo(() => {
@@ -263,11 +269,16 @@ export default function BankTransactions() {
         </div>
       </div>
       {(M.internalIn > 0 || M.internalOut > 0 || M.loan > 0) && (
-        <p className="text-[11px] text-gray-400 mb-4">
+        <p className="text-[11px] text-gray-400 mb-1">
           🔁 Εσωτερικές μεταφορές (ΔΕΝ μετράνε στα έσοδα): μπήκαν {eur(M.internalIn)} · βγήκαν {eur(M.internalOut)}
           {M.loan > 0 && <> · 🏛️ Δάνειο/κεφάλαια {eur(M.loan)}</>}
         </p>
       )}
+      <p className="text-[11px] text-gray-400 mb-4">
+        ℹ️ «Μπήκε» ≠ τζίρος Base44: οι κάρτες εκκαθαρίζονται με 1–3 μέρες καθυστέρηση και κρατήσεις,
+        τα μετρητά μετράνε μόνο όταν κατατεθούν. Λείπει ακόμα το πλήρες statement του λογαριασμού
+        Ταμείου BoC — οι μεταφορές «από ταμείο» φαίνονται προσωρινά ως εσωτερικές.
+      </p>
 
       {loading ? (
         <div className="text-center py-16 text-gray-400">Φόρτωση…</div>
@@ -316,11 +327,17 @@ export default function BankTransactions() {
             <span>Τράπεζα</span><span>Ημ/νία</span><span>Περιγραφή & αντιστοίχιση</span>
             <span className="text-right">Χρέωση</span><span className="text-right">Πίστωση</span><span className="text-right">Υπόλοιπο</span>
           </div>
-          {filtered.map((t, i) => (
+          {filtered.slice(0, shown).map((t, i) => (
             <div key={t.id} className={i < filtered.length - 1 ? 'border-b border-gray-100' : ''}>
               <Row t={t} open={openTx === t.id} onToggle={() => toggleTx(t)} expCache={expCache} />
             </div>
           ))}
+          {filtered.length > shown && (
+            <button onClick={() => setShown(v => v + 200)}
+              className="w-full py-3 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors">
+              Φόρτωσε περισσότερα ({filtered.length - shown} ακόμα)
+            </button>
+          )}
         </div>
       )}
       <p className="text-xs text-gray-400 mt-3">
