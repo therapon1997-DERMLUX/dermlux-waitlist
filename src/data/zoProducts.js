@@ -8,7 +8,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 33,
   "description": "CLEANSER CLEANSE ZO ® Getting Skin Ready ® This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. EXFOLIATING CLEANSER Gentle exfoliating cleanser for normal to oily skin that targets surface oil leaving the skin feeling clean, but not stripped and dry.",
   "indication": "Normal to oily + acne-prone skin",
-  "image": "967100.jpg"
+  "image": "967100.webp"
  },
  {
   "item_no": "968600",
@@ -19,7 +19,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 31,
   "description": "CLEANSER HYDRATING CLEANSER Dual action cleanser for normal to dry skin that cleanses and hydrates the skin, minimizing dryness and irritation for sensitive skin.",
   "indication": "Normal to dry skin",
-  "image": "968600.jpg"
+  "image": "968600.webp"
  },
  {
   "item_no": "973600",
@@ -30,7 +30,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 32,
   "description": "CLEANSER GENTLE CLEANSER Gentle cleanser for all skin types designed to remove impurities and leave skin feeling refreshed, clean and hydrated.",
   "indication": "All skin types",
-  "image": "973600.jpg"
+  "image": "973600.webp"
  },
  {
   "item_no": "916100",
@@ -41,7 +41,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 30,
   "description": "CLEANSING EMULSION BALANCING CEANSING EMULSION Gel-to-milk cleansing emulsion clinically proven to support a healthy skin barrier while lifting oil and impurities for a supple and soothed complexion. Activated by water, it is suitable for all skin types, especially sensitized and post-treatment skin.",
   "indication": "Normal to sensitized, post-treatment skin",
-  "image": "916100.jpg"
+  "image": "916100.webp"
  },
  {
   "item_no": "900400",
@@ -52,7 +52,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 34,
   "description": "POLISH EXFOLIATE ZO ® Getting Skin Ready ® This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. EXFOLIATING POLISH Magnesium crystals exfoliate dead skin cells to create a clear, smooth and even toned complexion.",
   "indication": "All skin types",
-  "image": "900400.jpg"
+  "image": "900400.webp"
  },
  {
   "item_no": "974000",
@@ -63,7 +63,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 35,
   "description": "SCRUB DUAL ACTION SCRUB Dual action exfoliation helps remove dead skin cells and excess surface oil that can lead to clogged pores.",
   "indication": "Oily to acne-prone skin",
-  "image": "974000.jpg"
+  "image": "974000.webp"
  },
  {
   "item_no": "928200",
@@ -74,7 +74,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 36,
   "description": "RENEWAL PADS COMPLEXION RENEWAL PADS Moistened pads help minimize surface oil and exfoliate pore-clogging dead skin cells and dirt.",
   "indication": "All skin types",
-  "image": "928200.jpg"
+  "image": "928200.webp"
  },
  {
   "item_no": "928400",
@@ -85,7 +85,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 37,
   "description": "PADS ACNE TREATMENT TONE ZO ® Getting Skin Ready ® OIL CONTROL PADS ACNE TREATMENT Maximum strength acne prevention solution designed to help clear acne and reduce excess surface oil.",
   "indication": "Oily to acne-prone skin",
-  "image": "928400.jpg"
+  "image": "928400.webp"
  },
  {
   "item_no": "928600",
@@ -96,7 +96,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 38,
   "description": "TONER TONE ZO ® Getting Skin Ready ® CALMING TONER pH BALANCER Calming, pH balanced toner that removes impurities and invigorates weak and sensitive skin.",
   "indication": "Dry + sensitized skin",
-  "image": "928600.jpg"
+  "image": "928600.webp"
  },
  {
   "item_no": "969700",
@@ -107,7 +107,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 42,
   "description": "DEFENSE DAILY POWER DEFENSE Protects against environmental stressors and defends against premature signs of aging by hydrating the skin and supporting skin barrier restoration.",
   "indication": "Advanced serum strengthens skin barrier, neutralizes oxidative stress and mitigates damage caused by inflammaging",
-  "image": "969700.jpg"
+  "image": "969700.webp"
  },
  {
   "item_no": "969600",
@@ -118,7 +118,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 43,
   "description": "AOX SERUM ILLUMINATING AOX SERUM Provides advanced antioxidant support and lightweight hydration while visibly brightening the skin with a luminous finish.",
   "indication": "Concentrated antioxidant serum protects against premature signs of aging and pollution while visibly brightening the skin with a subtly luminous, soft focus finish",
-  "image": "969600.jpg"
+  "image": "969600.webp"
  },
  {
   "item_no": "904400",
@@ -129,7 +129,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 46,
   "description": "FACTOR SERUM GROWTH FACTOR SERUM Gel serum formulated with growth factor technologies helps to strengthen skin, support the appearance of skin thickness + suppleness, and protect against future signs of aging.",
   "indication": "Aging skin with loss of skin density, lines + wrinkles.",
-  "image": "904400.jpg"
+  "image": "904400.webp"
  },
  {
   "item_no": "979800",
@@ -140,7 +140,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 44,
   "description": "REFINING CONCENTRATE Wrinkle-modulating + plumping serum PEPTIDE FACIAL REFINING CONCENTRATE Highly concentrated serum powered by a potent peptide blend, targets visible dynamic + static wrinkles, while restoring the appearance of lost volume. Use on its own or to complement the outcome of injectable treatments.",
   "indication": "Appearance of expression lines, wrinkles + facial volume loss",
-  "image": "979800.jpg"
+  "image": "979800.webp"
  },
  {
   "item_no": "912700",
@@ -151,7 +151,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 45,
   "description": "ZO ® Prevent + Correct This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. FIRMING SERUM A breakthrough in treating visible skin sagging + laxity, this mild formulation reinforces skin health and hydration to support the visible improvement in skin firmness.",
   "indication": "Tightens, firms, improves the appearance of sagging skin, loss of contour and elasticity",
-  "image": "912700.jpg"
+  "image": "912700.webp"
  },
  {
   "item_no": "969300",
@@ -162,7 +162,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 49,
   "description": "TEXTURE WRINKLE + TEXTURE Wrinkle + Texture supports the visible improvement of skin’s texture, firmness and color tone, while reducing appearance of fine lines and wrinkles.",
   "indication": "Existing signs of skin aging such as wrinkles, sagging, uneven skin tone and texture",
-  "image": "969300.jpg"
+  "image": "969300.webp"
  },
  {
   "item_no": "904000",
@@ -173,7 +173,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 47,
   "description": "This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. 10% VITAMIN C SELF-ACTIVATING Provides potent dose of vitamin C that brightens and redefines skin, promoting a more even skin tone and minimizing the appearance of fine lines and wrinkles.",
   "indication": "Corrective and preventative vitamin C blend for brightening and anti-aging benefits",
-  "image": "904000.jpg"
+  "image": "904000.webp"
  },
  {
   "item_no": "915900",
@@ -184,7 +184,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 56,
   "description": "ACCELERATOR ANTI-AGING ZO ® Prevent + Correct EXFOLIATION ACCELERATOR Synergistic blend of ingredients that aids in the removal of dead skin cells while providing calming and soothing benefits.",
   "indication": "Sun damage, rough texture, acne-prone skin",
-  "image": "915900.jpg"
+  "image": "915900.webp"
  },
  {
   "item_no": "941800",
@@ -195,7 +195,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 48,
   "description": "REFINER INSTANT PORE REFINER This lightweight serum minimizes the appearance of pores. It features a dual-action formula which works to eliminate surface shine for an instantly matte finish.",
   "indication": "All skin types to provide pore refinement, oil control and texture improvement",
-  "image": "941800.jpg"
+  "image": "941800.webp"
  },
  {
   "item_no": "905100",
@@ -206,7 +206,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 57,
   "description": "PEEL ENZYMATIC PEEL At-home peel formulated to create a softer, brighter skin appearance.",
   "indication": "Gentle, skin resurfacing treatment enhancer",
-  "image": "905100.jpg"
+  "image": "905100.webp"
  },
  {
   "item_no": "950300",
@@ -217,7 +217,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 60,
   "description": "Retinol blend brightens and evens skin tone.",
   "indication": "Non-hydroquinone, retinol for mild to moderately hyperpigmented skin",
-  "image": "950300.jpg"
+  "image": "950300.webp"
  },
  {
   "item_no": "940700",
@@ -228,7 +228,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 59,
   "description": "SKIN BRIGHTENER BRIGHTALIVE® SKIN BRIGHTENER Non-retinol skin brightener that evens skin tone and reduces dark spots.",
   "indication": "Gentle, non-hydroquinone, non-retinol brightener for mildly hyperpigmented skin",
-  "image": "940700.jpg"
+  "image": "940700.webp"
  },
  {
   "item_no": "922700",
@@ -239,7 +239,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 65,
   "description": "CLARIFYING SERUM COMPLEXION CLARIFYING SERUM Lightweight serum works to balance and purify skin by sweeping away dead skin cell buildup, minimizing excess surface oil while delivering optimal hydration and visibly improving overall skin clarity. Dropper will fill automatically.",
   "indication": "Most skin types, especially combination, oily + blemish-prone skin",
-  "image": "922700.jpg"
+  "image": "922700.webp"
  },
  {
   "item_no": "973420",
@@ -250,7 +250,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 66,
   "description": "CLEARING MASQUE COMPLEXION CLEARING MASQUE Natural, clay-based formula that purifies pores and absorbs excess surface oil.",
   "indication": "Oily, congested skin",
-  "image": "973420.jpg"
+  "image": "973420.webp"
  },
  {
   "item_no": "973160",
@@ -261,7 +261,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 70,
   "description": "REDNESS ZO ® Prevent + Correct ROZATROL® A patented serum clinically shown to visibly relieve multiple symptoms of reddened + rosacea-prone skin. Restores a visibly more uniform complexion and provides antioxidant protection to support a healthy skin barrier.",
   "indication": "Red, sensitized skin",
-  "image": "973160.jpg"
+  "image": "973160.webp"
  },
  {
   "item_no": "919300",
@@ -272,7 +272,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 90,
   "description": "PRIMER SUN PROTECTION ZO ® Protect This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. SUNSCREEN + PRIMER BROAD-SPECTRUM SPF 30 A dual-action sunscreen featuring a built-in primer, providing broad-spectrum protection against UVA/UVB rays. Natural melanin shields skin from the aging effects of high-energy visible (HEV) light. A universal tint and a silky matte finish help reduce the appearance of skin imperfections. Can be used alone or worn under makeup for a more even, long-lasting application.",
   "indication": "All skin types to provide UVA/UVB and HEV light protection",
-  "image": "919300.jpg"
+  "image": "919300.webp"
  },
  {
   "item_no": "973400",
@@ -283,7 +283,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 89,
   "description": "This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part.",
   "indication": "",
-  "image": "973400.jpg"
+  "image": "973400.webp"
  },
  {
   "item_no": "933300",
@@ -327,7 +327,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 94,
   "description": "ZO ® Protect This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. DAILY SHEER BROAD-SPECTRUM SPF 50 Non-greasy, quick-drying sunscreen with a sheer matte ﬁnish offering broad-spectrum protection against UVA/UVB rays. Natural melanin shields skin from aging effects of high-energy visible (HEV) light. Water and perspiration resistant, this sunscreen delivers superior protection during outdoor activities while hydrating the skin to prevent dryness. Oxybenzone free.",
   "indication": "All skin types to provide protection from UVA/UVB and HEV light",
-  "image": "941700.jpg"
+  "image": "941700.webp"
  },
  {
   "item_no": "940600",
@@ -335,10 +335,10 @@ export const ZO_PRODUCTS = [
   "size": "118g/ 4 FL. Oz.",
   "category": "PROTECT",
   "srp_incl_vat": 65.0,
-  "manual_page": 92,
-  "description": "ZO ® Protect SHEER FLUID BROAD-SPECTRUM SUNSCREEN SPF 50 Mineral fluid sunscreen with a natural, bare-faced finish for all skin types. Antioxidant-rich formula defends skin against environmental aggressors. Provides broad-spectrum protection against UVA/UVB. Natural melanin shields skin from aging effects of high-energy visible (HEV) light. Oxybenzone free.",
+  "manual_page": null,
+  "description": "Hydrating, water-resistant broad-spectrum SPF 50 protection for everyday use on face and body.",
   "indication": "All skin types",
-  "image": "940600.jpg"
+  "image": null
  },
  {
   "item_no": "916900",
@@ -349,7 +349,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 92,
   "description": "ZO ® Protect SHEER FLUID BROAD-SPECTRUM SUNSCREEN SPF 50 Mineral fluid sunscreen with a natural, bare-faced finish for all skin types. Antioxidant-rich formula defends skin against environmental aggressors. Provides broad-spectrum protection against UVA/UVB. Natural melanin shields skin from aging effects of high-energy visible (HEV) light. Oxybenzone free.",
   "indication": "All skin types",
-  "image": "916900.jpg"
+  "image": "916900.webp"
  },
  {
   "item_no": "972500",
@@ -360,7 +360,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 91,
   "description": "ZO ® Protect This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. SUNSCREEN + POWDER BROAD-SPECTRUM SPF 45 (INTL 30) A light-weight powder sunscreen. Ideal for on-the-go SPF protection, reducing shine and providing a perfect matte ﬁnish.",
   "indication": "All skin types to provide protection from UVA/UVB and HEV light. Available in Light, Medium + Deep",
-  "image": "972500.jpg"
+  "image": "972500.webp"
  },
  {
   "item_no": "972400",
@@ -371,7 +371,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 91,
   "description": "ZO ® Protect This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. SUNSCREEN + POWDER BROAD-SPECTRUM SPF 45 (INTL 30) A light-weight powder sunscreen. Ideal for on-the-go SPF protection, reducing shine and providing a perfect matte ﬁnish.",
   "indication": "All skin types to provide protection from UVA/UVB and HEV light. Available in Light, Medium + Deep",
-  "image": "972400.jpg"
+  "image": "972400.webp"
  },
  {
   "item_no": "924900",
@@ -382,7 +382,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 84,
   "description": "COMPLEX Anti-aging + brightening serum NECK COMPLEX Multi-faceted formula delivers renewal of the neck and décolleté area. Features exclusive ZPRO® + targeted key ingredients that visibly firm + tighten skin resulting in a more lifted neck contour. Diminishes the appearance of discoloration for a more even skin tone.",
   "indication": "Signs of aging + uneven skin tone on the neck + décolleté",
-  "image": "924900.jpg"
+  "image": "924900.webp"
  },
  {
   "item_no": "950200",
@@ -393,7 +393,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 74,
   "description": "ZO ® Supplementary This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. RENEWAL CRÈME Hydrator that supports hydration levels in the skin. Soothes the skin and minimizes redness.",
   "indication": "Lightweight, soothing hydrator for mild dryness and redness",
-  "image": "950200.jpg"
+  "image": "950200.webp"
  },
  {
   "item_no": "950100",
@@ -404,7 +404,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 75,
   "description": "ZO ® Supplementary This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. RECOVERY CRÈME A rich, emollient cream that hydrates moderately dry and irritated skin while improving the appearance of fine lines, wrinkles and skin texture.",
   "indication": "Rich, emollient hydrator for moderate dryness and redness; neck support",
-  "image": "950100.jpg"
+  "image": "950100.webp"
  },
  {
   "item_no": "915300",
@@ -415,7 +415,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 76,
   "description": "ZO ® Supplementary HYDRATING CRÈME This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. HYDRATING CRÈME Delivers hydrating and calming beneﬁts for post-procedure or dry and irritated skin. Formula rejuvenates skin renewal while improving appearance of ﬁne lines and wrinkles.",
   "indication": "Lightweight, non-retinol hydrator for severe dryness and irritations, post-procedure, eczema",
-  "image": "915300.jpg"
+  "image": "915300.webp"
  },
  {
   "item_no": "924400",
@@ -426,7 +426,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 73,
   "description": "HYDRO MIST SOOTHING HYDRO MIST A soothing facial mist that restores hydration to support the skin’s protective barrier and calms visible redness. Lightweight formula provides ongoing relief + comfort to skin and can be reapplied throughout the day.",
   "indication": "Dehydrated, sensitized skin",
-  "image": "924400.jpg"
+  "image": "924400.webp"
  },
  {
   "item_no": "909900",
@@ -437,7 +437,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 87,
   "description": "ZO ® Supplementary BODY SMOOTHING CRÈME This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. BODY SMOOTHING CRÈME Body Smoothing Crème hydrates to support skin’s health for the appearance of firmer, more toned skin.",
   "indication": "Firming, toning and post-treatment management",
-  "image": "909900.jpg"
+  "image": "909900.webp"
  },
  {
   "item_no": "917000",
@@ -448,7 +448,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 86,
   "description": "ZO ® Supplementary BODY EMULSION This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. BODY EMULSION Multi-action body treatment that improves quality, smoothness and overall appearance of healthy skin.",
   "indication": "Anti-aging properties for mild, moderate and severe skin conditions",
-  "image": "917000.jpg"
+  "image": "917000.webp"
  },
  {
   "item_no": "907900",
@@ -459,7 +459,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 80,
   "description": "ZO ® Supplementary INTENSE EYE CRÈME This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. INTENSE EYE CRÈME Targeted retinol eye treatment to reduce wrinkles and fine lines while improving overall complexion and skin texture. Optical diffusers reduce dark circles and puffiness.",
   "indication": "Emollient eye crème for improved skin texture and elasticity",
-  "image": "907900.jpg"
+  "image": "907900.webp"
  },
  {
   "item_no": "918300",
@@ -470,7 +470,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 81,
   "description": "ZO ® Supplementary EYE BRIGHTENING CRÈME EYE BRIGHTENING CRÈME Eye Brightening Crème minimizes the signs of aging around the eyes. It smoothes the skin’s appearance and reduces the appearance of dark circles and puffiness.",
   "indication": "Lightweight eye crème for brightening and puffiness reduction",
-  "image": "918300.jpg"
+  "image": "918300.webp"
  },
  {
   "item_no": "973130",
@@ -481,7 +481,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 82,
   "description": "ZO ® Supplementary GROWTH FACTOR EYE SERUM Lightweight serum that reduces the appearance of fine lines and wrinkles and improves the appearance of skin texture.",
   "indication": "Retinol-free gel-like serum for wrinkle smoothness and plumpness",
-  "image": "973130.jpg"
+  "image": "973130.webp"
  },
  {
   "item_no": "973540",
@@ -492,7 +492,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 97,
   "description": "Programs + Kits This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part.",
   "indication": "",
-  "image": "973540.jpg"
+  "image": "973540.webp"
  },
  {
   "item_no": "973570",
@@ -503,7 +503,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 97,
   "description": "Programs + Kits This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part.",
   "indication": "",
-  "image": "973570.jpg"
+  "image": "973570.webp"
  },
  {
   "item_no": "977400",
@@ -514,7 +514,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 97,
   "description": "Programs + Kits This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part.",
   "indication": "",
-  "image": "977400.jpg"
+  "image": "977400.webp"
  },
  {
   "item_no": "922900",
@@ -525,7 +525,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 104,
   "description": "Benefits • Controls excess oil production • Removes dead skin cells • Stimulates healthy cell renewal • Calms and soothes inflamed and irritated skin Contents • Exfoliating Cleanser 200 mL / 6.7 Fl. Oz. • Exfoliating Polish Net Wt. 65 g / 2.3 Oz.",
   "indication": "",
-  "image": "922900.jpg"
+  "image": "922900.webp"
  },
  {
   "item_no": "975200",
@@ -536,7 +536,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 103,
   "description": "A non-retinol skin brightening program that works to brighten skin tone and lessen the appearance of discoloration. Mild enough for everyday use.",
   "indication": "",
-  "image": "975200.jpg"
+  "image": "975200.webp"
  },
  {
   "item_no": "974100",
@@ -547,7 +547,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 33,
   "description": "CLEANSER CLEANSE ZO ® Getting Skin Ready ® This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. EXFOLIATING CLEANSER Gentle exfoliating cleanser for normal to oily skin that targets surface oil leaving the skin feeling clean, but not stripped and dry.",
   "indication": "Normal to oily + acne-prone skin",
-  "image": "974100.jpg"
+  "image": "974100.webp"
  },
  {
   "item_no": "974200",
@@ -558,7 +558,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 31,
   "description": "CLEANSER HYDRATING CLEANSER Dual action cleanser for normal to dry skin that cleanses and hydrates the skin, minimizing dryness and irritation for sensitive skin.",
   "indication": "Normal to dry skin",
-  "image": "974200.jpg"
+  "image": "974200.webp"
  },
  {
   "item_no": "974300",
@@ -569,7 +569,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 32,
   "description": "CLEANSER GENTLE CLEANSER Gentle cleanser for all skin types designed to remove impurities and leave skin feeling refreshed, clean and hydrated.",
   "indication": "All skin types",
-  "image": "974300.jpg"
+  "image": "974300.webp"
  },
  {
   "item_no": "901100",
@@ -580,7 +580,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 34,
   "description": "POLISH EXFOLIATE ZO ® Getting Skin Ready ® This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. EXFOLIATING POLISH Magnesium crystals exfoliate dead skin cells to create a clear, smooth and even toned complexion.",
   "indication": "All skin types",
-  "image": "901100.jpg"
+  "image": "901100.webp"
  },
  {
   "item_no": "928100",
@@ -591,7 +591,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 36,
   "description": "RENEWAL PADS COMPLEXION RENEWAL PADS Moistened pads help minimize surface oil and exfoliate pore-clogging dead skin cells and dirt.",
   "indication": "All skin types",
-  "image": "928100.jpg"
+  "image": "928100.webp"
  },
  {
   "item_no": "974600",
@@ -602,7 +602,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 38,
   "description": "TONER TONE ZO ® Getting Skin Ready ® CALMING TONER pH BALANCER Calming, pH balanced toner that removes impurities and invigorates weak and sensitive skin.",
   "indication": "Dry + sensitized skin",
-  "image": "974600.jpg"
+  "image": "974600.webp"
  },
  {
   "item_no": "969800",
@@ -613,7 +613,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 42,
   "description": "DEFENSE DAILY POWER DEFENSE Protects against environmental stressors and defends against premature signs of aging by hydrating the skin and supporting skin barrier restoration.",
   "indication": "Advanced serum strengthens skin barrier, neutralizes oxidative stress and mitigates damage caused by inflammaging",
-  "image": "969800.jpg"
+  "image": "969800.webp"
  },
  {
   "item_no": "904100",
@@ -624,7 +624,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 47,
   "description": "This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. 10% VITAMIN C SELF-ACTIVATING Provides potent dose of vitamin C that brightens and redefines skin, promoting a more even skin tone and minimizing the appearance of fine lines and wrinkles.",
   "indication": "Corrective and preventative vitamin C blend for brightening and anti-aging benefits",
-  "image": "904100.jpg"
+  "image": "904100.webp"
  },
  {
   "item_no": "940800",
@@ -635,7 +635,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 59,
   "description": "SKIN BRIGHTENER BRIGHTALIVE® SKIN BRIGHTENER Non-retinol skin brightener that evens skin tone and reduces dark spots.",
   "indication": "Gentle, non-hydroquinone, non-retinol brightener for mildly hyperpigmented skin",
-  "image": "940800.jpg"
+  "image": "940800.webp"
  },
  {
   "item_no": "973170",
@@ -646,7 +646,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 70,
   "description": "REDNESS ZO ® Prevent + Correct ROZATROL® A patented serum clinically shown to visibly relieve multiple symptoms of reddened + rosacea-prone skin. Restores a visibly more uniform complexion and provides antioxidant protection to support a healthy skin barrier.",
   "indication": "Red, sensitized skin",
-  "image": "973170.jpg"
+  "image": "973170.webp"
  },
  {
   "item_no": "919500",
@@ -657,7 +657,7 @@ export const ZO_PRODUCTS = [
   "manual_page": 90,
   "description": "PRIMER SUN PROTECTION ZO ® Protect This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. SUNSCREEN + PRIMER BROAD-SPECTRUM SPF 30 A dual-action sunscreen featuring a built-in primer, providing broad-spectrum protection against UVA/UVB rays. Natural melanin shields skin from the aging effects of high-energy visible (HEV) light. A universal tint and a silky matte finish help reduce the appearance of skin imperfections. Can be used alone or worn under makeup for a more even, long-lasting application.",
   "indication": "All skin types to provide UVA/UVB and HEV light protection",
-  "image": "919500.jpg"
+  "image": "919500.webp"
  },
  {
   "item_no": "915400",
@@ -668,6 +668,6 @@ export const ZO_PRODUCTS = [
   "manual_page": 76,
   "description": "ZO ® Supplementary HYDRATING CRÈME This document is strictly private and confidential to ZO Skin Health, Inc. and shall not be distributed or reproduced in whole or in part. HYDRATING CRÈME Delivers hydrating and calming beneﬁts for post-procedure or dry and irritated skin. Formula rejuvenates skin renewal while improving appearance of ﬁne lines and wrinkles.",
   "indication": "Lightweight, non-retinol hydrator for severe dryness and irritations, post-procedure, eczema",
-  "image": "915400.jpg"
+  "image": "915400.webp"
  }
 ];
