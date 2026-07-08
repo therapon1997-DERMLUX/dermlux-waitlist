@@ -33,7 +33,8 @@ export const matchedIds = t => {
   return t.matchedExpenseId ? [t.matchedExpenseId] : []
 }
 
-const FEE_RE = /CardTxnAdmin|COMMISSION|CHARGES|Ledger Fee|Maintenance|SUBSCR\.? FEE|Account Fee|Transfer Fees/i
+const FEE_RE = /CardTxnAdmin|COMMISSION|CHARGES|Ledger Fee|Maintenance|SUBSCR\.? FEE|Account Fee|Transfer Fees|MAINT\. FEES|Προμήθεια του Revolut/i
+const REFUND_RE = /refund|επιστροφή|epistrofi/i
 // Εστίαση/entertainment: το ΦΠΑ δεν εκπίπτει — δικαιολογείται ως φιλοξενία, δεν θέλει τιμολόγιο ΦΠΑ
 const ENTERTAIN_RE = /SMOCLOCK|FOODHAUS|PANDORA BAKERIES|STOP KIOSK|FLYING DRAGON|WOLT|FOODY|CAFFE|COFFEE|RESTAURANT|PIZZ|GRILL|SOUVLA|TAVERN|BAKERIES|ZORPAS|GREGORY/i
 // Διαφημίσεις πλατφορμών — όλες στην κάρτα BoC· invoices από τα Billing των πλατφορμών
@@ -63,6 +64,7 @@ function justification(t) {
   // Πάγιες SEPA χρεώσεις κοινής ωφέλειας — οι λογαριασμοί υπάρχουν στα Λογιστικά (ποσά με συμψηφισμούς)
   if (/Eac Bill/i.test(t.description || '')) return { label: '💡 ΑΗΚ (SEPA)', cls: 'bg-yellow-100 text-yellow-700' }
   if (/Primetel.*Sepa|Primetel Bill/i.test(t.description || '')) return { label: '📞 Primetel (SEPA)', cls: 'bg-cyan-100 text-cyan-700' }
+  if (REFUND_RE.test(t.description || '')) return { label: '↩ Επιστροφή πελάτη', cls: 'bg-rose-100 text-rose-700' }
   return null
 }
 
