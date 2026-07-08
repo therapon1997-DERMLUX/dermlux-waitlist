@@ -60,6 +60,9 @@ function justification(t) {
   if (ENTERTAIN_RE.test(t.description || '')) return { label: '🍽 Εστίαση (ΦΠΑ μη εκπιπτ.)', cls: 'bg-orange-100 text-orange-700' }
   // Voiso: τα top-ups αντιστοιχούν στο μηνιαίο statement — δένεται όταν εισαχθεί το αντίστοιχο τρίμηνο
   if (/SEMANTRONICS/i.test(t.description || '')) return { label: '📞 Voiso (τηλεφωνία)', cls: 'bg-cyan-100 text-cyan-700' }
+  // Πάγιες SEPA χρεώσεις κοινής ωφέλειας — οι λογαριασμοί υπάρχουν στα Λογιστικά (ποσά με συμψηφισμούς)
+  if (/Eac Bill/i.test(t.description || '')) return { label: '💡 ΑΗΚ (SEPA)', cls: 'bg-yellow-100 text-yellow-700' }
+  if (/Primetel.*Sepa|Primetel Bill/i.test(t.description || '')) return { label: '📞 Primetel (SEPA)', cls: 'bg-cyan-100 text-cyan-700' }
   return null
 }
 
