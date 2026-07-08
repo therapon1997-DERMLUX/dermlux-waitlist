@@ -263,6 +263,59 @@ export default function ExportPrint({ expenses }) {
     setSelCats(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])
   }
 
+  // Excel: 3 φύλλα — Αναλυτικά, ΦΠΑ ανά συντελεστή (input VAT για δήλωση), Ανά κατηγορία
+  async function exportExcel() {
+    setLoading(true); setProgress('Δημιουργία Excel…')
+    try {
+      const XLSX = await import('xlsx')
+      const rows = filtered.map(e => ({
+        'Ημερομηνία': e.date || '', 'Προμηθευτής': e.vendor || '',
+        'ΑΦΜ Προμηθευτή': e.vatNumber || '', 'Αρ. Τιμολογίου': e.invoiceNumber || '',
+        'Κατηγορία': e.category || '', 'Τοποθεσία': e.location || '',
+        'Πληρωμή': e.paymentMethod || '', 'Καθαρό': e.net ?? '', 'ΦΠΑ': e.vat ?? '',
+        'ΦΠΑ %': e.vatRate ?? '', 'Σύνολο': e.total ?? '',
+        'Τράπεζα': e.bankTagBank || (e.paymentMethod === 'Μετρητά' ? 'Ταμείο (μετρητά)' : ''),
+        'Ημ/νία πληρωμής': e.bankTagDate || '', 'Ref τράπεζας': e.bankTagRef || '',
+        'Σημειώσεις': e.notes || '', 'Αποδεικτικό': e.fileUrl ? 'ΝΑΙ' : 'ΟΧΙ',
+      }))
+      // ΦΠΑ ανά συντελεστή — μόνο ανακτήσιμο (η εστίαση 8202 εξαιρείται ως μη εκπιπτόμενη)
+      const byRate = {}
+      for (const e of filtered) {
+        const rate = e.vatRate ?? '—'
+        const claim = (e.category || '').startsWith('8202') ? 'ΜΗ εκπιπτόμενο (εστίαση/φιλοξενία)' : 'Εκπιπτόμενο'
+        const k = `${rate}|${claim}`
+        if (!byRate[k]) byRate[k] = { rate, claim, net: 0, vat: 0, total: 0, n: 0 }
+        byRate[k].net += Number(e.net) || 0; byRate[k].vat += Number(e.vat) || 0
+        byRate[k].total += Number(e.total) || 0; byRate[k].n++
+      }
+      const vatRows = Object.values(byRate).sort((a, b) => (b.rate || 0) - (a.rate || 0)).map(r => ({
+        'ΦΠΑ %': r.rate, 'Χαρακτηρισμός': r.claim, 'Παραστατικά': r.n,
+        'Καθαρό': +r.net.toFixed(2), 'ΦΠΑ': +r.vat.toFixed(2), 'Σύνολο': +r.total.toFixed(2),
+      }))
+      const byCat = {}
+      for (const e of filtered) {
+        const c = e.category || '—'
+        if (!byCat[c]) byCat[c] = { net: 0, vat: 0, total: 0, n: 0 }
+        byCat[c].net += Number(e.net) || 0; byCat[c].vat += Number(e.vat) || 0
+        byCat[c].total += Number(e.total) || 0; byCat[c].n++
+      }
+      const catRows2 = Object.entries(byCat).sort((a, b) => b[1].total - a[1].total).map(([c, v]) => ({
+        'Κατηγορία': c, 'Παραστατικά': v.n, 'Καθαρό': +v.net.toFixed(2),
+        'ΦΠΑ': +v.vat.toFixed(2), 'Σύνολο': +v.total.toFixed(2),
+      }))
+      const wb = XLSX.utils.book_new()
+      const ws1 = XLSX.utils.json_to_sheet(rows)
+      ws1['!cols'] = [{wch:11},{wch:32},{wch:12},{wch:18},{wch:26},{wch:10},{wch:10},{wch:10},{wch:9},{wch:6},{wch:10},{wch:16},{wch:12},{wch:22},{wch:28},{wch:10}]
+      XLSX.utils.book_append_sheet(wb, ws1, 'Αναλυτικά')
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(vatRows), 'ΦΠΑ ανά συντελεστή')
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(catRows2), 'Ανά κατηγορία')
+      const label = [dateFrom, dateTo].filter(Boolean).join('_εως_') || 'ολα'
+      XLSX.writeFile(wb, `Dermlux_Εξοδα_${label}.xlsx`)
+    } finally {
+      setLoading(false); setProgress('')
+    }
+  }
+
   async function generate() {
     setLoading(true)
     const imageMap = {}
@@ -379,12 +432,16 @@ export default function ExportPrint({ expenses }) {
           ) : (
             <div className="flex gap-3">
               <button onClick={() => setOpen(false)}
-                className="flex-1 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-100 transition-colors">
+                className="py-2 px-4 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-100 transition-colors">
                 Ακύρωση
+              </button>
+              <button onClick={exportExcel} disabled={filtered.length === 0}
+                className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                📊 Excel
               </button>
               <button onClick={generate} disabled={filtered.length === 0}
                 className="flex-1 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                🖨️ Δημιουργία PDF
+                🖨️ PDF
               </button>
             </div>
           )}
