@@ -25,6 +25,7 @@ const ClaudeRemote    = lazy(() => import('./components/claude/ClaudeRemote'))
 const StavriView      = lazy(() => import('./components/StavriView'))
 const ClaudePinGate   = lazy(() => import('./components/claude/ClaudePinGate'))
 const UnsubscribePage = lazy(() => import('./components/email/UnsubscribePage'))
+const Eshop           = lazy(() => import('./components/eshop/Eshop'))
 
 function PageLoader() {
   return (
@@ -76,7 +77,7 @@ function EklogesRoute({ children }) {
 export default function App() {
   const { currentUser } = useAuth()
   const location = useLocation()
-  const isPublicPage = location.pathname === '/unsubscribe'
+  const isPublicPage = location.pathname === '/unsubscribe' || location.pathname === '/eshop'
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -104,6 +105,7 @@ export default function App() {
               <Route path="/claude" element={<AdminRoute><ClaudePinGate><ClaudeRemote /></ClaudePinGate></AdminRoute>} />
               <Route path="/stavri" element={<AdminRoute><StavriView /></AdminRoute>} />
               <Route path="/unsubscribe" element={<UnsubscribePage />} />
+              <Route path="/eshop" element={<Eshop />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
             </div>
