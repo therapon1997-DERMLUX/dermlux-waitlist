@@ -17,13 +17,15 @@ const fmtDate = d => {
   return `${parseInt(day)} ${MONTH_NAMES[parseInt(m) - 1]}`
 }
 
-// Λογαριασμοί (2× Τράπεζα Κύπρου, Eurobank, Revolut Business)
+// Λογαριασμοί Dermlux LTD + η Ιατρική ΙΕΠΕ (ΞΕΧΩΡΙΣΤΗ εταιρεία — εκτός συνόλων Dermlux)
 const ACCOUNTS = [
   { key: '357041157122',    bank: 'Bank of Cyprus', label: 'Κύριος ···1157122' },
   { key: '357542264638',    bank: 'Bank of Cyprus', label: 'Ταμείο ···2264638' },
   { key: '589-01-H59895-01', bank: 'Eurobank',      label: '···H59895' },
   { key: 'revolut',         bank: 'Revolut',        label: 'Business' },
+  { key: '357046275557',    bank: 'Bank of Cyprus', label: '⚕️ Ιατρική ΙΕΠΕ', company: 'IEPE' },
 ]
+const IEPE_ACCOUNT = '357046275557'
 
 // Μια συναλλαγή μπορεί να πληρώνει ΠΟΛΛΑ τιμολόγια μαζί (ομαδικές πληρωμές)
 export const matchedIds = t => {
@@ -117,6 +119,17 @@ export default function BankTransactions() {
   const [openVendor, setOpenVendor] = useState(null)
   const [expCache, setExpCache] = useState({})
   const [shown, setShown] = useState(150)   // σταδιακό rendering — δεν κολλάει το scroll
+  const [cashExpenses, setCashExpenses] = useState(null)  // lazy: έξοδα μετρητών (ταμείο)
+
+  // Cash view: τα έξοδα με πληρωμή «Μετρητά» δεν περνούν από καμία τράπεζα —
+  // φορτώνονται από τα expenses (μία φορά) και φιλτράρονται ανά περίοδο client-side
+  useEffect(() => {
+    if (view !== 'cash' || cashExpenses !== null) return
+    getDocs(query(collection(db, 'expenses'),
+                  where('paymentMethod', '==', 'Μετρητά'), limit(500)))
+      .then(snap => setCashExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      .catch(() => setCashExpenses([]))
+  }, [view, cashExpenses])
 
   useEffect(() => {
     let cancelled = false
@@ -150,7 +163,8 @@ export default function BankTransactions() {
   }
 
   const inAccount = t => {
-    if (!account) return true
+    // «Όλοι» = ΜΟΝΟ Dermlux LTD — η ΙΕΠΕ είναι άλλη εταιρεία, φαίνεται μόνο με το δικό της chip
+    if (!account) return t.account !== IEPE_ACCOUNT
     if (account === 'revolut') return t.bank === 'Revolut'
     return t.account === account
   }
@@ -271,7 +285,7 @@ export default function BankTransactions() {
       <div className="flex gap-1.5 flex-wrap items-center mb-4">
         {[['all', 'Όλα'], ['pending', `⚠ Θέλουν δικαιολογητικό${M.pending ? ` (${M.pending})` : ''}`],
           ['income', '↙ Εισπράξεις'], ['matched', '📎 Με παραστατικό'], ['salaries', '👥 Μισθοί'],
-          ['vendors', '🏷️ Ανά προμηθευτή']].map(([v, lbl]) => (
+          ['vendors', '🏷️ Ανά προμηθευτή'], ['cash', '💶 Cash (ταμείο)']].map(([v, lbl]) => (
           <button key={v} onClick={() => setView(v)} className={pill(view === v)}>{lbl}</button>
         ))}
       </div>
@@ -308,6 +322,42 @@ export default function BankTransactions() {
 
       {loading ? (
         <div className="text-center py-16 text-gray-400">Φόρτωση…</div>
+
+      ) : view === 'cash' ? (
+        /* ─────────── ΕΞΟΔΑ ΜΕΤΡΗΤΩΝ (ΤΑΜΕΙΟ) — δεν περνούν από τράπεζα ─────────── */
+        (() => {
+          if (cashExpenses === null) return <div className="text-center py-16 text-gray-400">Φόρτωση…</div>
+          const mFrom = period === 'quarter' ? (quarter - 1) * 3 + 1 : month
+          const mTo   = period === 'quarter' ? (quarter - 1) * 3 + 3 : month
+          const from = `${year}-${String(mFrom).padStart(2, '0')}-01`
+          const to   = `${year}-${String(mTo).padStart(2, '0')}-31`
+          const rows = cashExpenses.filter(e => e.date >= from && e.date <= to)
+                                   .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+          const sum = rows.reduce((s2, e) => s2 + (Number(e.total) || 0), 0)
+          return rows.length === 0
+            ? <div className="text-center py-16 text-gray-400">Κανένα έξοδο μετρητών στην περίοδο</div>
+            : (
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 bg-emerald-50 border-b border-emerald-200">
+                <span className="text-sm font-semibold text-emerald-800">💶 Πληρωμένα από ταμείο (μετρητά) — {periodLabel}</span>
+                <span className="text-sm font-bold text-emerald-900">{eur(sum)} · {rows.length} παραστατικά</span>
+              </div>
+              {rows.map((e, i) => (
+                <div key={e.id} className={`flex items-center gap-3 px-4 py-2.5 ${i < rows.length - 1 ? 'border-b border-gray-100' : ''}`}>
+                  <span className="text-xs text-gray-500 w-16 shrink-0">{fmtDate(e.date)}</span>
+                  <span className="flex-1 min-w-0 text-sm text-gray-800 truncate">
+                    {e.vendor || '—'}
+                    {e.location && e.location !== 'Γενικά' && <span className="text-xs text-gray-400"> · {e.location}</span>}
+                  </span>
+                  {e.fileUrl
+                    ? <a href={e.fileUrl} target="_blank" rel="noreferrer" className="shrink-0 text-green-500" title="Άνοιγμα αποδεικτικού">📎</a>
+                    : <span className="shrink-0 text-[10px] bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded-full">χωρίς αποδεικτικό</span>}
+                  <span className="text-sm font-semibold text-gray-900 w-20 text-right shrink-0">{eur(e.total)}</span>
+                </div>
+              ))}
+            </div>
+          )
+        })()
 
       ) : view === 'vendors' ? (
         /* ─────────── ΕΜΒΑΣΜΑΤΑ / ΠΛΗΡΩΜΕΣ ΑΝΑ ΠΡΟΜΗΘΕΥΤΗ ─────────── */
