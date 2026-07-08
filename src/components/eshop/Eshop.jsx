@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { ZO_PRODUCTS } from '../../data/zoProducts'
@@ -76,9 +77,18 @@ function ZoButton({ children, onClick, disabled, outline, className = '', type =
   )
 }
 
+// These renders come as studio photos with their own glossy reflection baked in
+const BAKED_REFLECTION = new Set(['969700', '969600', '916900', '924900', '969800'])
+
 function ProductImage({ p, className, tilt }) {
   const url = imgUrl(p)
-  if (url) return <img src={url} alt={p.name} loading="lazy" className={`object-contain ${tilt ? 'zo-tilt' : ''} ${className}`} />
+  if (url) {
+    const reflect = tilt && !BAKED_REFLECTION.has(p.item_no)
+    return (
+      <img src={url} alt={p.name} loading="lazy"
+        className={`object-contain ${tilt ? 'zo-tilt' : ''} ${reflect ? 'zo-gloss' : ''} ${className}`} />
+    )
+  }
   return (
     <div className={`flex items-center justify-center ${className}`} style={{ background: PALE }}>
       <span style={{ ...serif, color: BLUE }} className="text-3xl">ZO<sup className="text-sm">®</sup></span>
@@ -86,19 +96,19 @@ function ProductImage({ p, className, tilt }) {
   )
 }
 
-// 3D product presentation: soft floor shadow + perspective tilt on hover
+// 3D product presentation: glossy floor reflection + perspective tilt on hover
 const TILT_CSS = `
 .zo-tilt {
   transition: transform .4s cubic-bezier(.2,.8,.25,1), filter .4s ease;
   transform-style: preserve-3d;
-  filter: drop-shadow(0 14px 14px rgba(16,16,20,.16));
+  filter: drop-shadow(0 10px 12px rgba(16,16,20,.10));
 }
 .group:hover .zo-tilt {
-  transform: perspective(650px) rotateX(7deg) rotateY(-7deg) translateY(-7px) scale(1.06);
-  filter: drop-shadow(0 26px 24px rgba(16,16,20,.24));
+  transform: perspective(650px) rotateX(6deg) rotateY(-6deg) translateY(-6px) scale(1.05);
+  filter: drop-shadow(0 20px 20px rgba(16,16,20,.16));
 }
-.zo-stage {
-  background: radial-gradient(ellipse at 50% 88%, #E9EDF7 0%, #FFFFFF 62%);
+.zo-gloss {
+  -webkit-box-reflect: below 1px linear-gradient(to bottom, transparent 58%, rgba(0,0,0,.30));
 }
 `
 
@@ -209,8 +219,8 @@ export default function Eshop() {
           {products.map((p) => (
             <div key={p.item_no} className="flex flex-col group">
               <button onClick={() => setDetail(p)} className="block">
-                <div className="aspect-square zo-stage border flex items-center justify-center mb-3" style={{ borderColor: '#EDEFF4' }}>
-                  <ProductImage p={p} tilt className="w-full h-full p-6" />
+                <div className="aspect-square bg-white border flex items-center justify-center overflow-hidden mb-3 pt-5 px-6" style={{ borderColor: '#EDEFF4' }}>
+                  <ProductImage p={p} tilt className="max-w-full max-h-[78%] w-auto" />
                 </div>
               </button>
               <p className="text-[9px] uppercase tracking-[0.2em] mb-1" style={{ color: GRAY }}>
@@ -243,8 +253,8 @@ export default function Eshop() {
       {detail && (
         <Modal onClose={() => setDetail(null)} wide>
           <div className="grid md:grid-cols-2 gap-6">
-            <div className="aspect-square zo-stage border flex items-center justify-center group" style={{ borderColor: '#EDEFF4' }}>
-              <ProductImage p={detail} tilt className="w-full h-full p-8" />
+            <div className="aspect-square bg-white border flex items-center justify-center overflow-hidden group pt-6 px-8" style={{ borderColor: '#EDEFF4' }}>
+              <ProductImage p={detail} tilt className="max-w-full max-h-[78%] w-auto" />
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-[0.2em] mb-2" style={{ color: GRAY }}>{STEP_LABEL[detail.category]}{isTravel(detail) ? ' · Travel size' : ''}</p>
@@ -264,7 +274,7 @@ export default function Eshop() {
       )}
 
       {/* Cart drawer */}
-      {cartOpen && (
+      {cartOpen && createPortal(
         <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setCartOpen(false)}>
           <div className="absolute inset-0 bg-black/30" />
           <div className="relative bg-white w-full max-w-md h-full flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -303,7 +313,8 @@ export default function Eshop() {
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Quiz */}
@@ -350,14 +361,17 @@ export default function Eshop() {
 }
 
 function Modal({ children, onClose, wide }) {
-  return (
+  // Portal to <body>: ancestor transforms (route-fade) break position:fixed,
+  // which pushed modals below the viewport.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40" />
       <div className={`relative bg-white w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} max-h-[90vh] overflow-y-auto p-6 shadow-2xl`} onClick={(e) => e.stopPropagation()}>
         <button onClick={onClose} className="absolute top-3 right-4 text-2xl leading-none z-10" style={{ color: GRAY }}>×</button>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
