@@ -134,13 +134,19 @@ export default function BankTransactions() {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    const mFrom = period === 'quarter' ? (quarter - 1) * 3 + 1 : month
-    const mTo   = period === 'quarter' ? (quarter - 1) * 3 + 3 : month
-    const from = `${year}-${String(mFrom).padStart(2, '0')}-01`
-    const to   = `${year}-${String(mTo).padStart(2, '0')}-31`
-    const q = query(collection(db, 'bank_transactions'),
-                    where('date', '>=', from), where('date', '<=', to),
-                    orderBy('date', 'desc'))
+    let q
+    if (period === 'all') {
+      // Lifetime: όλες οι κινήσεις από την ίδρυση (φορτώνει ~8k docs — χρήση με μέτρο)
+      q = query(collection(db, 'bank_transactions'), orderBy('date', 'desc'))
+    } else {
+      const mFrom = period === 'quarter' ? (quarter - 1) * 3 + 1 : month
+      const mTo   = period === 'quarter' ? (quarter - 1) * 3 + 3 : month
+      const from = `${year}-${String(mFrom).padStart(2, '0')}-01`
+      const to   = `${year}-${String(mTo).padStart(2, '0')}-31`
+      q = query(collection(db, 'bank_transactions'),
+                where('date', '>=', from), where('date', '<=', to),
+                orderBy('date', 'desc'))
+    }
     getDocs(q).then(snap => {
       if (cancelled) return
       setTxns(snap.docs.map(d => ({ id: d.id, ...d.data() })))
@@ -227,7 +233,7 @@ export default function BankTransactions() {
     active ? 'bg-blue-700 border-blue-700 text-white shadow-sm'
            : 'bg-white border-gray-200 text-gray-600 hover:border-blue-400 hover:text-blue-700'}`
 
-  const periodLabel = period === 'quarter' ? `Q${quarter} ${year}` : `${MONTH_NAMES[month - 1]} ${year}`
+  const periodLabel = period === 'all' ? 'από την ίδρυση' : period === 'quarter' ? `Q${quarter} ${year}` : `${MONTH_NAMES[month - 1]} ${year}`
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
@@ -238,18 +244,20 @@ export default function BankTransactions() {
         </div>
         <div className="flex gap-2 items-center flex-wrap">
           <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-            {[['month', 'Μήνας'], ['quarter', 'Τρίμηνο']].map(([p, lbl]) => (
+            {[['month', 'Μήνας'], ['quarter', 'Τρίμηνο'], ['all', '∞ Lifetime']].map(([p, lbl]) => (
               <button key={p} onClick={() => setPeriod(p)}
                 className={`px-3 py-2 text-sm font-medium ${period === p ? 'bg-blue-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
                 {lbl}
               </button>
             ))}
           </div>
+          {period !== 'all' && (
           <select value={year} onChange={e => setYear(+e.target.value)}
                   className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
-            {[2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+            {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
           </select>
-          {period === 'month' ? (
+          )}
+          {period === 'all' ? null : period === 'month' ? (
             <select value={month} onChange={e => setMonth(+e.target.value)}
                     className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
               {MONTH_NAMES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
@@ -329,8 +337,8 @@ export default function BankTransactions() {
           if (cashExpenses === null) return <div className="text-center py-16 text-gray-400">Φόρτωση…</div>
           const mFrom = period === 'quarter' ? (quarter - 1) * 3 + 1 : month
           const mTo   = period === 'quarter' ? (quarter - 1) * 3 + 3 : month
-          const from = `${year}-${String(mFrom).padStart(2, '0')}-01`
-          const to   = `${year}-${String(mTo).padStart(2, '0')}-31`
+          const from = period === 'all' ? '0000' : `${year}-${String(mFrom).padStart(2, '0')}-01`
+          const to   = period === 'all' ? '9999' : `${year}-${String(mTo).padStart(2, '0')}-31`
           const rows = cashExpenses.filter(e => e.date >= from && e.date <= to)
                                    .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
           const sum = rows.reduce((s2, e) => s2 + (Number(e.total) || 0), 0)
