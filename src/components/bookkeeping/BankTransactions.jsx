@@ -66,6 +66,27 @@ function justification(t) {
   return null
 }
 
+// Αναγνώσιμη περιγραφή: βγάζει μπροστά το κείμενο ΤΟΥ ΧΡΗΣΤΗ (ό,τι έγραψε στη μεταφορά)
+// και κρύβει τα τεχνικά προθέματα της τράπεζας. Το πλήρες κείμενο μένει σε tooltip.
+function humanDesc(t) {
+  const d = t.description || ''
+  let m = d.match(/^1Bank - Transfer-Internet-Debit\s+(.+)$/i)
+  if (m) return { main: m[1].trim(), sub: '1Bank μεταφορά' }
+  m = d.match(/^1Bank - Credit Advice\s+(.+)$/i)
+  if (m) return { main: m[1].trim(), sub: '1Bank πίστωση' }
+  m = d.match(/OUTWARD\s+\S+\s+to\s+([^>]{3,45}?)\s*a\/c\s*\S*\s*>?\s*(.*)$/i)
+  if (m) return { main: `προς ${m[1].trim()}${m[2] ? ` — ${m[2].trim()}` : ''}`, sub: 'Έμβασμα' }
+  m = d.match(/INWARD\s+\S+\s+by\s+UAB Phoenix Payments\s*>?\s*(.*)$/i)
+  if (m) return { main: `Εκκαθάριση καρτών (JCC/Phoenix) ${m[1] || ''}`.trim(), sub: 'Είσπραξη' }
+  m = d.match(/INWARD\s+\S+\s+by\s+([^>]{3,45})\s*>?\s*(.*)$/i)
+  if (m) return { main: `από ${m[1].trim()}${m[2] ? ` — ${m[2].trim()}` : ''}`, sub: 'Είσπραξη' }
+  m = d.match(/^(?:\w{2}\s+\d{4}\s+)?(.{3,42}?)\s+PURCHASE\s+(?:CY\s+)?Card/i)
+  if (m) return { main: m[1].trim(), sub: 'Αγορά με κάρτα' }
+  m = d.match(/^CardTxnAdmin/i)
+  if (m) return { main: 'Προμήθεια συναλλαγής κάρτας', sub: 'Τραπεζικό έξοδο' }
+  return { main: d, sub: '' }
+}
+
 // Αντισυμβαλλόμενος (προμηθευτής/δικαιούχος) από την περιγραφή — για το group ανά προμηθευτή
 function payee(t) {
   const d = t.description || ''
@@ -367,8 +388,13 @@ function Row({ t, open, onToggle, expCache, indent = false }) {
             : <span className={`inline-flex justify-center text-[10px] font-black px-1.5 py-0.5 rounded-full w-fit ${st.cls}`}>{st.label}</span>}
         </span>
         <span className="text-xs text-gray-500">{fmtDate(t.date)}</span>
-        <span className="text-xs text-gray-700 truncate flex items-center gap-1.5 min-w-0">
-          <span className="truncate">{t.description}</span>
+        <span className="text-xs text-gray-700 truncate flex items-center gap-1.5 min-w-0" title={t.description}>
+          {(() => { const h = humanDesc(t); return (
+            <span className="truncate">
+              <span className="font-medium">{h.main}</span>
+              {h.sub && <span className="text-gray-400"> · {h.sub}</span>}
+            </span>
+          )})()}
           {j
             ? <span className={`shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${j.cls}`}>{j.label}</span>
             : t.debit
