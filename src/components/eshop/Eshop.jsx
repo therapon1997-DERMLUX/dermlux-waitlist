@@ -12,14 +12,23 @@ const PALE = '#e6e7f5'
 const INK = '#000000'
 const GRAY = '#4f4f4f'
 
-const CATEGORIES = [
-  ['ALL', 'All Products'],
-  ['GETTING SKIN READY', 'Getting Skin Ready®'],
-  ['PREVENT + CORRECT', 'Prevent + Correct'],
-  ['PROTECT', 'Protect'],
-  ['SUPPLEMENTARY', 'Supplementary'],
-  ['PROGRAMS + KITS', 'Programs + Kits'],
+// Concern tiles like zoskinhealth.co.uk: [key, label, tile image item_no, member item_nos]
+// Membership from saved official category pages + ZO concern positioning.
+const CONCERNS = [
+  ['BRIGHTENING', 'Brightening', '940700',
+    ['940700', '950300', '904000', '969600', '915900', '905100', '975200', '904100', '940800']],
+  ['ANTI-AGEING', 'Anti-Ageing', '904400',
+    ['904400', '973130', '912700', '969300', '969700', '979800', '924900', '907900', '918300', '973570', '969800']],
+  ['HYDRATION', 'Hydration', '915300',
+    ['950100', '950200', '915300', '924400', '917000', '909900', '915400']],
+  ['BLEMISH-PRONE SKIN', 'Blemish-Prone Skin', '922700',
+    ['922700', '973420', '928400', '928200', '967100', '900400', '922900', '928100', '974100', '901100']],
+  ['SUN PROTECTION', 'Sun Protection', '941700',
+    ['972400', '972500', '919300', '973400', '933300', '933400', '933500', '941700', '940600', '916900', '919500']],
+  ['SENSITISED SKIN', 'Sensitised Skin', '928600',
+    ['916100', '968600', '973600', '928600', '973160', '977400', '924400', '950100', '973170', '974600', '974300', '974200']],
 ]
+const CONCERN_SETS = Object.fromEntries(CONCERNS.map(([key, , , ids]) => [key, new Set(ids)]))
 
 const STEP_LABEL = {
   'GETTING SKIN READY': 'Getting Skin Ready®',
@@ -145,7 +154,7 @@ export default function Eshop() {
 
   const products = useMemo(() => {
     let list = ZO_PRODUCTS
-    if (cat !== 'ALL') list = list.filter((p) => p.category === cat)
+    if (cat !== 'ALL' && CONCERN_SETS[cat]) list = list.filter((p) => CONCERN_SETS[cat].has(p.item_no))
     if (q.trim()) {
       const t = q.trim().toLowerCase()
       list = list.filter((p) => (p.name + ' ' + (p.description || '')).toLowerCase().includes(t))
@@ -209,20 +218,37 @@ export default function Eshop() {
         </div>
       </section>
 
-      {/* Filters */}
+      {/* Concern tiles — like the official ZO site: image card + outlined caps label */}
       <div className="max-w-6xl mx-auto px-4 pt-8 pb-2" id="grid">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 justify-center mb-4">
-          {CATEGORIES.map(([key, label]) => (
-            <button key={key} onClick={() => setCat(key)}
-              className="text-[11px] uppercase tracking-[0.14em] pb-1 border-b-2 transition-colors"
-              style={{ color: cat === key ? BLUE : GRAY, borderColor: cat === key ? BLUE : 'transparent', fontWeight: cat === key ? 700 : 500 }}>
-              {label}
-            </button>
-          ))}
+        <div className="flex md:grid md:grid-cols-6 gap-3 overflow-x-auto md:overflow-visible pb-2 mb-3 snap-x">
+          {CONCERNS.map(([key, label, img]) => {
+            const on = cat === key
+            return (
+              <button key={key} onClick={() => setCat(on ? 'ALL' : key)}
+                className="flex-shrink-0 w-[30vw] max-w-[130px] md:w-auto md:max-w-none flex flex-col snap-start">
+                <div className="w-full aspect-square flex items-center justify-center p-3 border transition-colors"
+                  style={{ background: '#f6f6f6', borderColor: on ? BLUE : '#EDEFF4' }}>
+                  <img src={`${import.meta.env.BASE_URL}zo/${img}.webp`} loading="lazy"
+                    alt={`ZO Skin Health ${label} products`} className="max-h-full object-contain" />
+                </div>
+                <span className="mt-2 w-full text-center text-[9px] uppercase tracking-[0.1em] border px-1 py-1.5 leading-tight transition-colors"
+                  style={{ ...sansBold, color: on ? '#fff' : BLUE, background: on ? BLUE : '#fff', borderColor: BLUE }}>
+                  {label}
+                </span>
+              </button>
+            )
+          })}
         </div>
-        <div className="max-w-xs mx-auto">
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search products…"
-            className="w-full border px-3 py-2 text-sm outline-none focus:border-blue-700" style={{ borderColor: '#D8DBE4' }} />
+        <div className="flex items-center justify-center gap-4 mb-1">
+          {cat !== 'ALL' && (
+            <button onClick={() => setCat('ALL')} className="text-[11px] uppercase tracking-[0.14em] underline flex-shrink-0" style={{ color: GRAY }}>
+              All products
+            </button>
+          )}
+          <div className="w-full max-w-xs">
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search products…"
+              className="w-full border px-3 py-2 text-sm outline-none focus:border-blue-700" style={{ borderColor: '#D8DBE4' }} />
+          </div>
         </div>
       </div>
 
