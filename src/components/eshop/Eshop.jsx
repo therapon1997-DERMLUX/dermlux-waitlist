@@ -5,12 +5,12 @@ import { db } from '../../firebase/config'
 import { ZO_PRODUCTS } from '../../data/zoProducts'
 import { QUIZ_STEPS, buildRegimen } from '../../data/zoQuiz'
 
-// ─── ZO® visual language: white, royal blue, serif display, letterspaced caps ──
-const BLUE = '#1B3FC4'
-const BLUE_DARK = '#14309B'
-const PALE = '#EEF1FB'
-const INK = '#101014'
-const GRAY = '#5A5F6A'
+// ─── ZO® visual language — exact tokens from zoskinhealth.co.uk CSS (09/07/2026)
+const BLUE = '#0a0f9e'
+const BLUE_DARK = '#080c7d'
+const PALE = '#e6e7f5'
+const INK = '#000000'
+const GRAY = '#4f4f4f'
 
 const CATEGORIES = [
   ['ALL', 'All Products'],
@@ -42,18 +42,26 @@ const fmt = (n) => `€${Number(n).toFixed(2)}`
 const imgUrl = (p) => (p.image ? `${import.meta.env.BASE_URL}zo/${p.image}` : null)
 const isTravel = (p) => p.category === 'PROGRAMS + KITS' && !/program|kit/i.test(p.name)
 
+// Self-hosted official ZO fonts (extracted from zoskinhealth.co.uk):
+// Title = Ghost (serif display), Main = Avenir Book, Main-Bold = Avenir Black,
+// Symbols = Univers LT Pro — used only for the ® glyph, which Ghost renders poorly.
 function useZoFonts() {
   useEffect(() => {
-    const l = document.createElement('link')
-    l.rel = 'stylesheet'
-    l.href = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@400;500;600;700&display=swap'
-    document.head.appendChild(l)
-    return () => document.head.removeChild(l)
+    const base = import.meta.env.BASE_URL
+    const s = document.createElement('style')
+    s.textContent = `
+@font-face{font-family:'ZO Title';src:url('${base}zo-fonts/Ghost-Regular.woff2') format('woff2');font-display:swap}
+@font-face{font-family:'ZO Main';src:url('${base}zo-fonts/Avenir-Book.ttf') format('truetype');font-display:swap}
+@font-face{font-family:'ZO Main Bold';src:url('${base}zo-fonts/Avenir-Black.woff2') format('woff2');font-display:swap}
+@font-face{font-family:'ZO Symbols';src:url('${base}zo-fonts/UniversLTPro-55Roman.woff2') format('woff2');unicode-range:U+00AE;font-display:swap}`
+    document.head.appendChild(s)
+    return () => document.head.removeChild(s)
   }, [])
 }
 
-const serif = { fontFamily: "'Cormorant Garamond', Georgia, serif" }
-const sans = { fontFamily: "'Inter', 'Helvetica Neue', Arial, sans-serif" }
+const serif = { fontFamily: "'ZO Symbols', 'ZO Title', Georgia, serif" }
+const sans = { fontFamily: "'ZO Symbols', 'ZO Main', 'Helvetica Neue', Arial, sans-serif" }
+const sansBold = { fontFamily: "'ZO Symbols', 'ZO Main Bold', 'Helvetica Neue', Arial, sans-serif" }
 
 function ZoButton({ children, onClick, disabled, outline, className = '', type = 'button' }) {
   return (
@@ -61,9 +69,9 @@ function ZoButton({ children, onClick, disabled, outline, className = '', type =
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`px-5 py-2.5 text-[11px] font-semibold uppercase transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${className}`}
+      className={`px-5 py-2.5 text-[11px] uppercase transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${className}`}
       style={{
-        ...sans,
+        ...sansBold,
         letterSpacing: '0.14em',
         background: outline ? '#fff' : BLUE,
         color: outline ? BLUE : '#fff',
@@ -85,7 +93,7 @@ function ProductImage({ p, className, tilt }) {
   if (url) {
     const reflect = tilt && !BAKED_REFLECTION.has(p.item_no)
     return (
-      <img src={url} alt={p.name} loading="lazy"
+      <img src={url} alt={`ZO Skin Health ${p.name} — medical-grade skincare, ${p.size || ''} DermLux Cyprus`} loading="lazy"
         className={`object-contain ${tilt ? 'zo-tilt' : ''} ${reflect ? 'zo-gloss' : ''} ${className}`} />
     )
   }
@@ -126,7 +134,12 @@ export default function Eshop() {
   const [detail, setDetail] = useState(null)
 
   useEffect(() => { localStorage.setItem(CART_KEY, JSON.stringify(cart)) }, [cart])
-  useEffect(() => { document.title = 'DermLux × ZO® Skin Health — Shop' }, [])
+  useEffect(() => {
+    document.title = 'ZO® Skin Health Cyprus — Shop Online | DermLux Clinics'
+    let m = document.querySelector('meta[name="description"]')
+    if (!m) { m = document.createElement('meta'); m.name = 'description'; document.head.appendChild(m) }
+    m.content = 'Buy authentic ZO® Skin Health medical-grade skincare in Cyprus. Official DermLux partner clinics in Paphos, Limassol, Nicosia & Larnaca. Free clinic pickup or courier delivery.'
+  }, [])
 
   const byId = useMemo(() => Object.fromEntries(ZO_PRODUCTS.map((p) => [p.item_no, p])), [])
 
@@ -227,7 +240,7 @@ export default function Eshop() {
                 {STEP_LABEL[p.category]}{isTravel(p) ? ' · Travel size' : ''}
               </p>
               <button onClick={() => setDetail(p)} className="text-left">
-                <h3 className="text-lg leading-snug mb-0.5" style={{ ...serif, color: BLUE, fontWeight: 600 }}>{p.name}</h3>
+                <h3 className="text-lg leading-snug mb-0.5" style={{ ...serif, color: BLUE }}>{p.name}</h3>
               </button>
               <p className="text-[11px] mb-2" style={{ color: GRAY }}>{p.size}</p>
               <div className="mt-auto">
@@ -258,7 +271,7 @@ export default function Eshop() {
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-[0.2em] mb-2" style={{ color: GRAY }}>{STEP_LABEL[detail.category]}{isTravel(detail) ? ' · Travel size' : ''}</p>
-              <h2 className="text-3xl mb-1" style={{ ...serif, color: BLUE, fontWeight: 600 }}>{detail.name}</h2>
+              <h2 className="text-3xl mb-1" style={{ ...serif, color: BLUE }}>{detail.name}</h2>
               <p className="text-xs mb-4" style={{ color: GRAY }}>{detail.size}</p>
               {detail.description && <p className="text-sm mb-4 leading-relaxed">{detail.description}</p>}
               {detail.indication && (
@@ -290,7 +303,7 @@ export default function Eshop() {
                     <ProductImage p={p} className="w-full h-full p-1" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm truncate" style={{ ...serif, color: BLUE, fontWeight: 600, fontSize: '15px' }}>{p.name}</p>
+                    <p className="text-sm truncate" style={{ ...serif, color: BLUE, fontSize: '15px' }}>{p.name}</p>
                     <p className="text-[11px]" style={{ color: GRAY }}>{fmt(p.srp_incl_vat)}</p>
                     <div className="flex items-center gap-2 mt-1">
                       <button onClick={() => addToCart(p.item_no, -1)} className="w-6 h-6 border text-sm" style={{ borderColor: '#D8DBE4' }}>−</button>
@@ -416,7 +429,7 @@ function Quiz({ onClose, byId, onAddAll, onAddOne }) {
                   <div key={r.itemNo} className="flex gap-3 items-center py-2 border-b" style={{ borderColor: '#F0F2F7' }}>
                     <div className="w-14 h-14 border flex-shrink-0" style={{ borderColor: '#EDEFF4' }}><ProductImage p={p} className="w-full h-full p-1" /></div>
                     <div className="flex-1 min-w-0">
-                      <p style={{ ...serif, color: BLUE, fontWeight: 600 }}>{p.name} <span className="text-xs font-normal" style={{ ...sans, color: INK }}>· {fmt(p.srp_incl_vat)}</span></p>
+                      <p style={{ ...serif, color: BLUE }}>{p.name} <span className="text-xs font-normal" style={{ ...sans, color: INK }}>· {fmt(p.srp_incl_vat)}</span></p>
                       <p className="text-[11px]" style={{ color: GRAY }}>{r.reason}</p>
                     </div>
                     <button onClick={() => onAddOne(r.itemNo)} className="text-[10px] uppercase tracking-[0.12em] font-semibold border px-2 py-1.5" style={{ color: BLUE, borderColor: BLUE }}>Add</button>
@@ -429,7 +442,7 @@ function Quiz({ onClose, byId, onAddAll, onAddOne }) {
         {prog && (
           <div className="p-4 mb-6" style={{ background: PALE }}>
             <p className="text-[10px] uppercase tracking-[0.2em] mb-1" style={{ color: BLUE }}>Value alternative</p>
-            <p style={{ ...serif, fontWeight: 600, color: BLUE }} className="text-lg">{prog.name} · <span style={{ ...sans, color: INK }} className="text-sm">{fmt(prog.srp_incl_vat)}</span></p>
+            <p style={{ ...serif, color: BLUE }} className="text-lg">{prog.name} · <span style={{ ...sans, color: INK }} className="text-sm">{fmt(prog.srp_incl_vat)}</span></p>
             <p className="text-[11px] mb-2" style={{ color: GRAY }}>{result.program.reason}</p>
             <button onClick={() => onAddOne(prog.item_no)} className="text-[10px] uppercase tracking-[0.12em] font-semibold underline" style={{ color: BLUE }}>Add the kit instead</button>
           </div>
