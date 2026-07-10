@@ -28,6 +28,10 @@ const fileToDataUrl = f => new Promise((res, rej) => {
   const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = rej; r.readAsDataURL(f)
 })
 
+// Προφανείς εταιρικές συνδρομές/πλατφόρμες: ανήκουν στα «Γενικά», όχι στην πόλη
+// του καταστήματος που έτυχε να τις ανεβάσει (κανόνας Θεράπωνα 10/07/2026).
+const GENERAL_VENDOR_RX = /anthropic|openai|chatgpt|tiktok|meta platforms|facebook|google ireland|google ads|mailchimp|monday\.com|resend|voiso|semantronics|canva|adobe|dropbox|zoom video|slack|notion|wix\.com|webflow|base44|godaddy|namecheap|cloudflare|expensify|instagram/i
+
 export default function ExpenseUpload() {
   const { userProfile, currentUser, isAdmin } = useAuth()
   const [location, setLocation] = useState('')
@@ -190,7 +194,7 @@ export default function ExpenseUpload() {
         currency: f.currency || 'EUR',
         category: f.category || '',
         items: Array.isArray(f.line_items) ? f.line_items : [],
-        location,
+        location: GENERAL_VENDOR_RX.test(f.vendor || '') ? 'Γενικά' : location,
         paymentMethod: needsBankMode ? (bankMode === 'card' ? 'Κάρτα' : 'Τραπεζική') : source.method,
         paymentSource: source.key,
         paymentDetail: needsBankMode ? (bankMode === 'card' ? 'Κάρτα τράπεζας' : 'Έμβασμα (bank transfer)') : '',

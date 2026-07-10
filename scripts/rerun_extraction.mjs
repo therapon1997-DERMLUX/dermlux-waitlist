@@ -63,6 +63,8 @@ for (const r of targets) {
     currency: f.currency || 'EUR',
     category: f.category || '',
     items: Array.isArray(f.line_items) ? f.line_items : [],
+    ...( /anthropic|openai|chatgpt|tiktok|meta platforms|facebook|google ireland|google ads|mailchimp|monday\.com|resend|voiso|semantronics|canva|adobe|dropbox|zoom video|slack|notion|wix\.com|webflow|base44|godaddy|namecheap|cloudflare|expensify|instagram/i.test(f.vendor || '')
+      ? { location: 'Γενικά' } : {} ),
     notes: ((r.notes || '') + ' · Επανα-ανάγνωση 10/07 (το αρχικό key δεν είχε υπόλοιπο)').trim(),
     updatedAt: FieldValue.serverTimestamp(),
   })
