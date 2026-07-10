@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  collection, addDoc, serverTimestamp, query, where, limit, getDocs,
+  collection, addDoc, updateDoc, doc, serverTimestamp, query, where, limit, getDocs, orderBy,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../contexts/AuthContext'
@@ -19,6 +19,7 @@ const PAY_SOURCES = [
   { key: 'Eurobank',         label: '🏦 Eurobank', method: 'Τραπεζική' },
   { key: 'Revolut',          label: '🏦 Revolut Business', method: 'Κάρτα' },
   { key: 'ΑΤΜ Κατάθεση',     label: '🏧 Απόδειξη κατάθεσης ΑΤΜ', method: 'Κατάθεση', docType: 'deposit_slip' },
+  { key: 'Παραλαβή στο κέντρο', label: '📥 Παραλαβή τιμολογίου στο κέντρο', method: 'Επί πιστώσει', docType: 'unpaid_invoice' },
   { key: '',                 label: '❓ Δεν ξέρω / άλλο', method: 'Άλλο' },
 ]
 
@@ -33,6 +34,10 @@ export default function ExpenseUpload() {
   const [img, setImg]     = useState(null)        // { dataUrl, type, name, isPdf }
   const [sel, setSel]     = useState(null)        // crop selection (σε συντεταγμένες οθόνης)
   const [source, setSource] = useState(null)      // επιλεγμένη πηγή πληρωμής
+  const [bankMode, setBankMode] = useState(null)  // 'transfer' | 'card' όταν η πηγή είναι τράπεζα
+  const [openRow, setOpenRow] = useState(null)    // expanded πρόσφατο upload
+  const [editRow, setEditRow] = useState(null)    // { id, vendor, invoiceNumber, date, total } σε επεξεργασία
+  const [editSaving, setEditSaving] = useState(false)
   const [upload, setUpload] = useState(null)      // { fileUrl, fileName, fields } όταν ολοκληρωθεί
   const [uploading, setUploading] = useState(false)
   const [busy, setBusy]   = useState(false)
@@ -53,18 +58,23 @@ export default function ExpenseUpload() {
   async function loadRecent() {
     if (!currentUser) return
     try {
-      const snap = await getDocs(query(
-        collection(db, 'expenses'),
-        where('createdByUid', '==', currentUser.uid), limit(50)))
-      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      // Admin βλέπει ΟΛΑ τα πρόσφατα uploads· managers μόνο τα δικά τους.
+      const q = isAdmin
+        ? query(collection(db, 'expenses'), orderBy('createdAt', 'desc'), limit(60))
+        : query(collection(db, 'expenses'), where('createdByUid', '==', currentUser.uid), limit(60))
+      const snap = await getDocs(q)
+      let rows = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       rows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
-      setRecent(rows.slice(0, 15))
+      // Auto-hide: μετά από 30 μέρες φεύγουν από εδώ (μένουν κανονικά στα Λογιστικά)
+      const cutoff = Date.now() / 1000 - 30 * 24 * 3600
+      rows = rows.filter(r => (r.createdAt?.seconds || 0) >= cutoff)
+      setRecent(rows.slice(0, 40))
     } catch { /* non-fatal */ }
   }
   useEffect(() => { loadRecent() }, [currentUser]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function reset() {
-    setStage('pick'); setImg(null); setSel(null); setSource(null)
+    setStage('pick'); setImg(null); setSel(null); setSource(null); setBankMode(null)
     setUpload(null); setUploading(false); setMsg(''); setError('')
     if (inputRef.current)  inputRef.current.value = ''
     if (cameraRef.current) cameraRef.current.value = ''
@@ -157,9 +167,13 @@ export default function ExpenseUpload() {
     setStage('send')
   }
 
+  // Οι τραπεζικές πηγές θέλουν και δεύτερη επιλογή: έμβασμα ή κάρτα
+  const needsBankMode = source?.method === 'Τραπεζική'
+  const readyToSend = upload && source && (!needsBankMode || bankMode)
+
   // ── Βήμα 3: Επιβεβαίωση & Αποστολή ──
   async function confirmAndSend() {
-    if (!upload || !source || busy) return
+    if (!readyToSend || busy) return
     setBusy(true); setError('')
     const f = upload.fields || {}
     try {
@@ -174,9 +188,11 @@ export default function ExpenseUpload() {
         total: f.total ?? null,
         currency: f.currency || 'EUR',
         category: f.category || '',
+        items: Array.isArray(f.line_items) ? f.line_items : [],
         location,
-        paymentMethod: source.method,
+        paymentMethod: needsBankMode ? (bankMode === 'card' ? 'Κάρτα' : 'Τραπεζική') : source.method,
         paymentSource: source.key,
+        paymentDetail: needsBankMode ? (bankMode === 'card' ? 'Κάρτα τράπεζας' : 'Έμβασμα (bank transfer)') : '',
         docType: source.docType || 'expense',
         notes: '',
         fileUrl: upload.fileUrl, fileName: upload.fileName,
@@ -293,7 +309,7 @@ export default function ExpenseUpload() {
           </div>
           <div className="grid grid-cols-2 gap-2">
             {PAY_SOURCES.map(srcOpt => (
-              <button key={srcOpt.label} type="button" onClick={() => setSource(srcOpt)}
+              <button key={srcOpt.label} type="button" onClick={() => { setSource(srcOpt); setBankMode(null) }}
                 className={`border rounded-xl py-3 px-2 text-sm font-medium transition-colors ${
                   source?.label === srcOpt.label
                     ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
@@ -302,37 +318,177 @@ export default function ExpenseUpload() {
               </button>
             ))}
           </div>
+          {needsBankMode && (
+            <div className="mt-3">
+              <p className="text-xs font-medium text-gray-600 mb-1.5">Πώς πληρώθηκε από την τράπεζα;</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setBankMode('transfer')}
+                  className={`border rounded-xl py-2.5 px-2 text-sm font-medium transition-colors ${
+                    bankMode === 'transfer' ? 'border-indigo-600 bg-indigo-600 text-white shadow-sm'
+                    : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-400 hover:bg-indigo-50'}`}>
+                  ↔️ Έμβασμα (transfer)
+                </button>
+                <button type="button" onClick={() => setBankMode('card')}
+                  className={`border rounded-xl py-2.5 px-2 text-sm font-medium transition-colors ${
+                    bankMode === 'card' ? 'border-indigo-600 bg-indigo-600 text-white shadow-sm'
+                    : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-400 hover:bg-indigo-50'}`}>
+                  💳 Κάρτα τράπεζας
+                </button>
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2 mt-3">
             <button type="button" onClick={reset} disabled={busy}
               className={`${btn} border border-red-200 bg-white text-red-600 hover:bg-red-50`}>
               ✕ Ακύρωση
             </button>
-            <button type="button" onClick={confirmAndSend} disabled={!source || !upload || uploading || busy}
+            <button type="button" onClick={confirmAndSend} disabled={!readyToSend || uploading || busy}
               className={`${btn} bg-green-600 text-white hover:bg-green-700`}>
               {busy ? 'Αποστολή…' : uploading ? '⏳ Περίμενε…' : '✅ Επιβεβαίωση & Αποστολή'}
             </button>
           </div>
           {!source && <p className="text-[11px] text-gray-400 mt-2 text-center">Διάλεξε από πού πληρώθηκε για να ενεργοποιηθεί η αποστολή</p>}
+          {source && needsBankMode && !bankMode && <p className="text-[11px] text-indigo-500 mt-2 text-center">Διάλεξε έμβασμα ή κάρτα για να ενεργοποιηθεί η αποστολή</p>}
         </div>
       )}
 
       {recent.length > 0 && (
         <div className="mt-8">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">Τα πρόσφατά σου</h2>
+          <p className="text-[11px] text-gray-400 -mt-1 mb-2">Πάτησε πάνω σε μια απόδειξη για αναλυτικά περιεχόμενα. Μετά από 30 μέρες φεύγει από εδώ (μένει στα Λογιστικά).</p>
           <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
             {recent.map((r, i) => (
-              <div key={r.id} className={`flex items-center gap-3 px-4 py-2.5 ${i < recent.length - 1 ? 'border-b border-gray-100' : ''}`}>
-                <span className="text-green-500">{r.docType === 'deposit_slip' ? '🏧' : '🧾'}</span>
-                <span className="flex-1 min-w-0">
-                  <span className="text-sm text-gray-800 truncate block">{r.vendor || r.fileName || 'Απόδειξη'}</span>
-                  <span className="text-xs text-gray-400">
-                    {r.date} · {r.location}{r.paymentSource ? ` · ${r.paymentSource}` : ''}
+              <div key={r.id} className={i < recent.length - 1 ? 'border-b border-gray-100' : ''}>
+                <button type="button"
+                  onClick={() => { setOpenRow(openRow === r.id ? null : r.id); setEditRow(null) }}
+                  className={`w-full text-left flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors ${openRow === r.id ? 'bg-blue-50/60' : ''}`}>
+                  <span className="text-green-500">{r.docType === 'deposit_slip' ? '🏧' : r.docType === 'unpaid_invoice' ? '📥' : '🧾'}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="text-sm text-gray-800 truncate block">{r.vendor || r.fileName || 'Απόδειξη'}</span>
+                    <span className="text-xs text-gray-400">
+                      {r.date} · {r.location}{r.paymentSource ? ` · ${r.paymentSource}` : ''}
+                    </span>
                   </span>
-                </span>
-                {isAdmin && r.total != null && <span className="text-sm font-semibold text-gray-700">€{Number(r.total).toFixed(2)}</span>}
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${r.status === 'confirmed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                  {r.status === 'confirmed' ? '✓ εγκρίθηκε' : 'σε έλεγχο'}
-                </span>
+                  {isAdmin && r.total != null && <span className="text-sm font-semibold text-gray-700">€{Number(r.total).toFixed(2)}</span>}
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${r.status === 'confirmed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                    {r.status === 'confirmed' ? '✓ εγκρίθηκε' : 'σε έλεγχο'}
+                  </span>
+                  <span className="text-gray-300 text-xs">{openRow === r.id ? '▲' : '▼'}</span>
+                </button>
+
+                {openRow === r.id && (
+                  <div className="px-4 pb-3 pt-1 bg-blue-50/40 border-t border-blue-100 text-sm">
+                    {editRow?.id === r.id ? (
+                      /* ── Φόρμα διόρθωσης ── */
+                      <div className="grid grid-cols-2 gap-2 mt-2">
+                        <label className="col-span-2 text-xs text-gray-500">Προμηθευτής
+                          <input className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm mt-0.5 bg-white"
+                            value={editRow.vendor} onChange={e => setEditRow({ ...editRow, vendor: e.target.value })} />
+                        </label>
+                        <label className="text-xs text-gray-500">Αρ. τιμολογίου
+                          <input className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm mt-0.5 bg-white"
+                            value={editRow.invoiceNumber} onChange={e => setEditRow({ ...editRow, invoiceNumber: e.target.value })} />
+                        </label>
+                        <label className="text-xs text-gray-500">Ημερομηνία
+                          <input type="date" className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm mt-0.5 bg-white"
+                            value={editRow.date} onChange={e => setEditRow({ ...editRow, date: e.target.value })} />
+                        </label>
+                        <label className="text-xs text-gray-500">Σύνολο (€)
+                          <input type="number" step="0.01" className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm mt-0.5 bg-white"
+                            value={editRow.total} onChange={e => setEditRow({ ...editRow, total: e.target.value })} />
+                        </label>
+                        <label className="text-xs text-gray-500">Καθαρό (€)
+                          <input type="number" step="0.01" className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm mt-0.5 bg-white"
+                            value={editRow.net} onChange={e => setEditRow({ ...editRow, net: e.target.value })} />
+                        </label>
+                        <label className="text-xs text-gray-500">ΦΠΑ (€)
+                          <input type="number" step="0.01" className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm mt-0.5 bg-white"
+                            value={editRow.vat} onChange={e => setEditRow({ ...editRow, vat: e.target.value })} />
+                        </label>
+                        <div className="col-span-2 grid grid-cols-2 gap-2 mt-1">
+                          <button type="button" onClick={() => setEditRow(null)} disabled={editSaving}
+                            className="rounded-lg py-2 text-sm font-medium border border-gray-300 bg-white text-gray-600 hover:bg-gray-50">
+                            Ακύρωση
+                          </button>
+                          <button type="button" disabled={editSaving}
+                            onClick={async () => {
+                              setEditSaving(true)
+                              try {
+                                await updateDoc(doc(db, 'expenses', r.id), {
+                                  vendor: editRow.vendor,
+                                  invoiceNumber: editRow.invoiceNumber,
+                                  date: editRow.date,
+                                  total: editRow.total === '' ? null : Number(editRow.total),
+                                  net: editRow.net === '' ? null : Number(editRow.net),
+                                  vat: editRow.vat === '' ? null : Number(editRow.vat),
+                                  updatedAt: serverTimestamp(),
+                                  updatedBy: userProfile?.displayName || '',
+                                })
+                                setEditRow(null)
+                                loadRecent()
+                              } catch (e) { setError('Η διόρθωση απέτυχε: ' + e.message) }
+                              finally { setEditSaving(false) }
+                            }}
+                            className="rounded-lg py-2 text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
+                            {editSaving ? 'Αποθήκευση…' : '💾 Αποθήκευση'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* ── Αναλυτικά περιεχόμενα ── */
+                      <>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs">
+                          <p><span className="text-gray-400">Αρ. τιμολογίου:</span> <span className="text-gray-700 font-medium">{r.invoiceNumber || '—'}</span></p>
+                          <p><span className="text-gray-400">ΑΦΜ:</span> <span className="text-gray-700">{r.vatNumber || '—'}</span></p>
+                          <p><span className="text-gray-400">Πληρωμή:</span> <span className="text-gray-700">{r.paymentMethod || '—'}{r.paymentDetail ? ` (${r.paymentDetail})` : ''}</span></p>
+                          <p><span className="text-gray-400">Κατηγορία:</span> <span className="text-gray-700">{r.category || '—'}</span></p>
+                          {isAdmin && (
+                            <p className="col-span-2"><span className="text-gray-400">Ποσά:</span>{' '}
+                              <span className="text-gray-700">καθαρό €{r.net != null ? Number(r.net).toFixed(2) : '—'} · ΦΠΑ €{r.vat != null ? Number(r.vat).toFixed(2) : '—'} · σύνολο <b>€{r.total != null ? Number(r.total).toFixed(2) : '—'}</b></span>
+                            </p>
+                          )}
+                        </div>
+
+                        {Array.isArray(r.items) && r.items.length > 0 && (
+                          <div className="mt-2 border border-gray-200 rounded-lg overflow-hidden bg-white">
+                            {r.items.map((it, j) => (
+                              <div key={j} className={`flex items-center gap-2 px-2.5 py-1.5 text-xs ${j < r.items.length - 1 ? 'border-b border-gray-100' : ''}`}>
+                                <span className="flex-1 text-gray-700 truncate">{it.description || it.name || '—'}</span>
+                                {(it.quantity ?? it.qty) != null && <span className="text-gray-400">×{it.quantity ?? it.qty}</span>}
+                                {isAdmin && (it.amount != null || it.total != null) &&
+                                  <span className="text-gray-700 font-medium">€{Number(it.amount ?? it.total).toFixed(2)}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="flex gap-2 mt-2.5">
+                          {r.fileUrl && (
+                            <a href={r.fileUrl} target="_blank" rel="noreferrer"
+                              className="flex-1 text-center rounded-lg py-1.5 text-xs font-medium border border-gray-300 bg-white text-gray-600 hover:bg-gray-50">
+                              📎 Άνοιγμα αρχείου
+                            </a>
+                          )}
+                          {(isAdmin || r.createdByUid === currentUser?.uid) && (
+                            <button type="button"
+                              onClick={() => setEditRow({
+                                id: r.id,
+                                vendor: r.vendor || '',
+                                invoiceNumber: r.invoiceNumber || '',
+                                date: r.date || '',
+                                total: r.total ?? '',
+                                net: r.net ?? '',
+                                vat: r.vat ?? '',
+                              })}
+                              className="flex-1 rounded-lg py-1.5 text-xs font-semibold border border-blue-300 bg-white text-blue-700 hover:bg-blue-50">
+                              ✏️ Διόρθωση
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

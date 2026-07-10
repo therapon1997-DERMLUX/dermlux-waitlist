@@ -7,3 +7,5 @@ backups/
 scripts/claude-bridge/node_modules/
 
 scripts/.apikey.tmp
+
+scripts/omnilux2206.json

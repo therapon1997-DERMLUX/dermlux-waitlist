@@ -220,18 +220,18 @@ export default function Eshop() {
 
       {/* Concern tiles — like the official ZO site: image card + outlined caps label */}
       <div className="max-w-6xl mx-auto px-4 pt-8 pb-2" id="grid">
-        <div className="flex md:grid md:grid-cols-6 gap-3 overflow-x-auto md:overflow-visible pb-2 mb-3 snap-x">
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-3 max-w-3xl mx-auto">
           {CONCERNS.map(([key, label, img]) => {
             const on = cat === key
             return (
-              <button key={key} onClick={() => setCat(on ? 'ALL' : key)}
-                className="flex-shrink-0 w-[30vw] max-w-[130px] md:w-auto md:max-w-none flex flex-col snap-start">
-                <div className="w-full aspect-square flex items-center justify-center p-3 border transition-colors"
+              <button key={key} onClick={() => setCat(on ? 'ALL' : key)} className="flex flex-col">
+                <div className="w-full h-24 md:h-28 flex items-center justify-center p-2 border overflow-hidden transition-colors"
                   style={{ background: '#f6f6f6', borderColor: on ? BLUE : '#EDEFF4' }}>
                   <img src={`${import.meta.env.BASE_URL}zo/${img}.webp`} loading="lazy"
-                    alt={`ZO Skin Health ${label} products`} className="max-h-full object-contain" />
+                    alt={`ZO Skin Health ${label} products`}
+                    className="object-contain" style={{ maxHeight: '100%', maxWidth: '100%' }} />
                 </div>
-                <span className="mt-2 w-full text-center text-[9px] uppercase tracking-[0.1em] border px-1 py-1.5 leading-tight transition-colors"
+                <span className="mt-2 w-full min-h-[34px] flex items-center justify-center text-center text-[9px] uppercase tracking-[0.1em] border px-1 py-1 leading-tight transition-colors"
                   style={{ ...sansBold, color: on ? '#fff' : BLUE, background: on ? BLUE : '#fff', borderColor: BLUE }}>
                   {label}
                 </span>

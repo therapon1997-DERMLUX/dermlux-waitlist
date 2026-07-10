@@ -1076,6 +1076,10 @@ async function extractInvoice(request, env, json) {
     `"line_items": [{"description": string, "quantity": number|null, "unit_price": number|null, "amount": number|null}], ` +
     `"category": one of ["6201 · ΑΓΟΡΕΣ","8103 · ΕΝΟΙΚΙΑ","8105 · ΠΛΗΡΩΜΕΣ ΕΙΣ ΤΡΙΤΟΥΣ","8106 · ΤΗΛΕΦΩΝΙΚΑ","8108 · ΗΛΕΚΤΡΙΣΜΟΣ","8109 · ΝΕΡΟ","8110 · ΚΑΘΑΡΙΟΤΗΤΑ","8111 · ΓΡΑΦΙΚΗ ΥΛΗ","8112 · ΣΥΝΤΗΡΙΣΗ ΜΗΧΑΝΗΜΑΤΩΝ","8115 · ΕΛΕΓΚΤΙΚΑ","8116 · ΑΣΦΑΛΙΣΤΡΑ","8117 · ΔΙΚΗΓΟΡΙΚΑ","8119 · ΔΙΑΦΟΡΑ ΕΞΟΔΑ","8120 · ΦΟΡΟΙ & ΑΔΕΙΕΣ","8122 · ΕΙΣΦΟΡΕΣ - ΣΥΝΔΡΟΜΕΣ","8133 · ΣΥΝΤΗΡΙΣΗ ΚΤΙΡΙΩΝ","8136 · ΑΛΛΑ ΕΞΟΔΑ ΠΡΟΣΩΠΙΚΟΥ","8138 · ΕΦΟΔΙΑ & ΣΥΝΤΗΡΙΣΗ Η/Υ","8144 · ΕΚΤΕΛΩΝΙΣΤΙΚΑ","8151 · ΑΝΑΛΥΣΕΙΣ ΧΗΜΕΙΟΥ","8201 · ΠΡΟΜΗΘΕΙΑ - BONUS","8202 · ΠΕΡΙΠΟΙΗΣΗ ΠΕΛΑΤΩΝ","8203 · ΔΙΑΦΗΜΙΣΕΙΣ","8204 · ΜΕΤΑΦΟΡΙΚΑ","8205 · ΕΞΟΔΑ ΟΧΗΜΑΤΩΝ","8400 · ΤΟΚΟΙ & ΕΞΟΔΑ ΤΡΕΧΟΥΜΕΝΟΥ"]}. ` +
     `Rules: use null when a field is not present. Numbers are plain (no symbols, dot decimals). ` +
+    `CRITICAL — statements vs invoices: if the document shows an account summary (Balance Forward, ` +
+    `Other invoices, Total Amount Due, Balance Due), then "total" is THIS invoice's own total ` +
+    `(the "new charges" / SUBTOTAL+TAX of the itemised lines) — NEVER the account balance due. ` +
+    `CRITICAL — dates: Cyprus invoices use DD/MM/YYYY. "date" is the invoice ISSUE date, never the DUE date. ` +
     `line_items: transcribe EVERY product/service line on the invoice exactly as written (keep the original language, e.g. Greek). ` +
     `description = the item text; quantity = units; unit_price = price per unit before line discounts; amount = the line total. ` +
     `If the receipt shows no itemised lines (e.g. a bank/ad/utility summary), return line_items as []. Do not invent lines. ` +

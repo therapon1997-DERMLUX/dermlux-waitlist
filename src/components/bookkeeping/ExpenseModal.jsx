@@ -36,7 +36,7 @@ export const CATEGORIES = [
   '8400 · ΤΟΚΟΙ & ΕΞΟΔΑ ΤΡΕΧΟΥΜΕΝΟΥ',
 ]
 export const LOCATIONS  = ['Πάφος', 'Λευκωσία', 'Λεμεσός', 'Λάρνακα', 'Γενικά']
-export const PAYMENT_METHODS = ['Μετρητά', 'Κάρτα', 'Τραπεζική', 'Άλλο']
+export const PAYMENT_METHODS = ['Μετρητά', 'Κάρτα', 'Τραπεζική', 'Επί πιστώσει', 'Κατάθεση', 'Άλλο']
 
 const WORKER = import.meta.env.VITE_WORKER_URL || ''
 
