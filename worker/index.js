@@ -224,18 +224,22 @@ export default {
 }
 
 // Κάθε 15': ζητά από το Base44 να σκοράρει τις νέες αρχειοθετημένες κλήσεις
-// (Game Tape). Το βαρύ έργο γίνεται στη Deno function — εδώ μόνο το trigger.
+// (Game Tape). Η function κάνει ΕΝΑ βήμα ανά κάλεσμα (transcribe Ή score) για να
+// μένουν σύντομα τα requests — εδώ τη φωνάζουμε επαναληπτικά μέχρι να αδειάσει.
 async function triggerVoisoScoring(env) {
   if (!env.VOISO_ARCHIVE_SECRET) return
-  try {
-    const res = await fetch(
-      `https://dermluxclinics.com/functions/scoreVoisoCalls?secret=${env.VOISO_ARCHIVE_SECRET.trim()}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
-    )
-    const data = await res.json().catch(() => ({}))
-    if (data.processed) console.log('voiso scoring:', JSON.stringify(data).slice(0, 300))
-  } catch (e) {
-    console.log('voiso scoring trigger failed:', e.message)
+  const url = `https://dermluxclinics.com/functions/scoreVoisoCalls?secret=${env.VOISO_ARCHIVE_SECRET.trim()}`
+  for (let i = 0; i < 20; i++) {
+    try {
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const data = await res.json().catch(() => ({}))
+      console.log('voiso scoring step:', JSON.stringify(data).slice(0, 200))
+      if (!data.action || data.action === 'idle' || data.action === 'error') break
+      if (data.remaining === 0 && data.action !== 'transcribed') break
+    } catch (e) {
+      console.log('voiso scoring trigger failed:', e.message)
+      break
+    }
   }
 }
 
