@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { collection, onSnapshot, query, orderBy, doc, updateDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../contexts/AuthContext'
+import { normVendor, findExactDupGroups, mergeGroup } from './mergeDups'
 import ExpenseModal, { CATEGORIES, LOCATIONS } from './ExpenseModal'
 import ExportPrint from './ExportPrint'
 import BankChip from './BankChip'
@@ -47,6 +48,8 @@ export default function Bookkeeping() {
   const [loc, setLoc]           = useState('')
   const [onlyNeeds, setOnlyNeeds] = useState(false)
   const [showDups, setShowDups]   = useState(false)
+  const [autoMerged, setAutoMerged] = useState(0)
+  const mergedOnce = useRef(new Set())
   const [viewMode, setViewMode]   = useState('invoice')   // 'invoice' | 'merchant'
   const [openMerchant, setOpenMerchant] = useState(null)  // expanded merchant key
   const [savingCat, setSavingCat] = useState(null)        // docId being recategorised
@@ -132,15 +135,28 @@ export default function Bookkeeping() {
 
   const maxCat = groups[0]?.catTotal || 1
 
-  // Normalised vendor so "MJ Mediscience" == "MJ MEDISCIENCE LTD"
-  const normVendor = v => (v || '').toLowerCase().trim()
-    .replace(/[.,]/g, '')
-    .replace(/\b(ltd|limited|λτδ|epe|ε\.π\.ε)\b/g, '')
-    .replace(/\s+/g, ' ').trim()
+  // ΣΙΓΟΥΡΑ διπλά (ίδιος vendor + αρ. τιμολογίου + ποσό) συγχωνεύονται ΑΥΤΟΜΑΤΑ
+  // χωρίς ερώτηση (κανόνας Θεράπωνα 10/07) — μόλις φορτώσουν τα Λογιστικά.
+  useEffect(() => {
+    if (readOnly || loading) return
+    const groups = findExactDupGroups(expenses)
+      .filter(g => !mergedOnce.current.has(g.map(e => e.id).sort().join('+')))
+    if (!groups.length) return
+    ;(async () => {
+      let n = 0
+      for (const g of groups) {
+        mergedOnce.current.add(g.map(e => e.id).sort().join('+'))
+        try { n += (await mergeGroup(g)).removed }
+        catch (e) { console.error('auto-merge failed', e) }
+      }
+      if (n) setAutoMerged(m => m + n)
+    })()
+  }, [expenses, readOnly, loading])
 
-  // Πιθανά διπλά (π.χ. το ανέβασε η manager ΚΑΙ ο ιδιοκτήτης όταν το πλήρωσε):
-  // (α) ίδιος προμηθευτής + ίδιος αρ. τιμολογίου, ή
-  // (β) ίδιος προμηθευτής + ίδιο ποσό με ημερομηνίες ≤10 μέρες διαφορά.
+  // ΑΜΦΙΒΟΛΑ διπλά — αυτά ΔΕΝ συγχωνεύονται μόνα τους, αποφασίζει ο χρήστης:
+  // (α) ίδιος προμηθευτής + ίδιος αρ. τιμολογίου αλλά ΔΙΑΦΟΡΕΤΙΚΟ ποσό
+  //     (λάθος ανάγνωσης ή ατασθαλία), ή
+  // (β) ίδιος προμηθευτής + ίδιο ποσό ≤10 μέρες χωρίς κοινό αρ. τιμολογίου.
   // Υπολογίζεται σε ΟΛΑ τα έξοδα (όχι στα φιλτραρισμένα) ώστε να πιάνει και cross-month.
   const dups = useMemo(() => {
     const groups = []
@@ -152,7 +168,10 @@ export default function Bookkeeping() {
       if (v && inv) (byInv[v + '|' + inv] ||= []).push(e)
     }
     for (const arr of Object.values(byInv)) {
-      if (arr.length > 1) { groups.push(arr); arr.forEach(e => seen.add(e.id)) }
+      if (arr.length < 2) continue
+      arr.forEach(e => seen.add(e.id))   // τα χειρίζεται είτε το auto-merge είτε το panel
+      const totals = new Set(arr.map(e => e.total == null ? '∅' : Number(e.total).toFixed(2)))
+      if (totals.size > 1) groups.push(arr)   // ίδιος αρ. αλλά άλλο ποσό → στον χρήστη
     }
     const byAmt = {}
     for (const e of expenses) {
@@ -177,7 +196,7 @@ export default function Bookkeeping() {
     return { groups, ids }
   }, [expenses])
 
-  // Group by merchant
+  // Group by merchant (normalised so "MJ Mediscience" == "MJ MEDISCIENCE LTD")
   const merchants = useMemo(() => {
     const norm = normVendor
     const map = {}
@@ -280,13 +299,21 @@ export default function Bookkeeping() {
         </div>
       </div>
 
-      {/* ─────────── Πιθανά διπλά ─────────── */}
+      {/* Ενημέρωση auto-merge */}
+      {autoMerged > 0 && (
+        <div className="bg-green-50 border border-green-200 text-green-800 text-sm rounded-xl px-4 py-2.5 mb-4">
+          🪄 Συγχωνεύτηκαν αυτόματα <b>{autoMerged}</b> σίγουρα διπλά (ίδιος προμηθευτής, αρ. τιμολογίου & ποσό) — κρατήθηκε ένα record ανά τιμολόγιο, με όλα τα αρχεία και τα στοιχεία πληρωμής.
+        </div>
+      )}
+
+      {/* ─────────── Πιθανά διπλά (μόνο τα αμφίβολα) ─────────── */}
       {showDups && dups.groups.length > 0 && (
         <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 mb-6">
-          <h3 className="text-sm font-semibold text-amber-800 uppercase tracking-wide mb-1">👯 Πιθανά διπλά παραστατικά</h3>
+          <h3 className="text-sm font-semibold text-amber-800 uppercase tracking-wide mb-1">👯 Πιθανά διπλά — θέλουν το μάτι σου</h3>
           <p className="text-xs text-amber-700 mb-3">
-            Ίδιος προμηθευτής με ίδιο αρ. τιμολογίου, ή ίδιο ποσό σε κοντινές ημερομηνίες (≤10 μέρες) — σε όλο το ιστορικό, ανεξαρτήτως φίλτρων.
-            Άνοιξε το ένα από τα δύο και πάτα «Διαγραφή» αν όντως είναι το ίδιο τιμολόγιο.
+            Τα σίγουρα (ίδιος αρ. τιμολογίου & ποσό) συγχωνεύονται αυτόματα. Εδώ μένουν μόνο τα αμφίβολα:
+            ίδιος αρ. τιμολογίου με <b>διαφορετικό ποσό</b> (λάθος ανάγνωσης ή διπλοχρέωση;), ή ίδιο ποσό σε κοντινές ημερομηνίες χωρίς κοινό αριθμό.
+            Άνοιξε το λάθος από τα δύο και πάτα «Διαγραφή» — ή διόρθωσε το ποσό αν διαβάστηκε στραβά.
           </p>
           <div className="space-y-3">
             {dups.groups.map((g, gi) => (

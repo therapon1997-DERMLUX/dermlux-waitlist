@@ -320,9 +320,11 @@ export default function ExpenseModal({ existing, onClose, readOnly = false }) {
   const needsAction = Object.values(errs).some(Boolean)
   const fld = k => (errs[k] ? fieldErr : field)
 
-  // Line items extracted from the receipt (stored as a JSON string)
+  // Line items extracted from the receipt — either a JSON string (bulk imports)
+  // or a plain array in `items` (uploads from the /upload page)
   let lineItems = []
   try { lineItems = existing?.lineItems ? JSON.parse(existing.lineItems) : [] } catch { lineItems = [] }
+  if (!lineItems.length && Array.isArray(existing?.items)) lineItems = existing.items
   const money = n => (n == null || n === '' ? '—' : '€' + Number(n).toLocaleString('el-CY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
 
   // Receipt preview panel — shown on the left when editing an expense that has an image
@@ -352,6 +354,26 @@ export default function ExpenseModal({ existing, onClose, readOnly = false }) {
           </button>
         )}
         {fileName && <p className="text-[11px] text-gray-400 mt-1 truncate" title={fileName}>{fileName}</p>}
+        {Array.isArray(existing?.extraFiles) && existing.extraFiles.length > 0 && (
+          <div className="mt-2">
+            <p className="text-[11px] font-semibold text-gray-500 mb-1">Επιπλέον αρχεία (από συγχώνευση διπλού):</p>
+            {existing.extraFiles.map((xf, i) => (
+              <button key={i} type="button"
+                onClick={async () => {
+                  try {
+                    const idToken = await currentUser.getIdToken()
+                    const res = await fetch(xf.fileUrl, { headers: { Authorization: `Bearer ${idToken}` } })
+                    if (!res.ok) throw new Error()
+                    window.open(URL.createObjectURL(await res.blob()), '_blank')
+                  } catch { /* ignore */ }
+                }}
+                className="block w-full text-left text-[11px] text-blue-600 hover:underline truncate"
+                title={xf.fileName || 'αρχείο'}>
+                📎 {xf.fileName || `αρχείο ${i + 1}`}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

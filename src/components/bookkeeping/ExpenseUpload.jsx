@@ -5,6 +5,7 @@ import {
 import { db } from '../../firebase/config'
 import { useAuth } from '../../contexts/AuthContext'
 import { LOCATIONS } from './ExpenseModal'
+import { findExactDupGroups, mergeGroup } from './mergeDups'
 
 // Σελίδα «Αποδείξεις» — ροή: φωτογραφία/αρχείο → προεπισκόπηση με περικοπή (snip)
 // → επιλογή «από πού πληρώθηκε» → Επιβεβαίωση & Αποστολή (ή Ακύρωση αν βγήκε κακή).
@@ -177,7 +178,7 @@ export default function ExpenseUpload() {
     setBusy(true); setError('')
     const f = upload.fields || {}
     try {
-      await addDoc(collection(db, 'expenses'), {
+      const newRef = await addDoc(collection(db, 'expenses'), {
         vendor:        f.vendor         || '',
         vatNumber:     f.vat_number     || '',
         invoiceNumber: f.invoice_number || '',
@@ -202,8 +203,22 @@ export default function ExpenseUpload() {
         createdBy: userProfile?.displayName || '',
         createdByUid: currentUser.uid,
       })
+      // Αν ο admin ανέβασε τιμολόγιο που υπάρχει ήδη (π.χ. το είχε βάλει η manager
+      // στην παραλαβή), το σίγουρο διπλό συγχωνεύεται αυτόματα σε ένα record.
+      let merged = false
+      if (isAdmin && (f.invoice_number || '').trim()) {
+        try {
+          const dupSnap = await getDocs(query(collection(db, 'expenses'),
+            where('invoiceNumber', '==', f.invoice_number), limit(10)))
+          const cands = dupSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+          const g = findExactDupGroups(cands).find(gr => gr.some(e => e.id === newRef.id))
+          if (g) { await mergeGroup(g); merged = true }
+        } catch { /* non-fatal — το πιάνει το sweep στα Λογιστικά */ }
+      }
       reset()
-      setMsg('✓ Στάλθηκε! Μπορείς να ανεβάσεις και άλλη απόδειξη.')
+      setMsg(merged
+        ? '✓ Στάλθηκε — υπήρχε ήδη το ίδιο τιμολόγιο και συγχωνεύτηκαν αυτόματα σε ένα.'
+        : '✓ Στάλθηκε! Μπορείς να ανεβάσεις και άλλη απόδειξη.')
       loadRecent()
     } catch (e) {
       setError('Η αποθήκευση απέτυχε: ' + e.message)
