@@ -187,6 +187,14 @@ export default {
         return await linkInvoiceImage(request, env, json)
       }
       // Upload invoice file from the expense modal (authenticated user)
+      if (url.pathname === '/archive-voiso-recording' && request.method === 'POST') {
+        return await archiveVoisoRecording(request, env, json)
+      }
+
+      if (url.pathname.startsWith('/voiso-audio/')) {
+        return await serveVoisoAudio(request, env, url)
+      }
+
       if (url.pathname === '/upload-invoice-file' && request.method === 'POST') {
         return await uploadInvoiceFile(request, env, json)
       }
@@ -211,7 +219,24 @@ export default {
 
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runAutoSend(env))
+    ctx.waitUntil(triggerVoisoScoring(env))
   },
+}
+
+// Κάθε 15': ζητά από το Base44 να σκοράρει τις νέες αρχειοθετημένες κλήσεις
+// (Game Tape). Το βαρύ έργο γίνεται στη Deno function — εδώ μόνο το trigger.
+async function triggerVoisoScoring(env) {
+  if (!env.VOISO_ARCHIVE_SECRET) return
+  try {
+    const res = await fetch(
+      `https://dermluxclinics.com/functions/scoreVoisoCalls?secret=${env.VOISO_ARCHIVE_SECRET.trim()}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+    )
+    const data = await res.json().catch(() => ({}))
+    if (data.processed) console.log('voiso scoring:', JSON.stringify(data).slice(0, 300))
+  } catch (e) {
+    console.log('voiso scoring trigger failed:', e.message)
+  }
 }
 
 // ─── /send-campaign ───────────────────────────────────────────────────────────
@@ -1267,6 +1292,40 @@ async function uploadInvoiceFile(request, env, json) {
   await env.INVOICES.put(key, bytes, { httpMetadata: { contentType: mediaType || 'image/jpeg' } })
   const fileUrl = `${WORKER_URL}/invoices/${encodeURIComponent(key)}`
   return json({ ok: true, fileUrl, fileName: safe })
+}
+
+// ─── Voiso recordings: τα signed S3 links του Voiso λήγουν σε 24h, οπότε το
+// voisoWebhook (Base44) μας στέλνει εδώ κάθε νέο ηχητικό για μόνιμη αρχειοθέτηση
+// στο R2 (voiso/{uuid}.mp3). Το serve προστατεύεται με τον κωδικό του Recordings tab.
+async function archiveVoisoRecording(request, env, json) {
+  const { secret, uuid, url: mediaUrl } = await request.json().catch(() => ({}))
+  if (!env.VOISO_ARCHIVE_SECRET || secret !== env.VOISO_ARCHIVE_SECRET.trim())
+    return json({ error: 'Forbidden' }, 403)
+  if (!uuid || !mediaUrl) return json({ error: 'uuid and url required' }, 400)
+  if (!/^https:\/\/[\w.\-]+\.(voiso\.com|amazonaws\.com)\//.test(mediaUrl))
+    return json({ error: 'URL not allowed' }, 400)
+
+  const res = await fetch(mediaUrl)
+  if (!res.ok) return json({ error: `download failed ${res.status}` }, 502)
+  const buf = await res.arrayBuffer()
+  const safe = String(uuid).replace(/[^\w\-]/g, '')
+  await env.INVOICES.put(`voiso/${safe}.mp3`, buf, { httpMetadata: { contentType: 'audio/mpeg' } })
+  return json({ ok: true, bytes: buf.byteLength, url: `${WORKER_URL}/voiso-audio/${safe}.mp3` })
+}
+
+async function serveVoisoAudio(request, env, url) {
+  const code = url.searchParams.get('code') || ''
+  if (!env.VOISO_AUDIO_CODE || code !== env.VOISO_AUDIO_CODE.trim())
+    return new Response('Forbidden', { status: 403 })
+  const name = url.pathname.slice('/voiso-audio/'.length).replace(/[^\w.\-]/g, '')
+  if (!name) return new Response('Missing file', { status: 400 })
+  const obj = await env.INVOICES.get(`voiso/${name}`)
+  if (!obj) return new Response('Not found', { status: 404 })
+  const headers = new Headers()
+  obj.writeHttpMetadata(headers)
+  headers.set('Cache-Control', 'private, max-age=3600')
+  headers.set('Accept-Ranges', 'bytes')
+  return new Response(obj.body, { headers })
 }
 
 // ─── Serve invoice image from R2 (Firebase token auth) ───────────────────────
