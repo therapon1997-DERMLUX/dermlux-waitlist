@@ -46,6 +46,7 @@ export default function Bookkeeping() {
   const [cat, setCat]           = useState('')
   const [loc, setLoc]           = useState('')
   const [onlyNeeds, setOnlyNeeds] = useState(false)
+  const [showDups, setShowDups]   = useState(false)
   const [viewMode, setViewMode]   = useState('invoice')   // 'invoice' | 'merchant'
   const [openMerchant, setOpenMerchant] = useState(null)  // expanded merchant key
   const [savingCat, setSavingCat] = useState(null)        // docId being recategorised
@@ -131,12 +132,54 @@ export default function Bookkeeping() {
 
   const maxCat = groups[0]?.catTotal || 1
 
-  // Group by merchant (normalised so "MJ Mediscience" == "MJ MEDISCIENCE LTD")
+  // Normalised vendor so "MJ Mediscience" == "MJ MEDISCIENCE LTD"
+  const normVendor = v => (v || '').toLowerCase().trim()
+    .replace(/[.,]/g, '')
+    .replace(/\b(ltd|limited|λτδ|epe|ε\.π\.ε)\b/g, '')
+    .replace(/\s+/g, ' ').trim()
+
+  // Πιθανά διπλά (π.χ. το ανέβασε η manager ΚΑΙ ο ιδιοκτήτης όταν το πλήρωσε):
+  // (α) ίδιος προμηθευτής + ίδιος αρ. τιμολογίου, ή
+  // (β) ίδιος προμηθευτής + ίδιο ποσό με ημερομηνίες ≤10 μέρες διαφορά.
+  // Υπολογίζεται σε ΟΛΑ τα έξοδα (όχι στα φιλτραρισμένα) ώστε να πιάνει και cross-month.
+  const dups = useMemo(() => {
+    const groups = []
+    const seen = new Set()
+    const byInv = {}
+    for (const e of expenses) {
+      const v = normVendor(e.vendor)
+      const inv = (e.invoiceNumber || '').trim().toUpperCase()
+      if (v && inv) (byInv[v + '|' + inv] ||= []).push(e)
+    }
+    for (const arr of Object.values(byInv)) {
+      if (arr.length > 1) { groups.push(arr); arr.forEach(e => seen.add(e.id)) }
+    }
+    const byAmt = {}
+    for (const e of expenses) {
+      const v = normVendor(e.vendor)
+      if (!v || e.total == null || seen.has(e.id)) continue
+      (byAmt[v + '|' + Number(e.total).toFixed(2)] ||= []).push(e)
+    }
+    for (const arr of Object.values(byAmt)) {
+      if (arr.length < 2) continue
+      arr.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+      let cluster = [arr[0]]
+      const flush = () => { if (cluster.length > 1) groups.push(cluster) }
+      for (let i = 1; i < arr.length; i++) {
+        const days = Math.abs(Date.parse(arr[i].date || 0) - Date.parse(cluster[cluster.length - 1].date || 0)) / 86400000
+        if (days <= 10) cluster.push(arr[i])
+        else { flush(); cluster = [arr[i]] }
+      }
+      flush()
+    }
+    const ids = new Set()
+    groups.forEach(g => g.forEach(e => ids.add(e.id)))
+    return { groups, ids }
+  }, [expenses])
+
+  // Group by merchant
   const merchants = useMemo(() => {
-    const norm = v => (v || '').toLowerCase().trim()
-      .replace(/[.,]/g, '')
-      .replace(/\b(ltd|limited|λτδ|epe|ε\.π\.ε)\b/g, '')
-      .replace(/\s+/g, ' ').trim()
+    const norm = normVendor
     const map = {}
     for (const e of filtered) {
       const k = norm(e.vendor) || '—'
@@ -225,8 +268,48 @@ export default function Bookkeeping() {
               ⚠ {needsCount} χρειάζονται συμπλήρωση
             </button>
           )}
+          {dups.groups.length > 0 && (
+            <button onClick={() => setShowDups(v => !v)}
+              className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                showDups
+                  ? 'bg-amber-500 border-amber-500 text-white shadow-sm'
+                  : 'bg-white border-amber-300 text-amber-700 hover:border-amber-500'}`}>
+              👯 {dups.groups.length} πιθανά διπλά
+            </button>
+          )}
         </div>
       </div>
+
+      {/* ─────────── Πιθανά διπλά ─────────── */}
+      {showDups && dups.groups.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 mb-6">
+          <h3 className="text-sm font-semibold text-amber-800 uppercase tracking-wide mb-1">👯 Πιθανά διπλά παραστατικά</h3>
+          <p className="text-xs text-amber-700 mb-3">
+            Ίδιος προμηθευτής με ίδιο αρ. τιμολογίου, ή ίδιο ποσό σε κοντινές ημερομηνίες (≤10 μέρες) — σε όλο το ιστορικό, ανεξαρτήτως φίλτρων.
+            Άνοιξε το ένα από τα δύο και πάτα «Διαγραφή» αν όντως είναι το ίδιο τιμολόγιο.
+          </p>
+          <div className="space-y-3">
+            {dups.groups.map((g, gi) => (
+              <div key={gi} className="bg-white border border-amber-200 rounded-lg overflow-hidden">
+                {g.map((e, i) => (
+                  <button key={e.id} onClick={() => setModal(e)}
+                    className={`w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-amber-50 transition-colors ${i < g.length - 1 ? 'border-b border-amber-100' : ''}`}>
+                    <span className="text-xs text-gray-500 w-24 shrink-0">{fmtDate(e.date)}</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="text-sm text-gray-800 truncate block">{e.vendor || '—'}</span>
+                      <span className="text-[11px] text-gray-400">
+                        {e.invoiceNumber ? `Αρ. ${e.invoiceNumber} · ` : ''}{e.location || '—'}
+                        {e.createdBy ? ` · από ${e.createdBy}` : e.source === 'manager_upload' ? ' · από upload' : ''}
+                      </span>
+                    </span>
+                    <span className="text-sm font-semibold text-gray-900 shrink-0">{eur(e.total)}</span>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -395,6 +478,11 @@ export default function Bookkeeping() {
                     {needs && (
                       <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide bg-red-100 text-red-600 px-1.5 py-0.5 rounded">
                         needs action
+                      </span>
+                    )}
+                    {dups.ids.has(e.id) && (
+                      <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded" title="Πιθανό διπλό — δες το κουμπί «πιθανά διπλά»">
+                        διπλό;
                       </span>
                     )}
                     <BankChip expense={e} />
