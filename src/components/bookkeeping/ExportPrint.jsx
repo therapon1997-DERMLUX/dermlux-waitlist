@@ -11,29 +11,62 @@ const fmtDate = d => {
   const months = ['Ιαν','Φεβ','Μαρ','Απρ','Μαΐ','Ιουν','Ιουλ','Αυγ','Σεπ','Οκτ','Νοε','Δεκ']
   return `${parseInt(day)} ${months[parseInt(m) - 1]} ${y}`
 }
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
-async function fetchImageAsDataUrl(fileUrl) {
-  if (!fileUrl || !WORKER) return null
+// ── PDF → images (lazy-loaded pdf.js) ────────────────────────────────────────
+let _pdfjs = null
+async function getPdfjs() {
+  if (_pdfjs) return _pdfjs
+  const pdfjs = await import('pdfjs-dist')
+  const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default
+  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
+  _pdfjs = pdfjs
+  return pdfjs
+}
+async function pdfToImages(arrayBuffer) {
+  const pdfjs = await getPdfjs()
+  const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise
+  const out = []
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p)
+    const viewport = page.getViewport({ scale: 2 })
+    const canvas = document.createElement('canvas')
+    canvas.width = viewport.width
+    canvas.height = viewport.height
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
+    out.push(canvas.toDataURL('image/jpeg', 0.85))
+  }
+  return out
+}
+
+// Fetch a receipt file (image or PDF) and return an array of image data-URLs.
+// PDFs are rasterised page-by-page; images return a single-element array.
+async function fetchReceiptImages(fileUrl) {
+  if (!fileUrl) return []
   try {
     const token = await getAuth().currentUser?.getIdToken()
-    if (!token) return null
-    const res = await fetch(`${WORKER}/invoices/${encodeURIComponent(fileUrl)}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (!res.ok) return null
+    if (!token) return []
+    const res = await fetch(fileUrl, { headers: { Authorization: `Bearer ${token}` } })
+    if (!res.ok) return []
+    const ct = (res.headers.get('content-type') || '').toLowerCase()
+    const isPdf = ct.includes('pdf') || /\.pdf(\?|$)/i.test(fileUrl)
+    if (isPdf) {
+      try { return await pdfToImages(await res.arrayBuffer()) } catch { return [] }
+    }
     const blob = await res.blob()
-    return new Promise(resolve => {
+    const dataUrl = await new Promise(resolve => {
       const r = new FileReader()
       r.onload = () => resolve(r.result)
       r.onerror = () => resolve(null)
       r.readAsDataURL(blob)
     })
+    return dataUrl ? [dataUrl] : []
   } catch {
-    return null
+    return []
   }
 }
 
-function buildPrintHtml({ expenses, dateFrom, dateTo, cats, loc, imageMap }) {
+function buildPrintHtml({ expenses, dateFrom, dateTo, cats, loc, receiptMap }) {
   const totals = { total: 0, vat: 0, net: 0 }
   const byCat = {}
   for (const e of expenses) {
@@ -43,12 +76,9 @@ function buildPrintHtml({ expenses, dateFrom, dateTo, cats, loc, imageMap }) {
     byCat[e.category] = (byCat[e.category] || 0) + (Number(e.total) || 0)
   }
   const catRows = Object.entries(byCat).sort((a, b) => b[1] - a[1])
+  const withReceiptCount = expenses.filter(e => (receiptMap[e.id] || []).length > 0).length
 
-  // Group by category for the summary table
-  const groups = catRows.map(([cat]) => ({
-    cat,
-    rows: expenses.filter(e => (e.category || '') === cat),
-  }))
+  const groups = catRows.map(([cat]) => ({ cat, rows: expenses.filter(e => (e.category || '') === cat) }))
 
   const generated = new Date().toLocaleDateString('el-GR', {
     day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -62,165 +92,130 @@ function buildPrintHtml({ expenses, dateFrom, dateTo, cats, loc, imageMap }) {
 
   const summaryRows = groups.map(({ cat, rows }) => `
     <tr class="cat-header">
-      <td colspan="6">${cat}</td>
+      <td colspan="6">${esc(cat)}</td>
       <td class="num bold">${eur(rows.reduce((s,e)=>s+(Number(e.total)||0),0))}</td>
     </tr>
     ${rows.map(e => `
     <tr>
       <td>${fmtDate(e.date)}</td>
-      <td>${e.vendor || '—'}</td>
-      <td class="muted">${e.invoiceNumber || ''}</td>
-      <td class="muted">${e.notes || ''}</td>
+      <td>${esc(e.vendor) || '—'}</td>
+      <td class="muted">${esc(e.invoiceNumber)}</td>
+      <td class="muted">${esc(e.notes)}</td>
       <td class="num">${e.net != null ? eur(e.net) : '—'}</td>
       <td class="num amber">${e.vat != null ? eur(e.vat) : '—'}${e.vatRate != null ? `<span class="rate"> ${e.vatRate}%</span>` : ''}</td>
       <td class="num bold">${eur(e.total)}</td>
     </tr>`).join('')}
   `).join('')
 
-  const receiptPages = expenses
-    .filter(e => imageMap[e.id])
-    .map(e => `
-    <div class="receipt-page">
+  // ── 1-1 receipt pages for EVERY invoice in range (regardless of category) ──
+  // Sorted by date so the appendix is chronological.
+  const ordered = [...expenses].sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+  const receiptPages = ordered.map((e, idx) => {
+    const imgs = receiptMap[e.id] || []
+    const header = (extra) => `
       <div class="receipt-header">
         <div>
-          <div class="receipt-vendor">${e.vendor || '—'}</div>
-          <div class="receipt-meta">${fmtDate(e.date)}${e.invoiceNumber ? ' · #' + e.invoiceNumber : ''}</div>
-          <div class="receipt-cat">${e.category || ''}</div>
+          <div class="receipt-vendor">${esc(e.vendor) || '—'}</div>
+          <div class="receipt-meta">${fmtDate(e.date)}${e.invoiceNumber ? ' · #' + esc(e.invoiceNumber) : ''}${extra || ''}</div>
+          <div class="receipt-cat">${esc(e.category)}</div>
         </div>
         <div class="receipt-amounts">
+          <div class="receipt-idx">${idx + 1}/${ordered.length}</div>
           <div class="receipt-total">${eur(e.total)}</div>
           ${e.vat != null ? `<div class="receipt-vat">ΦΠΑ ${eur(e.vat)}${e.vatRate != null ? ` (${e.vatRate}%)` : ''}</div>` : ''}
           ${e.net != null ? `<div class="receipt-net">Καθαρό ${eur(e.net)}</div>` : ''}
         </div>
-      </div>
-      <div class="receipt-img-wrap">
-        <img src="${imageMap[e.id]}" alt="Αποδεικτικό ${e.vendor || ''}" />
-      </div>
-    </div>
-  `).join('')
-
-  const noReceiptList = expenses.filter(e => !imageMap[e.id])
-    .map(e => `<li>${fmtDate(e.date)} · <strong>${e.vendor || '—'}</strong> · ${eur(e.total)}</li>`)
-    .join('')
+      </div>`
+    if (imgs.length === 0) {
+      return `<div class="receipt-page">${header('')}
+        <div class="no-img">${e.fileUrl ? 'Το αρχείο του αποδεικτικού δεν φορτώθηκε.' : 'Χωρίς αποδεικτικό αρχείο.'}</div>
+      </div>`
+    }
+    return imgs.map((src, i) => `
+      <div class="receipt-page">${header(imgs.length > 1 ? ` · σελ. ${i + 1}/${imgs.length}` : '')}
+        <div class="receipt-img-wrap"><img src="${src}" alt="Αποδεικτικό ${esc(e.vendor)}" /></div>
+      </div>`).join('')
+  }).join('')
 
   return `<!DOCTYPE html>
 <html lang="el">
 <head>
 <meta charset="utf-8">
-<title>Έκθεση Εξόδων — Dermlux</title>
+<title>Dermlux_Εξοδα_${(dateFrom || '') + (dateTo ? '_εως_' + dateTo : '')}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #fff; }
-
-  /* ── Cover / Header ── */
   .cover { padding: 36px 40px 28px; border-bottom: 3px solid #16a34a; margin-bottom: 28px; }
   .cover-brand { font-size: 22px; font-weight: 700; color: #16a34a; letter-spacing: .5px; }
   .cover-title  { font-size: 16px; font-weight: 600; color: #222; margin-top: 6px; }
   .cover-meta   { font-size: 10px; color: #666; margin-top: 4px; }
-  .cover-totals { display: flex; gap: 32px; margin-top: 20px; }
-  .cover-stat   { }
+  .cover-totals { display: flex; gap: 32px; margin-top: 20px; flex-wrap: wrap; }
   .cover-stat .val  { font-size: 20px; font-weight: 700; color: #111; }
   .cover-stat .lbl  { font-size: 9px; text-transform: uppercase; letter-spacing: .6px; color: #888; margin-top: 1px; }
-
-  /* ── Summary table ── */
-  h2 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px;
-       color: #16a34a; margin: 24px 40px 10px; }
+  h2 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: #16a34a; margin: 24px 40px 10px; }
   table { width: calc(100% - 80px); margin: 0 40px; border-collapse: collapse; }
-  th { font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: #888;
-       border-bottom: 1px solid #ddd; padding: 5px 6px; text-align: left; }
+  th { font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: #888; border-bottom: 1px solid #ddd; padding: 5px 6px; text-align: left; }
   td { padding: 5px 6px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
-  .num { text-align: right; }
-  .bold { font-weight: 600; }
-  .amber { color: #b45309; }
-  .muted { color: #777; font-size: 10px; }
-  .rate { color: #aaa; font-size: 9px; }
-  tr.cat-header td { background: #f0fdf4; font-weight: 700; font-size: 10.5px;
-                     color: #166534; padding: 6px 6px; border-top: 1px solid #bbf7d0;
-                     border-bottom: 1px solid #bbf7d0; }
-  .grand-total { width: calc(100% - 80px); margin: 10px 40px 0; display: flex;
-                 justify-content: flex-end; padding: 8px 6px; border-top: 2px solid #16a34a;
-                 gap: 16px; font-weight: 700; font-size: 12px; }
-
-  /* ── Category bars ── */
+  .num { text-align: right; } .bold { font-weight: 600; } .amber { color: #b45309; }
+  .muted { color: #777; font-size: 10px; } .rate { color: #aaa; font-size: 9px; }
+  tr.cat-header td { background: #f0fdf4; font-weight: 700; font-size: 10.5px; color: #166534; padding: 6px 6px; border-top: 1px solid #bbf7d0; border-bottom: 1px solid #bbf7d0; }
+  .grand-total { width: calc(100% - 80px); margin: 10px 40px 0; display: flex; justify-content: flex-end; padding: 8px 6px; border-top: 2px solid #16a34a; gap: 16px; font-weight: 700; font-size: 12px; }
   .cat-bars { margin: 16px 40px; }
   .cat-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
   .cat-bar-label { width: 200px; font-size: 10px; color: #444; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cat-bar-track { flex: 1; height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden; }
   .cat-bar-fill  { height: 100%; background: #16a34a; border-radius: 4px; }
   .cat-bar-val   { width: 80px; text-align: right; font-size: 10px; font-weight: 600; color: #333; }
-
-  /* ── No-receipt list ── */
-  .no-receipt-section { margin: 20px 40px; padding: 12px 16px; background: #fafafa;
-                         border: 1px solid #e5e5e5; border-radius: 6px; }
-  .no-receipt-section h3 { font-size: 10px; font-weight: 600; color: #888; text-transform: uppercase;
-                           letter-spacing: .5px; margin-bottom: 8px; }
-  .no-receipt-section ul { list-style: none; display: flex; flex-direction: column; gap: 3px; }
-  .no-receipt-section li { font-size: 10px; color: #555; }
-
-  /* ── Receipt pages ── */
-  .receipt-page { page-break-before: always; padding: 28px 40px; }
-  .receipt-header { display: flex; justify-content: space-between; align-items: flex-start;
-                    padding-bottom: 14px; border-bottom: 2px solid #16a34a; margin-bottom: 18px; }
+  .appendix-note { margin: 22px 40px 0; font-size: 10px; color: #888; }
+  .receipt-page { page-break-before: always; padding: 22px 32px; }
+  .receipt-header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 12px; border-bottom: 2px solid #16a34a; margin-bottom: 16px; }
   .receipt-vendor { font-size: 16px; font-weight: 700; color: #111; }
   .receipt-meta   { font-size: 11px; color: #666; margin-top: 3px; }
   .receipt-cat    { font-size: 10px; color: #16a34a; font-weight: 600; margin-top: 3px; }
   .receipt-amounts { text-align: right; }
+  .receipt-idx    { font-size: 9px; color: #aaa; letter-spacing: .5px; }
   .receipt-total  { font-size: 20px; font-weight: 700; color: #111; }
   .receipt-vat    { font-size: 11px; color: #b45309; margin-top: 2px; }
   .receipt-net    { font-size: 11px; color: #555; }
   .receipt-img-wrap { display: flex; justify-content: center; }
-  .receipt-img-wrap img { max-width: 100%; max-height: 240mm; object-fit: contain; border: 1px solid #eee; border-radius: 4px; }
-
-  @media print {
-    @page { size: A4; margin: 0; }
-    .no-print { display: none !important; }
-  }
+  .receipt-img-wrap img { max-width: 100%; max-height: 245mm; object-fit: contain; border: 1px solid #eee; border-radius: 4px; }
+  .no-img { padding: 40px; text-align: center; color: #999; font-size: 12px; border: 1px dashed #ddd; border-radius: 8px; }
+  @media print { @page { size: A4; margin: 0; } .no-print { display: none !important; } }
 </style>
 </head>
 <body>
-
-<!-- Cover -->
 <div class="cover">
   <div class="cover-brand">DERMLUX LASER &amp; AESTHETICS LTD</div>
-  <div class="cover-title">Έκθεση Εξόδων</div>
-  <div class="cover-meta">Φίλτρα: ${filterLabel} &nbsp;·&nbsp; Δημιουργήθηκε: ${generated}</div>
+  <div class="cover-title">Έκθεση Εξόδων &amp; Αποδείξεων</div>
+  <div class="cover-meta">Φίλτρα: ${esc(filterLabel)} &nbsp;·&nbsp; Δημιουργήθηκε: ${generated}</div>
   <div class="cover-totals">
     <div class="cover-stat"><div class="val">${eur(totals.total)}</div><div class="lbl">Σύνολο εξόδων</div></div>
     <div class="cover-stat"><div class="val">${eur(totals.vat)}</div><div class="lbl">ΦΠΑ (input)</div></div>
     <div class="cover-stat"><div class="val">${eur(totals.net)}</div><div class="lbl">Καθαρό</div></div>
     <div class="cover-stat"><div class="val">${expenses.length}</div><div class="lbl">Παραστατικά</div></div>
-    <div class="cover-stat"><div class="val">${Object.keys(imageMap).length}</div><div class="lbl">Με αποδεικτικό</div></div>
+    <div class="cover-stat"><div class="val">${withReceiptCount}/${expenses.length}</div><div class="lbl">Με αποδεικτικό</div></div>
   </div>
 </div>
 
-<!-- Category bars -->
 <h2>Ανά Κατηγορία</h2>
 <div class="cat-bars">
   ${catRows.map(([c, v]) => `
   <div class="cat-bar-row">
-    <div class="cat-bar-label">${c}</div>
-    <div class="cat-bar-track"><div class="cat-bar-fill" style="width:${Math.round(v/catRows[0][1]*100)}%"></div></div>
+    <div class="cat-bar-label">${esc(c)}</div>
+    <div class="cat-bar-track"><div class="cat-bar-fill" style="width:${catRows[0][1] ? Math.round(v/catRows[0][1]*100) : 0}%"></div></div>
     <div class="cat-bar-val">${eur(v)}</div>
   </div>`).join('')}
 </div>
 
-<!-- Summary table -->
 <h2>Αναλυτική Κατάσταση</h2>
 <table>
   <thead>
     <tr>
-      <th>Ημερομηνία</th>
-      <th>Προμηθευτής</th>
-      <th>Αρ. Τιμολογίου</th>
-      <th>Σημειώσεις</th>
-      <th class="num">Καθαρό</th>
-      <th class="num">ΦΠΑ</th>
-      <th class="num">Σύνολο</th>
+      <th>Ημερομηνία</th><th>Προμηθευτής</th><th>Αρ. Τιμολογίου</th><th>Σημειώσεις</th>
+      <th class="num">Καθαρό</th><th class="num">ΦΠΑ</th><th class="num">Σύνολο</th>
     </tr>
   </thead>
-  <tbody>
-    ${summaryRows}
-  </tbody>
+  <tbody>${summaryRows}</tbody>
 </table>
 <div class="grand-total">
   <span>Καθαρό: ${eur(totals.net)}</span>
@@ -228,11 +223,7 @@ function buildPrintHtml({ expenses, dateFrom, dateTo, cats, loc, imageMap }) {
   <span>Σύνολο: ${eur(totals.total)}</span>
 </div>
 
-${noReceiptList ? `
-<div class="no-receipt-section">
-  <h3>Χωρίς αποδεικτικό (${expenses.length - Object.keys(imageMap).length})</h3>
-  <ul>${noReceiptList}</ul>
-</div>` : ''}
+<p class="appendix-note">Ακολουθούν όλα τα παραστατικά 1-1 (${ordered.length}), σε χρονολογική σειρά — ένα ανά σελίδα, έτοιμα για εκτύπωση.</p>
 
 ${receiptPages}
 
@@ -278,7 +269,6 @@ export default function ExportPrint({ expenses }) {
         'Ημ/νία πληρωμής': e.bankTagDate || '', 'Ref τράπεζας': e.bankTagRef || '',
         'Σημειώσεις': e.notes || '', 'Αποδεικτικό': e.fileUrl ? 'ΝΑΙ' : 'ΟΧΙ',
       }))
-      // ΦΠΑ ανά συντελεστή — μόνο ανακτήσιμο (η εστίαση 8202 εξαιρείται ως μη εκπιπτόμενη)
       const byRate = {}
       for (const e of filtered) {
         const rate = e.vatRate ?? '—'
@@ -317,26 +307,44 @@ export default function ExportPrint({ expenses }) {
   }
 
   async function generate() {
-    setLoading(true)
-    const imageMap = {}
-    const withImg = filtered.filter(e => e.fileUrl)
-    for (let i = 0; i < withImg.length; i++) {
-      const e = withImg[i]
-      setProgress(`Φόρτωση αποδείξεων ${i + 1}/${withImg.length}…`)
-      const dataUrl = await fetchImageAsDataUrl(e.fileUrl)
-      if (dataUrl) imageMap[e.id] = dataUrl
-    }
-    setProgress('')
-    setLoading(false)
-
-    const html = buildPrintHtml({ expenses: filtered, dateFrom, dateTo, cats: selCats, loc: selLoc, imageMap })
+    if (!filtered.length) return
+    // Open the tab SYNCHRONOUSLY (inside the click gesture) so it is not popup-blocked.
     const win = window.open('', '_blank')
-    win.document.write(html)
-    win.document.close()
-    setTimeout(() => win.print(), 800)
+    if (!win) {
+      alert('Ο browser μπλόκαρε το νέο παράθυρο. Επίτρεψε τα pop-ups για αυτή τη σελίδα και ξαναπάτησε «PDF».')
+      return
+    }
+    const setWinMsg = (msg) => {
+      try {
+        win.document.open()
+        win.document.write(`<!doctype html><html lang="el"><head><meta charset="utf-8"><title>Δημιουργία…</title></head><body style="font-family:Segoe UI,Arial,sans-serif;padding:48px;color:#333"><h2 style="color:#16a34a;margin-bottom:8px">Δημιουργία εκτύπωσης…</h2><p>${esc(msg)}</p><p style="color:#999;margin-top:12px">Μην κλείσεις αυτό το παράθυρο.</p></body></html>`)
+        win.document.close()
+      } catch {}
+    }
+    setWinMsg('Προετοιμασία…')
+    setLoading(true)
+    try {
+      const receiptMap = {}
+      const withImg = filtered.filter(e => e.fileUrl)
+      for (let i = 0; i < withImg.length; i++) {
+        const e = withImg[i]
+        const msg = `Φόρτωση αποδείξεων ${i + 1}/${withImg.length}…`
+        setProgress(msg); setWinMsg(msg)
+        const imgs = await fetchReceiptImages(e.fileUrl)
+        if (imgs.length) receiptMap[e.id] = imgs
+      }
+      setProgress('Δημιουργία σελίδας…'); setWinMsg('Δημιουργία σελίδας…')
+      const html = buildPrintHtml({ expenses: filtered, dateFrom, dateTo, cats: selCats, loc: selLoc, receiptMap })
+      win.document.open(); win.document.write(html); win.document.close()
+      win.focus()
+      // Give the browser time to lay out all embedded images before printing.
+      setTimeout(() => { try { win.print() } catch {} }, 900)
+    } finally {
+      setLoading(false); setProgress('')
+    }
   }
 
-  const inp  = 'border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white w-full'
+  const inp = 'border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white w-full'
 
   if (!open) return (
     <button onClick={() => setOpen(true)}
@@ -351,17 +359,15 @@ export default function ExportPrint({ expenses }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div>
             <h2 className="text-base font-bold text-gray-800">Εκτύπωση / Export PDF</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Report + αποδείξεις 1-1 σε πλήρη ανάλυση</p>
+            <p className="text-xs text-gray-400 mt-0.5">Report + όλες οι αποδείξεις 1-1 (και PDF), έτοιμες για print</p>
           </div>
           <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
-          {/* Date range */}
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Εύρος ημερομηνιών</label>
             <div className="grid grid-cols-2 gap-3">
@@ -376,7 +382,6 @@ export default function ExportPrint({ expenses }) {
             </div>
           </div>
 
-          {/* Location */}
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Τοποθεσία</label>
             <select className={inp} value={selLoc} onChange={e => setSelLoc(e.target.value)}>
@@ -385,7 +390,6 @@ export default function ExportPrint({ expenses }) {
             </select>
           </div>
 
-          {/* Categories */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Κατηγορίες</label>
@@ -410,9 +414,7 @@ export default function ExportPrint({ expenses }) {
           </div>
         </div>
 
-        {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
-          {/* Summary of what will be printed */}
           <div className="flex items-center justify-between mb-3">
             <div className="text-sm text-gray-600">
               <span className="font-bold text-gray-800">{filtered.length}</span> παραστατικά
@@ -445,6 +447,7 @@ export default function ExportPrint({ expenses }) {
               </button>
             </div>
           )}
+          <p className="text-[11px] text-gray-400 mt-2 text-center">Στο παράθυρο εκτύπωσης επίλεξε «Αποθήκευση ως PDF» για download.</p>
         </div>
       </div>
     </div>
