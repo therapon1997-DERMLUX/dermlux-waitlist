@@ -1329,6 +1329,14 @@ async function serveVoisoAudio(request, env, url) {
   obj.writeHttpMetadata(headers)
   headers.set('Cache-Control', 'private, max-age=3600')
   headers.set('Accept-Ranges', 'bytes')
+  // ?download=1 → κατεβαίνει ως αρχείο αντί να παίξει inline (μόνο η ιδιοκτησία
+  // βλέπει το κουμπί στο UI — δες VoisoAudioPlayer.jsx / voisoOwners.js).
+  if (url.searchParams.get('download') === '1') {
+    const asked = (url.searchParams.get('filename') || '').replace(/[^\w.\-]/g, '')
+    const fileName = asked && asked.length <= 120 ? asked : name
+    headers.set('Content-Disposition', `attachment; filename="${fileName}"`)
+    headers.set('Cache-Control', 'private, no-store')
+  }
   return new Response(obj.body, { headers })
 }
 
