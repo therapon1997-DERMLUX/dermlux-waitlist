@@ -1317,12 +1317,35 @@ async function archiveVoisoRecording(request, env, json) {
   return json({ ok: true, bytes: buf.byteLength, url: `${WORKER_URL}/voiso-audio/${safe}.mp3` })
 }
 
+// Υπογραφή ΑΝΑ ΑΡΧΕΙΟ (HMAC filename+λήξη) — τη χρησιμοποιεί το Base44 function
+// `sevenDreamsFeed` για να παραδίδει τις ηχογραφήσεις Seven Dreams Events στον
+// ιδιοκτήτη τους ΧΩΡΙΣ να του δώσουμε τον κοινό VOISO_AUDIO_CODE (που ανοίγει τα
+// πάντα, DermLux συμπεριλαμβανομένων). Η υπογραφή δένεται στο συγκεκριμένο όνομα
+// αρχείου, οπότε δεν μεταφέρεται σε άλλη ηχογράφηση.
+async function voisoAudioSigOk(env, name, url) {
+  const exp = Number(url.searchParams.get('exp') || 0)
+  const sig = (url.searchParams.get('sig') || '').toLowerCase()
+  if (!env.VOISO_SIGN_KEY || !exp || !/^[0-9a-f]{64}$/.test(sig)) return false
+  if (exp < Math.floor(Date.now() / 1000)) return false
+  const key = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(env.VOISO_SIGN_KEY.trim()),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  )
+  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${name}:${exp}`))
+  const expected = [...new Uint8Array(mac)].map(b => b.toString(16).padStart(2, '0')).join('')
+  // σύγκριση σταθερού χρόνου
+  let diff = expected.length ^ sig.length
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ sig.charCodeAt(i)
+  return diff === 0
+}
+
 async function serveVoisoAudio(request, env, url) {
-  const code = url.searchParams.get('code') || ''
-  if (!env.VOISO_AUDIO_CODE || code !== env.VOISO_AUDIO_CODE.trim())
-    return new Response('Forbidden', { status: 403 })
   const name = url.pathname.slice('/voiso-audio/'.length).replace(/[^\w.\-]/g, '')
   if (!name) return new Response('Missing file', { status: 400 })
+  const code = url.searchParams.get('code') || ''
+  const codeOk = env.VOISO_AUDIO_CODE && code === env.VOISO_AUDIO_CODE.trim()
+  if (!codeOk && !(await voisoAudioSigOk(env, name, url)))
+    return new Response('Forbidden', { status: 403 })
   const obj = await env.INVOICES.get(`voiso/${name}`)
   if (!obj) return new Response('Not found', { status: 404 })
   const headers = new Headers()
