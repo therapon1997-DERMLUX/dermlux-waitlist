@@ -13,6 +13,35 @@ const fmtDate = d => {
 }
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
+// Payment banner HTML for a receipt page — only when we are CONFIDENT where it
+// was paid from. If unsure, returns '' (blank), per the user's rule.
+// Order of confidence: matched bank transaction → cash/ταμείο → stated account →
+// personal card note. Installments: if an `installments` array ever exists, list
+// each date/amount; currently the data stores a single matched transaction.
+function paymentBanner(e) {
+  const inst = Array.isArray(e.installments) ? e.installments.filter(x => x && (x.date || x.amount != null)) : []
+  if (inst.length) {
+    const rows = inst.map(x => `${fmtDate(x.date)}${x.amount != null ? ` · ${eur(x.amount)}` : ''}${x.bank ? ` · ${esc(x.bank)}` : ''}`).join(' &nbsp;|&nbsp; ')
+    return `<div class="pay-banner">💳 Πληρώθηκε σε δόσεις: ${rows}</div>`
+  }
+  if (e.bankTagBank) {
+    return `<div class="pay-banner">💳 Πληρώθηκε: <b>${esc(e.bankTagBank)}</b> · ${fmtDate(e.bankTagDate)}`
+      + `${e.bankTagAmount != null ? ` · ${eur(e.bankTagAmount)}` : ''}`
+      + `${e.bankTagRef ? ` · <span class="pay-ref">ref ${esc(e.bankTagRef)}</span>` : ''}</div>`
+  }
+  const isCash = e.paymentMethod === 'Μετρητά' || /ταμεί|μετρητ/i.test(e.paymentSource || '')
+  if (isCash) return `<div class="pay-banner">💶 Πληρώθηκε: <b>Μετρητά (ταμείο)</b></div>`
+  if (e.paymentSource) {
+    return `<div class="pay-banner">💳 Πληρώθηκε: <b>${esc(e.paymentSource)}</b>`
+      + `${e.paymentDetail ? ` · ${esc(e.paymentDetail)}` : ''}`
+      + `${e.bankTagDate ? ` · ${fmtDate(e.bankTagDate)}` : ''}</div>`
+  }
+  if (e.bankPaymentNote && /προσωπικ|personal|κάρτα/i.test(e.bankPaymentNote)) {
+    return `<div class="pay-banner">💳 Πληρώθηκε: <b>Προσωπική κάρτα</b></div>`
+  }
+  return '' // δεν είμαι σίγουρος → κενό
+}
+
 // ── PDF → images (lazy-loaded pdf.js) ────────────────────────────────────────
 let _pdfjs = null
 async function getPdfjs() {

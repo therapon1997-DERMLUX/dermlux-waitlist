@@ -49,6 +49,14 @@ export default function ExpenseUpload() {
   const [msg, setMsg]     = useState('')
   const [error, setError] = useState('')
   const [recent, setRecent] = useState([])
+  // ── ΠΟΛΛΑΠΛΑ ΑΡΧΕΙΑ (αίτημα Θεράπων 07/09/2026: «να μπορώ να ανεβάσω 5 pdf και 2
+  // images ταυτόχρονα») ────────────────────────────────────────────────────────────
+  // Ένα αρχείο → η παλιά ροή με προεπισκόπηση/περικοπή, που αξίζει για φωτογραφία
+  // απόδειξης. ΠΟΛΛΑ αρχεία → batch: ανεβαίνουν/διαβάζονται όλα μαζί, η πηγή πληρωμής
+  // επιλέγεται ΜΙΑ φορά για όλα, και φεύγουν με ένα κουμπί. Περικοπή δεν προσφέρεται
+  // στο batch — δεν κόβει κανείς 7 αρχεία ένα-ένα· όποιο θέλει κόψιμο ανεβαίνει μόνο.
+  const [batch, setBatch] = useState([])   // [{ id,name,type,isPdf,dataUrl,status,fileUrl,fileName,fields,error }]
+  const [batchDone, setBatchDone] = useState(null) // { ok, failed } μετά την αποστολή
   const inputRef  = useRef(null)
   const cameraRef = useRef(null)
   const imgRef    = useRef(null)
@@ -81,8 +89,156 @@ export default function ExpenseUpload() {
   function reset() {
     setStage('pick'); setImg(null); setSel(null); setSource(null); setBankMode(null)
     setUpload(null); setUploading(false); setMsg(''); setError('')
+    setBatch([]); setBatchDone(null)
     if (inputRef.current)  inputRef.current.value = ''
     if (cameraRef.current) cameraRef.current.value = ''
+  }
+
+  // ── Διαλογή: ένα αρχείο → παλιά ροή· πολλά → batch ──
+  async function handleFiles(fileList) {
+    const files = Array.from(fileList || [])
+    if (!files.length || busy) return
+    // Ένα αρχείο ΕΝΩ είμαστε ήδη σε batch = «πρόσθεσε κι αυτό», όχι «ξεκίνα από την αρχή».
+    const appending = stage === 'batch' && batch.length > 0
+    if (files.length === 1 && !appending) return handleFile(files[0])
+
+    const tooBig = files.filter(f => f.size > 12 * 1024 * 1024).map(f => f.name)
+    const ok = files.filter(f => f.size <= 12 * 1024 * 1024)
+    setError(tooBig.length ? `Παραλείφθηκαν (πάνω από 12MB): ${tooBig.join(', ')}` : '')
+    if (!ok.length) return
+    setMsg(''); setBatchDone(null)
+
+    const items = await Promise.all(ok.map(async (f, i) => ({
+      id: `${Date.now()}_${i}`,
+      name: f.name || `receipt_${Date.now()}_${i}`,
+      type: f.type || 'image/jpeg',
+      isPdf: (f.type || '').includes('pdf'),
+      dataUrl: await fileToDataUrl(f),
+      status: 'queued',
+      fileUrl: null, fileName: null, fields: null, error: '',
+    })))
+    setBatch(prev => (appending ? [...prev, ...items] : items))
+    setStage('batch')
+    if (inputRef.current) inputRef.current.value = ''
+    runBatchUploads(items)
+  }
+
+  /* Ανεβάζει & διαβάζει τα αρχεία του batch. ΔΥΟ ΤΑΥΤΟΧΡΟΝΑ, όχι όλα μαζί: το
+     `/extract-invoice` καλεί μοντέλο όρασης — 7 παράλληλα requests από κινητό σε 4G
+     είτε γεμίζουν τη μνήμη είτε χτυπούν rate limit, και τότε χάνεται η ανάγνωση σε
+     μισά αρχεία χωρίς να φαίνεται γιατί. */
+  async function runBatchUploads(items) {
+    const patch = (id, upd) => setBatch(prev => prev.map(b => (b.id === id ? { ...b, ...upd } : b)))
+    const idToken = await currentUser.getIdToken()
+    const queue = [...items]
+
+    const worker = async () => {
+      while (queue.length) {
+        const it = queue.shift()
+        if (!it) return
+        patch(it.id, { status: 'uploading' })
+        try {
+          const base64 = it.dataUrl.split(',')[1]
+          const up = await fetch(`${WORKER}/upload-invoice-file`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+            body: JSON.stringify({ base64, mediaType: it.type, fileName: it.name }),
+          })
+          if (!up.ok) throw new Error('η μεταφόρτωση απέτυχε')
+          const { fileUrl, fileName } = await up.json()
+          patch(it.id, { status: 'reading', fileUrl, fileName })
+
+          let fields = {}
+          try {
+            const res = await fetch(`${WORKER}/extract-invoice`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+              body: JSON.stringify({ base64, mediaType: it.type, fileName: it.name }),
+            })
+            const data = await res.json()
+            if (res.ok && data.fields) fields = data.fields
+          } catch { /* η ανάγνωση είναι προαιρετική — το αρχείο ανέβηκε ήδη */ }
+          patch(it.id, { status: 'ready', fields })
+        } catch (e) {
+          patch(it.id, { status: 'error', error: e.message || 'σφάλμα' })
+        }
+      }
+    }
+    await Promise.all([worker(), worker()])
+  }
+
+  function removeFromBatch(id) {
+    setBatch(prev => {
+      const next = prev.filter(b => b.id !== id)
+      if (!next.length) { setStage('pick'); setSource(null); setBankMode(null) }
+      return next
+    })
+  }
+
+  /* Η εγγραφή ενός εξόδου — κοινή για τη ροή του ενός αρχείου και για το batch,
+     ώστε να μη ξεφύγουν ποτέ τα δύο μονοπάτια (π.χ. ο κανόνας GENERAL_VENDOR_RX). */
+  async function saveExpense({ fields, fileUrl, fileName, src, bank }) {
+    const f = fields || {}
+    const needsBank = src?.method === 'Τραπεζική'
+    const newRef = await addDoc(collection(db, 'expenses'), {
+      vendor:        f.vendor         || '',
+      vatNumber:     f.vat_number     || '',
+      invoiceNumber: f.invoice_number || '',
+      date:          f.date           || new Date().toISOString().slice(0, 10),
+      net:   f.net   ?? null,
+      vat:   f.vat   ?? null,
+      vatRate: f.vat_rate ?? null,
+      total: f.total ?? null,
+      currency: f.currency || 'EUR',
+      category: f.category || '',
+      items: Array.isArray(f.line_items) ? f.line_items : [],
+      location: GENERAL_VENDOR_RX.test(f.vendor || '') ? 'Γενικά' : location,
+      paymentMethod: needsBank ? (bank === 'card' ? 'Κάρτα' : 'Τραπεζική') : src.method,
+      paymentSource: src.key,
+      paymentDetail: needsBank ? (bank === 'card' ? 'Κάρτα τράπεζας' : 'Έμβασμα (bank transfer)') : '',
+      docType: src.docType || 'expense',
+      notes: '',
+      fileUrl, fileName,
+      status: 'pending',
+      source: 'manager_upload',
+      createdAt: serverTimestamp(),
+      createdBy: userProfile?.displayName || '',
+      createdByUid: currentUser.uid,
+    })
+    // Αν ο admin ανέβασε τιμολόγιο που υπάρχει ήδη (π.χ. το είχε βάλει η manager
+    // στην παραλαβή), το σίγουρο διπλό συγχωνεύεται αυτόματα σε ένα record.
+    let merged = false
+    if (isAdmin && (f.invoice_number || '').trim()) {
+      try {
+        const dupSnap = await getDocs(query(collection(db, 'expenses'),
+          where('invoiceNumber', '==', f.invoice_number), limit(10)))
+        const cands = dupSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+        const g = findExactDupGroups(cands).find(gr => gr.some(e => e.id === newRef.id))
+        if (g) { await mergeGroup(g); merged = true }
+      } catch { /* non-fatal — το πιάνει το sweep στα Λογιστικά */ }
+    }
+    return merged
+  }
+
+  async function confirmBatchSend() {
+    if (busy) return
+    const sendable = batch.filter(b => b.status === 'ready' && b.fileUrl)
+    if (!sendable.length || !source || (source.method === 'Τραπεζική' && !bankMode)) return
+    setBusy(true); setError('')
+    let ok = 0, failed = 0
+    for (const it of sendable) {
+      try {
+        await saveExpense({ fields: it.fields, fileUrl: it.fileUrl, fileName: it.fileName, src: source, bank: bankMode })
+        ok += 1
+      } catch { failed += 1 }
+    }
+    setBusy(false)
+    reset()
+    setBatchDone({ ok, failed })
+    setMsg(failed
+      ? `✓ Στάλθηκαν ${ok} από ${sendable.length} — ${failed} απέτυχαν, δοκίμασέ τα ξανά.`
+      : `✓ Στάλθηκαν ${ok} αποδείξεις!`)
+    loadRecent()
   }
 
   // ── Βήμα 1: επιλογή/λήψη αρχείου → προεπισκόπηση ──
@@ -180,45 +336,12 @@ export default function ExpenseUpload() {
   async function confirmAndSend() {
     if (!readyToSend || busy) return
     setBusy(true); setError('')
-    const f = upload.fields || {}
     try {
-      const newRef = await addDoc(collection(db, 'expenses'), {
-        vendor:        f.vendor         || '',
-        vatNumber:     f.vat_number     || '',
-        invoiceNumber: f.invoice_number || '',
-        date:          f.date           || new Date().toISOString().slice(0, 10),
-        net:   f.net   ?? null,
-        vat:   f.vat   ?? null,
-        vatRate: f.vat_rate ?? null,
-        total: f.total ?? null,
-        currency: f.currency || 'EUR',
-        category: f.category || '',
-        items: Array.isArray(f.line_items) ? f.line_items : [],
-        location: GENERAL_VENDOR_RX.test(f.vendor || '') ? 'Γενικά' : location,
-        paymentMethod: needsBankMode ? (bankMode === 'card' ? 'Κάρτα' : 'Τραπεζική') : source.method,
-        paymentSource: source.key,
-        paymentDetail: needsBankMode ? (bankMode === 'card' ? 'Κάρτα τράπεζας' : 'Έμβασμα (bank transfer)') : '',
-        docType: source.docType || 'expense',
-        notes: '',
-        fileUrl: upload.fileUrl, fileName: upload.fileName,
-        status: 'pending',
-        source: 'manager_upload',
-        createdAt: serverTimestamp(),
-        createdBy: userProfile?.displayName || '',
-        createdByUid: currentUser.uid,
+      // ΕΝΑ μονοπάτι εγγραφής με το batch — δες saveExpense.
+      const merged = await saveExpense({
+        fields: upload.fields, fileUrl: upload.fileUrl, fileName: upload.fileName,
+        src: source, bank: bankMode,
       })
-      // Αν ο admin ανέβασε τιμολόγιο που υπάρχει ήδη (π.χ. το είχε βάλει η manager
-      // στην παραλαβή), το σίγουρο διπλό συγχωνεύεται αυτόματα σε ένα record.
-      let merged = false
-      if (isAdmin && (f.invoice_number || '').trim()) {
-        try {
-          const dupSnap = await getDocs(query(collection(db, 'expenses'),
-            where('invoiceNumber', '==', f.invoice_number), limit(10)))
-          const cands = dupSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-          const g = findExactDupGroups(cands).find(gr => gr.some(e => e.id === newRef.id))
-          if (g) { await mergeGroup(g); merged = true }
-        } catch { /* non-fatal — το πιάνει το sweep στα Λογιστικά */ }
-      }
       reset()
       setMsg(merged
         ? '✓ Στάλθηκε — υπήρχε ήδη το ίδιο τιμολόγιο και συγχωνεύτηκαν αυτόματα σε ένα.'
@@ -255,11 +378,12 @@ export default function ExpenseUpload() {
           <div
             onClick={() => inputRef.current?.click()}
             onDragOver={e => e.preventDefault()}
-            onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files?.[0]) }}
+            onDrop={e => { e.preventDefault(); handleFiles(e.dataTransfer.files) }}
             className="border-2 border-dashed border-gray-300 rounded-xl py-10 text-center cursor-pointer hover:border-green-400 hover:bg-green-50/40 transition-colors">
             <div className="text-4xl mb-2">🧾</div>
-            <p className="text-gray-700 font-medium">Σύρε εδώ την απόδειξη</p>
-            <p className="text-sm text-gray-500 mt-1">ή κάνε κλικ για επιλογή αρχείου</p>
+            <p className="text-gray-700 font-medium">Σύρε εδώ τις αποδείξεις</p>
+            <p className="text-sm text-gray-500 mt-1">ή κάνε κλικ για επιλογή αρχείων</p>
+            <p className="text-xs text-gray-400 mt-1">Μπορείς να διαλέξεις πολλά μαζί — PDF και φωτογραφίες</p>
           </div>
           <div className="grid grid-cols-2 gap-3 mt-3">
             <button type="button" onClick={() => cameraRef.current?.click()}
@@ -273,8 +397,10 @@ export default function ExpenseUpload() {
           </div>
         </>
       )}
-      <input ref={inputRef} type="file" accept="image/*,application/pdf"
-             className="hidden" onChange={e => handleFile(e.target.files?.[0])} />
+      {/* multiple: επιτρέπει π.χ. 5 PDF + 2 εικόνες σε μία επιλογή (αίτημα 07/09/2026).
+          Η κάμερα μένει μονή — βγάζεις μία φωτογραφία τη φορά. */}
+      <input ref={inputRef} type="file" accept="image/*,application/pdf" multiple
+             className="hidden" onChange={e => handleFiles(e.target.files)} />
       <input ref={cameraRef} type="file" accept="image/*" capture="environment"
              className="hidden" onChange={e => handleFile(e.target.files?.[0])} />
 
@@ -308,6 +434,106 @@ export default function ExpenseUpload() {
           </div>
         </div>
       )}
+
+      {/* ─── ΠΟΛΛΑΠΛΑ ΑΡΧΕΙΑ: λίστα + μία πηγή πληρωμής για όλα ─── */}
+      {stage === 'batch' && batch.length > 0 && (() => {
+        const ready   = batch.filter(b => b.status === 'ready')
+        const working = batch.filter(b => b.status === 'uploading' || b.status === 'reading' || b.status === 'queued')
+        const bad     = batch.filter(b => b.status === 'error')
+        const sum     = ready.reduce((s, b) => s + (Number(b.fields?.total) || 0), 0)
+        const canSend = ready.length > 0 && !working.length && source && (source.method !== 'Τραπεζική' || bankMode)
+        const LBL = { queued: '⏳ σε αναμονή', uploading: '⬆️ ανεβαίνει…', reading: '🔍 διαβάζεται…', ready: '✓', error: '✗' }
+        return (
+          <div className="border-2 border-blue-200 bg-blue-50/40 rounded-xl p-4">
+            <p className="font-semibold text-gray-800">
+              📚 {batch.length} αρχεία
+              {working.length > 0 && <span className="text-xs font-normal text-blue-600 ml-2">{working.length} σε εξέλιξη…</span>}
+            </p>
+            <p className="text-xs text-gray-500 mb-3">
+              Όλα θα καταχωρηθούν στο <b>{location}</b> με την ίδια πηγή πληρωμής. Αν κάποιο πληρώθηκε αλλιώς, διόρθωσέ το μετά από «Τα πρόσφατά σου».
+            </p>
+
+            <div className="bg-white border border-gray-200 rounded-lg divide-y divide-gray-100 mb-3 max-h-72 overflow-y-auto">
+              {batch.map(b => (
+                <div key={b.id} className="flex items-center gap-2 px-3 py-2">
+                  <span className="text-lg">{b.isPdf ? '📄' : '🖼️'}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm text-gray-800 truncate">
+                      {b.fields?.vendor || b.name}
+                    </span>
+                    <span className="block text-xs text-gray-400 truncate">
+                      {b.status === 'ready'
+                        ? `${b.fields?.date || '—'}${b.fields?.total != null ? ` · €${Number(b.fields.total).toFixed(2)}` : ''}${b.fields?.invoice_number ? ` · ${b.fields.invoice_number}` : ''}`
+                        : b.status === 'error' ? b.error : LBL[b.status]}
+                    </span>
+                  </span>
+                  <span className={`text-xs font-semibold ${b.status === 'ready' ? 'text-green-600' : b.status === 'error' ? 'text-red-600' : 'text-blue-500'}`}>
+                    {b.status === 'ready' || b.status === 'error' ? LBL[b.status] : ''}
+                  </span>
+                  <button type="button" onClick={() => removeFromBatch(b.id)} disabled={busy}
+                    title="Βγάλ' το από τη λίστα"
+                    className="text-gray-300 hover:text-red-500 text-lg leading-none px-1">×</button>
+                </div>
+              ))}
+            </div>
+
+            {ready.length > 0 && sum > 0 && isAdmin && (
+              <p className="text-xs text-gray-500 mb-2">Σύνολο αναγνωσμένων: <b>€{sum.toFixed(2)}</b></p>
+            )}
+            {bad.length > 0 && (
+              <p className="text-xs text-red-600 mb-2">{bad.length} αρχεία απέτυχαν — βγάλ' τα και ξαναδοκίμασέ τα ξεχωριστά.</p>
+            )}
+
+            <p className="font-semibold text-gray-800 text-sm mb-1.5">💳 Από πού πληρώθηκαν;</p>
+            <div className="grid grid-cols-2 gap-2">
+              {PAY_SOURCES.map(srcOpt => (
+                <button key={srcOpt.label} type="button" onClick={() => { setSource(srcOpt); setBankMode(null) }}
+                  className={`border rounded-xl py-3 px-2 text-sm font-medium transition-colors ${
+                    source?.label === srcOpt.label
+                      ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
+                      : 'border-gray-200 bg-white text-gray-700 hover:border-blue-400 hover:bg-blue-50'}`}>
+                  {srcOpt.label}
+                </button>
+              ))}
+            </div>
+            {needsBankMode && (
+              <div className="mt-3">
+                <p className="text-xs font-medium text-gray-600 mb-1.5">Πώς πληρώθηκαν από την τράπεζα;</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setBankMode('transfer')}
+                    className={`border rounded-xl py-2.5 px-2 text-sm font-medium transition-colors ${
+                      bankMode === 'transfer' ? 'border-indigo-600 bg-indigo-600 text-white shadow-sm'
+                      : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-400 hover:bg-indigo-50'}`}>
+                    ↔️ Έμβασμα (transfer)
+                  </button>
+                  <button type="button" onClick={() => setBankMode('card')}
+                    className={`border rounded-xl py-2.5 px-2 text-sm font-medium transition-colors ${
+                      bankMode === 'card' ? 'border-indigo-600 bg-indigo-600 text-white shadow-sm'
+                      : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-400 hover:bg-indigo-50'}`}>
+                    💳 Κάρτα τράπεζας
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <button type="button" onClick={reset} disabled={busy}
+                className={`${btn} border border-red-200 bg-white text-red-600 hover:bg-red-50`}>
+                ✕ Ακύρωση όλων
+              </button>
+              <button type="button" onClick={confirmBatchSend} disabled={!canSend || busy}
+                className={`${btn} bg-green-600 text-white hover:bg-green-700`}>
+                {busy ? 'Αποστολή…' : working.length ? '⏳ Περίμενε…' : `✅ Αποστολή ${ready.length}`}
+              </button>
+            </div>
+            <button type="button" onClick={() => inputRef.current?.click()} disabled={busy || working.length > 0}
+              className="w-full mt-2 text-xs text-blue-600 hover:text-blue-800 py-1 disabled:opacity-40">
+              + Πρόσθεσε κι άλλα αρχεία
+            </button>
+            {!source && <p className="text-[11px] text-gray-400 mt-2 text-center">Διάλεξε από πού πληρώθηκαν για να ενεργοποιηθεί η αποστολή</p>}
+          </div>
+        )
+      })()}
 
       {/* ─── ΒΗΜΑ 3: Πηγή πληρωμής + Επιβεβαίωση ─── */}
       {stage === 'send' && img && (
