@@ -99,6 +99,8 @@ export function printHtml(bodyHtml, title = 'Εκτύπωση', delay = 400, pre
 }
 
 // Πολλά παραστατικά → ΕΝΑ PDF (με σειρά). Εικόνες γίνονται σελίδες A4, PDF αντιγράφονται αυτούσια.
+const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${what}: πέρασε το όριο χρόνου`)), ms))])
+
 export async function mergeToPdf(expenses, onProgress = () => {}) {
   const { PDFDocument } = await import('pdf-lib')
   const out = await PDFDocument.create()
@@ -109,10 +111,11 @@ export async function mergeToPdf(expenses, onProgress = () => {}) {
     onProgress(i + 1, expenses.length)
     if (!e.fileUrl) { skipped.push(e); continue }
     try {
-      const f = await fetchFile(e.fileUrl, e.fileName)
+      // Ένα βαρύ ή χαλασμένο αρχείο δεν πρέπει να κολλάει όλο το πακέτο: 45" ανά αρχείο, μετά παραλείπεται
+      const f = await withTimeout(fetchFile(e.fileUrl, e.fileName), 45000, e.fileName || 'αρχείο')
       const bytes = new Uint8Array(await f.blob.arrayBuffer())
       if (f.kind === 'pdf') {
-        const src = await PDFDocument.load(bytes, { ignoreEncryption: true })
+        const src = await withTimeout(PDFDocument.load(bytes, { ignoreEncryption: true }), 45000, e.fileName || 'PDF')
         const pages = await out.copyPages(src, src.getPageIndices())
         pages.forEach(p => out.addPage(p))
       } else if (f.kind === 'image') {
