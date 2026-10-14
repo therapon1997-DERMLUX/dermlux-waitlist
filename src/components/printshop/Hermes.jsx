@@ -98,7 +98,7 @@ export default function Hermes() {
     // Μνήμη κανόνων (όπως ο Επόπτης του sales): ό,τι έχει ορίσει το λογιστήριο ισχύει πάντα
     let rulesText = ''
     try { const rules = await loadRules(); if (rules.length) rulesText = ' · κανόνες που έχει ορίσει το λογιστήριο: ' + rules.map(r => `«${r.vendorMatch}»: ${Object.entries(r.set || {}).map(([k, v]) => k + '=' + v).join(', ')} (${r.reason})`).join('; ') } catch {}
-    const ctxText = `<context>χρήστης: ${who.name || who.email} (${who.role === 'accountant' ? 'λογιστήριο' : 'ιδιοκτήτης'}) · σήμερα: ${new Date().toISOString().slice(0, 10)} · σελίδα: ${ctx.page || location.pathname}${ctx.tab ? ' / ' + ctx.tab : ''}${ctx.period ? ' · περίοδος: ' + ctx.period : ''}${ctx.query ? ' · αναζήτηση: «' + ctx.query + '»' : ''}${rulesText}</context>\n`
+    const ctxText = `<context>χρήστης: ${who.role === 'accountant' ? 'Μελίνα (λογιστήριο — ο λογαριασμός ανήκει στο γραφείο του λογιστή Τάκη Χριστοφόρου, αλλά τον χειρίζεται η Μελίνα· προσφώνησέ την «Μελίνα»)' : (who.name || who.email) + ' (ιδιοκτήτης)'} · σήμερα: ${new Date().toISOString().slice(0, 10)} · σελίδα: ${ctx.page || location.pathname}${ctx.tab ? ' / ' + ctx.tab : ''}${ctx.period ? ' · περίοδος: ' + ctx.period : ''}${ctx.query ? ' · αναζήτηση: «' + ctx.query + '»' : ''}${rulesText}</context>\n`
     let t = [...turns, { role: 'user', content: ctxText + msg }]
     let f = [...feed, { kind: 'user', text: msg }]
     setTurns(t); setFeed(f); setBusy('Σκέφτομαι…')
