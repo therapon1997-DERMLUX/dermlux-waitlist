@@ -19,7 +19,7 @@ import { eur, fmtDate } from '../bookkeeping/ExportPrint'
 
 const WORKER = import.meta.env.VITE_WORKER_URL || ''
 const MAX_TOOL_ROUNDS = 8
-const firstName = p => (p?.displayName || '').trim().split(/\s+/)[0] || ''
+const firstName = p => p?.role === 'accountant' ? 'Μελίνα' : ((p?.displayName || '').trim().split(/\s+/)[0] || '')   // ο λογαριασμός λογιστή = η Μελίνα
 const greet = () => { const h = new Date().getHours(); return h < 12 ? 'Καλημέρα' : h < 18 ? 'Καλησπέρα' : 'Καλησπέρα' }
 
 function Spinner() { return <span className="inline-block w-3.5 h-3.5 border-2 border-emerald-200 border-t-emerald-700 rounded-full animate-spin align-middle" /> }
@@ -42,6 +42,13 @@ export default function Hermes() {
   const visible = (isAdmin || isAccountant) && WORKER && !/^\/(login|eshop|unsubscribe)/.test(location.pathname)
 
   useEffect(() => { try { localStorage.setItem('hermes_open', open ? '1' : '0') } catch {} ; if (open) { setUnread(false); setTimeout(() => inputRef.current?.focus(), 50) } }, [open])
+  // Πρώτη φορά της μέρας: ανοίγει μόνος του και χαιρετά (όπως ο Επόπτης στο sales) — μετά μένει κλειστός αν τον κλείσεις
+  useEffect(() => {
+    if (!visible) return
+    const today = new Date().toISOString().slice(0, 10)
+    let last = ''; try { last = localStorage.getItem('hermes_greeted') || '' } catch {}
+    if (last !== today) { try { localStorage.setItem('hermes_greeted', today) } catch {}; setTimeout(() => setOpen(true), 900) }
+  }, [visible])
   useEffect(() => { bottomRef.current?.scrollIntoView({ block: 'end' }) }, [feed, busy, open])
 
   // Φόρτωση παλιάς συζήτησης (ίδιος χρήστης) ή νέα με χαιρετισμό
@@ -53,7 +60,8 @@ export default function Hermes() {
         try {
           const s = await getDocs(query(collection(db, 'hermes_chats'), where('uid', '==', who.uid), orderBy('updatedAt', 'desc'), qlimit(1)))
           const d = s.docs[0]
-          if (d && d.id === chatId && alive) { const x = d.data(); setTurns(x.turns || []); setFeed(x.feed || []); return }
+          const today = new Date().toISOString().slice(0, 10)
+          if (d && d.id === chatId && alive && String(d.data().updatedAt || '').slice(0, 10) === today) { const x = d.data(); setTurns(x.turns || []); setFeed(x.feed || []); return }
         } catch {}
       }
       if (alive) startNew()
@@ -66,7 +74,7 @@ export default function Hermes() {
     setChatId(id); try { localStorage.setItem('hermes_chat', id) } catch {}
     setTurns([])
     const name = firstName(userProfile)
-    setFeed([{ kind: 'assistant', text: `${greet()}${name ? ' ' + name : ''}! Είμαι ο Ερμογένης, ο βοηθός σου για τα βιβλία της DermLux.\n\nΓράψε μου απλά, όπως θα έλεγες σε συνάδελφο, π.χ.:\n- «βρες μου το τιμολόγιο της MJ του Ιουλίου»\n- «ετοίμασέ μου όλα τα παραστατικά Ιούλιο–Σεπτέμβριο σε ένα PDF»\n- «πόσο ΦΠΑ έχουμε το τρίμηνο;»\n- «το TikTok δεν έχει ΦΠΑ, διόρθωσέ το»\n\nΌ,τι ετοιμάζω το βάζω εδώ στο chat, με κουμπί για να το κατεβάσεις ή να το τυπώσεις. Αν χρειαστείς οτιδήποτε, πες μου και θα το κανονίσω.` }])
+    setFeed([{ kind: 'assistant', text: `${greet()}${name ? ' ' + name : ''}! Είμαι ο Ερμογένης, ο βοηθός σου για τα βιβλία της DermLux.${userProfile?.role === 'accountant' ? ' Ό,τι χρειαστείς από τον Θεράπωνα, μπορώ να τον ρωτήσω εγώ.' : ''}\n\nΓράψε μου απλά, όπως θα έλεγες σε συνάδελφο, π.χ.:\n- «βρες μου το τιμολόγιο της MJ του Ιουλίου»\n- «ετοίμασέ μου όλα τα παραστατικά Ιούλιο–Σεπτέμβριο σε ένα PDF»\n- «πόσο ΦΠΑ έχουμε το τρίμηνο;»\n- «το TikTok δεν έχει ΦΠΑ, διόρθωσέ το»\n\nΌ,τι ετοιμάζω το βάζω εδώ στο chat, με κουμπί για να το κατεβάσεις ή να το τυπώσεις. Αν χρειαστείς οτιδήποτε, πες μου και θα το κανονίσω.` }])
   }
 
   const persist = useCallback((t, f) => {
