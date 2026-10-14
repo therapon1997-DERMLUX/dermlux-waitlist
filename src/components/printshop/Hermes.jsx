@@ -297,7 +297,7 @@ function Attachment({ a, idx, onConfirm, onReject, busy }) {
       </Card>
     )
   }
-  if (a.type === 'ask') return <Card title={a.sent ? (a.channel === 'sms' ? '📱 Στάλθηκε SMS στον Θεράπωνα' : '✉️ Στάλθηκε email στον Θεράπωνα') : '⚠ Η ειδοποίηση δεν στάλθηκε'}><p className="text-sm text-gray-800 whitespace-pre-wrap">{a.text}</p><p className="text-xs text-gray-500 mt-1">{a.sent ? 'Θα απαντήσει και η απάντηση θα φανεί στο Print Shop → Σημειώσεις & αιτήματα.' : 'Το αίτημα γράφτηκε στα αιτήματα. ' + (a.err || '')}</p></Card>
+  if (a.type === 'ask') return <Card title={a.sent ? '✉️ Στάλθηκε email στον Θεράπωνα' : '⚠ Η ειδοποίηση δεν στάλθηκε'}><p className="text-sm text-gray-800 whitespace-pre-wrap">{a.text}</p><p className="text-xs text-gray-500 mt-1">{a.sent ? 'Θα απαντήσει και η απάντηση θα φανεί στο Print Shop → Σημειώσεις & αιτήματα.' : 'Το αίτημα γράφτηκε στα αιτήματα. ' + (a.err || '')}</p></Card>
   if (a.type === 'note') return <Card title="Αίτημα προς τον Θεράπωνα"><p className="text-sm text-gray-800">{a.text}</p><p className="text-xs text-gray-500 mt-1">Θα το δει στα «Σημειώσεις & αιτήματα» του Print Shop.</p></Card>
   return null
 }
