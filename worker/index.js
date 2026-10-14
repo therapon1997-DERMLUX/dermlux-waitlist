@@ -215,6 +215,10 @@ export default {
         if (origin !== ALLOWED_ORIGIN) return json({ error: 'Forbidden' }, 403)
         return await assistantTurn(request, env, json)
       }
+      if (url.pathname === '/notify-owner' && request.method === 'POST') {
+        if (origin !== ALLOWED_ORIGIN) return json({ error: 'Forbidden' }, 403)
+        return await notifyOwner(request, env, json)
+      }
       return json({ error: 'Not found' }, 404)
     } catch (e) {
       console.error('Worker error:', e)
@@ -1812,7 +1816,7 @@ const HERMES_SYSTEM = `Είσαι ο Ερμογένης, ο βοηθός λογ�
 - Για την τράπεζα: search_bank. Για καρτέλα προμηθευτή: supplier_ledger. Για σύνοψη/ΦΠΑ περιόδου: period_summary.
 - ΑΛΛΑΓΕΣ: ο χρήστης έχει δικαίωμα να διορθώνει. Όταν ζητήσει αλλαγή (σε ένα ή πολλά τιμολόγια, π.χ. «τα TikTok ads δεν έχουν ΦΠΑ λόγω αντίστροφης χρέωσης»), χρησιμοποίησε update_documents με σαφή λόγο. Η αλλαγή ΔΕΝ γίνεται αμέσως: εμφανίζεται κάρτα επιβεβαίωσης στο chat και εφαρμόζεται μόνο όταν ο χρήστης πατήσει «Επιβεβαίωση». Αν ο χρήστης λέει ότι ισχύει γενικά (και για τα μελλοντικά), βάλε save_rule ώστε να αποθηκευτεί κανόνας. Κάθε αλλαγή καταγράφεται αυτόματα στο ιστορικό. Ποτέ δεν διαγράφεις παραστατικά ή κινήσεις.
 - Για αντίστροφη χρέωση / μηδενικό ΦΠΑ συνήθως: vat=0, vatRate=0, net="=total", reverseCharge=true (επιβεβαίωσε με τον χρήστη αν δεν είναι σαφές).
-- Αν κάτι χρειάζεται τον Θεράπωνα (λείπει τιμολόγιο, θέλει απόφαση, ερώτηση για πληρωμή), φτιάξε αίτημα με create_request και πες ότι το κανόνισες και το πέρασες στον Θεράπωνα. Δεν στέλνεις ποτέ email ή μηνύματα σε τρίτους.
+- ΕΠΙΚΟΙΝΩΝΙΑ ΜΕ ΤΟΝ ΘΕΡΑΠΩΝΑ: μπορείς να του στείλεις ερώτηση (ask_therapon: SMS για μικρό, email για μεγάλο) — να το λες στον χρήστη: «αν θες, μπορώ να ρωτήσω τον Θεράπωνα». Κανόνες: (1) Αν ο χρήστης πει «ρώτα τον Θεράπωνα» → το στέλνεις ΠΑΝΤΑ. (2) Αν κάτι δεν ξέρεις ή δεν είσαι σίγουρος και αφορά απόφαση (χρήματα, ΦΠΑ, τι θέλει ο λογιστής) → πρότεινε «να ρωτήσω τον Θεράπωνα;» και στείλε μόλις πει ναι. (3) Αν είναι μικρό και μπορείς να το σκεφτείς μόνος σου → πάρε πρωτοβουλία, ΜΗΝ τον ενοχλείς — καταγράψε το με create_request αν χρειάζεται να το δει κάποια στιγμή. Μην τον σπαμάρεις: μία ειδοποίηση ανά θέμα, συγκέντρωσε πολλές μικρές ερωτήσεις σε ένα email. Ο Θεράπων απαντά μέσω του Claude Code του· η απάντηση φαίνεται στα «Σημειώσεις & αιτήματα» — πες το στον χρήστη. Εκτός από τον Θεράπωνα, δεν στέλνεις ποτέ email ή μηνύματα σε κανέναν.
 - Αν δεν βρίσκεις κάτι, πες το ειλικρινά και πρότεινε πώς θα το βρούμε.
 - Ο χρήστης ΔΕΝ ξέρει από τεχνολογία ή AI: μην αναφέρεις «εργαλεία», «μοντέλο», «δεδομένα», ονόματα πεδίων ή κωδικούς. Μίλα για «τιμολόγια», «πληρωμές», «καρτέλα», «PDF». Όταν κάτι θέλει επιλογή, δώσε 2-3 απλές επιλογές. Αν η ερώτηση είναι ασαφής, κάνε ΜΙΑ σύντομη διευκρινιστική ερώτηση, όχι λίστα ερωτήσεων.
 - Στο τέλος κάθε απάντησης με αποτέλεσμα, πες σε μία γραμμή τι μπορεί να κάνει μετά (π.χ. «Πάτα Κατέβασέ το, ή πες μου αν το θέλεις και σε Excel»).
@@ -1858,8 +1862,10 @@ const HERMES_TOOLS = [
       ids: { type: 'array', items: { type: 'string' } }, filter: { type: 'object', properties: FILTER_PROPS },
       set: { type: 'object', description: 'πεδίο → νέα τιμή' }, reason: { type: 'string', description: 'γιατί γίνεται η αλλαγή (καταγράφεται)' },
       save_rule: { type: 'object', description: 'αν ισχύει και για τα επόμενα τιμολόγια', properties: { vendor_match: { type: 'string' } } } }, required: ['set', 'reason'] } },
-  { name: 'create_request', description: 'Δημιουργεί αίτημα ή ερώτηση προς τον Θεράπωνα (εμφανίζεται στα αιτήματα του Print Shop). Για ό,τι χρειάζεται απόφαση ή κάτι που λείπει.',
+  { name: 'create_request', description: 'Καταγράφει αίτημα/σημείωση για τον Θεράπωνα στα αιτήματα του Print Shop, ΧΩΡΙΣ να τον ειδοποιήσει. Για μικρά πράγματα που θα τα δει όταν μπει.',
     input_schema: { type: 'object', properties: { text: { type: 'string' }, document_id: { type: 'string' } }, required: ['text'] } },
+  { name: 'ask_therapon', description: 'Στέλνει ερώτηση στον Θεράπωνα και τον ΕΙΔΟΠΟΙΕΙ: channel sms για κάτι μικρό/γρήγορο (1-2 προτάσεις), email για κάτι μεγάλο ή με λεπτομέρειες. Καταγράφεται και στα αιτήματα. Ο Θεράπων απαντά αργότερα (μέσω Claude Code) — η απάντηση εμφανίζεται στα αιτήματα. Χρησιμοποίησέ το ΜΟΝΟ όταν: ο χρήστης ζήτησε ρητά «ρώτα τον Θεράπωνα», ή πρόκειται για απόφαση με χρήματα/ΦΠΑ/λογιστή που δεν μπορείς να πάρεις μόνος σου. Για ό,τι μπορείς να σκεφτείς και να λύσεις μόνος σου, ΜΗΝ τον ενοχλείς.',
+    input_schema: { type: 'object', properties: { channel: { type: 'string', enum: ['sms', 'email'] }, subject: { type: 'string', description: 'μόνο για email' }, text: { type: 'string', description: 'η ερώτηση, πλήρης και αυτόνομη (θα τη διαβάσει χωρίς το chat)' }, document_id: { type: 'string' } }, required: ['channel', 'text'] } },
   { name: 'list_requests', description: 'Τα αιτήματα και οι σημειώσεις του λογιστηρίου (ανοιχτά ή κλειστά) με τις απαντήσεις.',
     input_schema: { type: 'object', properties: { status: { type: 'string', enum: ['open', 'done', 'all'] } } } },
   { name: 'open_print_shop', description: 'Ανοίγει το Print Shop σε συγκεκριμένη καρτέλα με αναζήτηση ή περίοδο, για να το δει ο χρήστης στην οθόνη.',
@@ -1899,4 +1905,59 @@ async function assistantTurn(request, env, json) {
   if (!r.ok) return json({ error: `Το μοντέλο δεν απάντησε (${r.status})`, detail: (await r.text()).slice(0, 400) }, 502)
   const out = await r.json()
   return json({ content: out.content, stop_reason: out.stop_reason, stop_details: out.stop_details || null, usage: out.usage, model: out.model, used })
+}
+
+
+// ─── /notify-owner — ο Ερμογένης ενημερώνει τον Θεράπωνα (SMS για μικρά, email για μεγάλα) ──
+// Μόνο admin/accountant καλεί· ο Θεράπων απαντά μέσω Claude Code (το αίτημα ζει στο bk_notes).
+const OWNER_SMS_TO = '+35797736138'
+const OWNER_EMAIL_TO = 'therapon1997@gmail.com'
+const NOTIFY_DAILY_LIMIT = 30
+
+async function sendOwnerSms(env, message) {
+  if (!env.GT_DIGITAL_USERNAME || !env.GT_DIGITAL_PASSWORD) throw new Error('Το SMS δεν είναι ρυθμισμένο')
+  // Ελληνικά που χάθηκαν στη μετατροπή βγαίνουν ως «?» — καλύτερα να μη φύγει παρά να φύγει σκουπίδι
+  if (!/[Ͱ-Ͽἀ-῿]/.test(message) || /\?{2,}/.test(message)) throw new Error('Το κείμενο του SMS δεν είναι έγκυρο')
+  const params = new URLSearchParams({ user: env.GT_DIGITAL_USERNAME, password: env.GT_DIGITAL_PASSWORD, to: OWNER_SMS_TO,
+    header: 'DermLux', message: message.slice(0, 450), callback: 'https://your-callback-url.com/sms-delivery', ctype: '2' })
+  const r = await fetch('https://www.goldentelemedia.com/themmapps/services/dlr/sendsmsdlr.aspx', { method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() })
+  const t = await r.text()
+  if (!r.ok || /error|invalid/i.test(t)) throw new Error('Το SMS δεν στάλθηκε: ' + t.slice(0, 120))
+  return t.slice(0, 120)
+}
+
+async function sendOwnerEmail(env, subject, text) {
+  if (!env.RESEND_API_KEY) throw new Error('Το email δεν είναι ρυθμισμένο')
+  const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
+  const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: 'Ερμογένης (DermLux) <noreply@dermluxclinics.com>', to: [OWNER_EMAIL_TO], subject,
+      text, html: `<div style="font:15px/1.5 Segoe UI,Arial,sans-serif;color:#1d1d1f;max-width:640px"><p style="white-space:pre-wrap">${esc(text)}</p><p style="color:#6b6b70;font-size:13px">Απάντησε μέσω Claude Code — το αίτημα είναι στο Print Shop → Σημειώσεις &amp; αιτήματα.</p></div>` }) })
+  if (!r.ok) throw new Error('Το email δεν στάλθηκε: ' + (await r.text()).slice(0, 120))
+  return (await r.json()).id
+}
+
+async function notifyOwner(request, env, json) {
+  let caller
+  try { caller = await requireBooksCaller(request, env) }
+  catch (e) { return json({ error: e.message }, e.status || 401) }
+  const { channel, subject, text, from } = await request.json().catch(() => ({}))
+  if (!text || !['sms', 'email'].includes(channel)) return json({ error: 'Λείπει κείμενο ή κανάλι' }, 400)
+  // Όριο ανά μέρα (ο Ερμογένης δεν πρέπει να γίνει ενοχλητικός)
+  const day = new Date().toISOString().slice(0, 10)
+  const name = `projects/${caller.project}/databases/(default)/documents/assistant_usage/notify_${day}`
+  const c = await fetch(`https://firestore.googleapis.com/v1/projects/${caller.project}/databases/(default)/documents:commit`, { method: 'POST',
+    headers: { Authorization: `Bearer ${caller.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ writes: [{ transform: { document: name, fieldTransforms: [{ fieldPath: 'count', increment: { integerValue: '1' } }] } }] }) })
+  const used = c.ok ? Number((await c.json()).writeResults?.[0]?.transformResults?.[0]?.integerValue || 0) : 0
+  if (used > NOTIFY_DAILY_LIMIT) return json({ error: 'Έφτασε το ημερήσιο όριο ειδοποιήσεων προς τον Θεράπωνα' }, 429)
+  try {
+    const who = from || caller.role
+    if (channel === 'sms') {
+      const id = await sendOwnerSms(env, `Ερμογένης (${who}): ${text}`.slice(0, 440))
+      return json({ ok: true, channel, id })
+    }
+    const id = await sendOwnerEmail(env, `[Ερμογένης] ${subject || 'Ερώτηση από το λογιστήριο'}`, `Από: ${who}\n\n${text}`)
+    return json({ ok: true, channel, id })
+  } catch (e) { return json({ error: e.message }, 502) }
 }

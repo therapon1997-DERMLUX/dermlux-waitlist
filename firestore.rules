@@ -22,7 +22,7 @@ service cloud.firestore {
     }
     function isStaff() { return authed() && (isAdmin() || roleOf() == 'agent'); } // κλινικό προσωπικό (όχι ekloges)
     function isMarketer() { return authed() && roleOf() == 'marketer'; } // ΜΟΝΟ email marketing — τίποτα άλλο
-    function isAccountant() { return authed() && roleOf() == 'accountant'; } // λογιστής: read-only λογιστικά
+    function isAccountant() { return authed() && roleOf() == 'accountant'; } // λογιστής: διαβάζει + διορθώνει (όχι διαγραφή), 14/10/2026
     function isExpensesRole() { return authed() && roleOf() == 'expenses'; } // store managers: upload αποδείξεων μόνο
 
     // ── Χρήστες: ο καθένας βλέπει το δικό του προφίλ· μόνο admin διαχειρίζεται ──
@@ -42,10 +42,19 @@ service cloud.firestore {
       allow create: if isAdmin()
                     || (isExpensesRole() && request.resource.data.createdByUid == request.auth.uid
                         && request.resource.data.status == 'pending');
-      allow update, delete: if isAdmin();
+      // Λογιστής (14/10/2026): διορθώνει αλλά δεν σβήνει — κάθε αλλαγή καταγράφεται στο bk_changes
+      allow update: if isAdmin() || isAccountant();
+      allow delete: if isAdmin();
     }
     match /bank_transactions/{d}      { allow read: if isAdmin() || isAccountant(); allow write: if isAdmin(); }
-    match /extraction_corrections/{d} { allow read, write: if isAdmin(); }
+    match /extraction_corrections/{d} { allow read: if isAdmin() || isAccountant(); allow write: if isAdmin() || isAccountant(); }
+    // ── Print Shop / Ερμογένης (14/10/2026) ──
+    match /bk_changes/{d}   { allow read: if isAdmin() || isAccountant(); allow create: if isAdmin() || isAccountant(); allow update, delete: if isAdmin(); }
+    match /bk_notes/{d}     { allow read, create, update: if isAdmin() || isAccountant(); allow delete: if isAdmin(); }
+    match /bk_rules/{d}     { allow read, write: if isAdmin() || isAccountant(); }
+    match /hermes_chats/{d} { allow read: if isAdmin() || (isAccountant() && resource.data.uid == request.auth.uid);
+                              allow create, update: if isAdmin() || (isAccountant() && request.resource.data.uid == request.auth.uid); allow delete: if isAdmin(); }
+    match /assistant_usage/{d} { allow read: if isAdmin(); }
 
     // ── Μόνο admin (ευαίσθητα: οικονομικά, remote, εκλογικές επαφές) ──
     match /claude_remote_messages/{d} { allow read, write: if isAdmin(); }

@@ -472,7 +472,7 @@ function NotesTab({ who, isAdmin, q, expById }) {
         {!notes ? <p className="text-sm text-gray-500 animate-pulse">Φόρτωση…</p> : !rows.length ? <Empty>Δεν υπάρχουν {filter === 'open' ? 'ανοιχτά ' : ''}αιτήματα.</Empty> : rows.map(x => (
           <div key={x.id} className={`bg-white border rounded-xl p-3 mb-2 ${x.status === 'done' ? 'border-gray-200 opacity-80' : 'border-amber-200'}`}>
             <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 mb-1">
-              <span className={`px-2 py-0.5 rounded-full ${x.type === 'request' ? 'bg-amber-100 text-amber-900' : 'bg-gray-100 text-gray-700'}`}>{x.type === 'request' ? 'Αίτημα' : 'Σημείωση'}</span>
+              <span className={`px-2 py-0.5 rounded-full ${x.type === 'owner_ask' ? 'bg-red-100 text-red-900' : x.type === 'request' ? 'bg-amber-100 text-amber-900' : 'bg-gray-100 text-gray-700'}`}>{x.type === 'owner_ask' ? 'Ερώτηση στον Θεράπωνα' : x.type === 'request' ? 'Αίτημα' : 'Σημείωση'}</span>
               <span>{x.name || x.email}</span><span>· {x.atIso ? new Date(x.atIso).toLocaleString('el-GR', { dateStyle: 'short', timeStyle: 'short' }) : ''}</span>
               {x.status === 'done' && <span className="text-emerald-800">· ✓ ολοκληρώθηκε</span>}
             </div>

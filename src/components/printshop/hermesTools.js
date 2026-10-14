@@ -4,6 +4,8 @@ import { loadExpenses, loadBank, accountOf, accountLabel, txKind, KIND_LABEL, li
   addNote, loadNotes, updateExpense, saveRule } from './booksData'
 import { vatSummary } from './printViews'
 import { emit } from './bridge'
+import { auth } from '../../firebase/config'
+const WORKER = import.meta.env.VITE_WORKER_URL || ''
 import { logChange } from '../bookkeeping/changeLog'
 import { CATEGORIES, LOCATIONS, PAYMENT_METHODS } from '../bookkeeping/ExpenseModal'
 
@@ -146,6 +148,28 @@ export async function runTool(name, input = {}, ctx = {}) {
       const e = all.find(x => x.id === input.document_id)
       await addNote({ who: ctx.who, type: 'request', text: input.text, targetType: e ? 'expense' : '', targetId: e?.id || '', targetLabel: e ? `${e.vendor} ${e.invoiceNumber || ''} ${e.date}` : '' })
       return { result: { created: true }, attach: { type: 'note', text: input.text } }
+    }
+    case 'ask_therapon': {
+      const all = input.document_id ? await loadExpenses() : []
+      const e = all.find(x => x.id === input.document_id)
+      const label = e ? `${e.vendor} ${e.invoiceNumber || ''} ${e.date}` : ''
+      const text = input.text + (label ? `
+(Αφορά: ${label})` : '')
+      // 1) καταγραφή στα αιτήματα (εδώ θα φανεί και η απάντηση) 2) ειδοποίηση SMS/email μέσω worker
+      const ref = await addNote({ who: ctx.who, type: 'owner_ask', text, targetType: e ? 'expense' : '', targetId: e?.id || '', targetLabel: label })
+      let sent = false, err = ''
+      try {
+        const token = await auth.currentUser.getIdToken()
+        const r = await fetch(`${WORKER}/notify-owner`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ channel: input.channel, subject: input.subject || '', text: text + `
+
+#${ref.id.slice(-6)}`, from: ctx.who?.name || ctx.who?.email || '' }) })
+        const j = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(j.error || `Σφάλμα ${r.status}`)
+        sent = true
+      } catch (x) { err = x.message }
+      return { result: sent ? { sent: true, channel: input.channel, note: 'Ο Θεράπων θα απαντήσει μέσω Claude Code· η απάντηση θα φανεί στα αιτήματα.' } : { sent: false, error: err, note: 'Το αίτημα γράφτηκε στα αιτήματα αλλά η ειδοποίηση απέτυχε.' },
+        attach: { type: 'ask', channel: input.channel, text: input.text, sent, err } }
     }
     case 'list_requests': {
       const notes = await loadNotes()
