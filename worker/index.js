@@ -210,6 +210,11 @@ export default {
       if (url.pathname === '/delete-user' && request.method === 'POST') {
         return await deleteUserAccount(request, env, json)
       }
+      // Ερμογένης — βοηθός λογιστηρίου (admin + accountant). Τα εργαλεία τρέχουν στον browser.
+      if (url.pathname === '/assistant' && request.method === 'POST') {
+        if (origin !== ALLOWED_ORIGIN) return json({ error: 'Forbidden' }, 403)
+        return await assistantTurn(request, env, json)
+      }
       return json({ error: 'Not found' }, 404)
     } catch (e) {
       console.error('Worker error:', e)
@@ -1756,4 +1761,142 @@ async function getFirebaseToken(env) {
 
   const { access_token } = await tokenRes.json()
   return access_token
+}
+
+
+// ─── /assistant — Ερμογένης (βοηθός λογιστηρίου) ───────────────────────────────
+// Ο worker κρατά ΜΟΝΟ το κλειδί και τον έλεγχο πρόσβασης· τα εργαλεία (αναζήτηση, πακέτα PDF/ZIP,
+// αλλαγές με επιβεβαίωση) εκτελούνται στον browser πάνω στα δεδομένα που έχει ήδη φορτώσει.
+const ASSISTANT_MODEL = 'claude-sonnet-5-5'
+const ASSISTANT_DAILY_LIMIT = 250   // κλήσεις μοντέλου / χρήστη / μέρα
+
+async function requireBooksCaller(request, env) {
+  const authHeader = request.headers.get('Authorization') || ''
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
+  if (!idToken) throw Object.assign(new Error('Unauthorized'), { status: 401 })
+  const payload = await verifyFirebaseToken(idToken, env.FIREBASE_PROJECT_ID)
+  const uid = payload.user_id || payload.sub
+  const token = await getFirebaseToken(env)
+  const project = env.FIREBASE_PROJECT_ID
+  const r = await fetch(`https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/users/${uid}`,
+    { headers: { Authorization: `Bearer ${token}` } })
+  if (!r.ok) throw Object.assign(new Error('Profile not found'), { status: 403 })
+  const f = (await r.json()).fields || {}
+  const role = f.role?.stringValue
+  if (role !== 'admin' && role !== 'accountant') throw Object.assign(new Error('Forbidden'), { status: 403 })
+  return { uid, role, token, project }
+}
+
+async function bumpAssistantUsage(uid, token, project) {
+  const day = new Date().toISOString().slice(0, 10)
+  const name = `projects/${project}/databases/(default)/documents/assistant_usage/${uid}_${day}`
+  const r = await fetch(`https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents:commit`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ writes: [{ transform: { document: name, fieldTransforms: [{ fieldPath: 'count', increment: { integerValue: '1' } }] } }] }),
+  })
+  if (!r.ok) return 0
+  const j = await r.json()
+  return Number(j.writeResults?.[0]?.transformResults?.[0]?.integerValue || 0)
+}
+
+const HERMES_SYSTEM = `Είσαι ο Ερμογένης, ο βοηθός λογιστηρίου της DERMLUX LASER & AESTHETICS LTD (αλυσίδα κλινικών αισθητικής στην Κύπρο: Πάφος, Λεμεσός Laser, Λεμεσός Gold, Λευκωσία, Λάρνακα). Δουλεύεις μέσα στην εφαρμογή «Λογιστικά» και μιλάς με το λογιστήριο (συνήθως τη Μελίνα από το γραφείο του λογιστή) ή με τον ιδιοκτήτη, τον Θεράπωνα.
+
+ΥΦΟΣ
+- Ελληνικά, ζεστά και συναδελφικά, σαν καλός συνάδελφος στο ίδιο γραφείο. Προσφώνησε τον χρήστη με το μικρό του όνομα (θα το βρεις στο <context>). Χωρίς υπερβολές και χωρίς πολλά emoji (το πολύ ένα όπου ταιριάζει).
+- Σύντομα και ξεκάθαρα. Ποσά ως €1.234,56, ημερομηνίες ως 14/10/2026. Πίνακες markdown μόνο όταν βοηθούν (λίγες στήλες).
+- Λαμβάνεις υπόψη τι βλέπει ο χρήστης (σελίδα, καρτέλα, περίοδος, αναζήτηση στο <context>) και προτείνεις το επόμενο χρήσιμο βήμα όταν ταιριάζει. Όπου ταιριάζει, θύμιζε «αν χρειαστείς οτιδήποτε, πες μου και θα το κανονίσω».
+
+ΠΩΣ ΔΟΥΛΕΥΕΙΣ
+- Μην μαντεύεις αριθμούς ή τιμολόγια: χρησιμοποίησε τα εργαλεία. Μπορείς να καλέσεις πολλά εργαλεία στη σειρά ή παράλληλα.
+- Όποτε ο χρήστης θέλει να δει ή να κατεβάσει παραστατικά, ΒΑΛ' ΤΑ ΣΤΟ CHAT: show_documents για συγκεκριμένα τιμολόγια (εμφανίζονται κάρτες με Προβολή / Λήψη / Εκτύπωση), prepare_bundle για πολλά μαζί (ένα PDF, ZIP με τα πρωτότυπα, Excel ή εκτύπωση). Μετά πες σύντομα τι έβαλες.
+- Για την τράπεζα: search_bank. Για καρτέλα προμηθευτή: supplier_ledger. Για σύνοψη/ΦΠΑ περιόδου: period_summary.
+- ΑΛΛΑΓΕΣ: ο χρήστης έχει δικαίωμα να διορθώνει. Όταν ζητήσει αλλαγή (σε ένα ή πολλά τιμολόγια, π.χ. «τα TikTok ads δεν έχουν ΦΠΑ λόγω αντίστροφης χρέωσης»), χρησιμοποίησε update_documents με σαφή λόγο. Η αλλαγή ΔΕΝ γίνεται αμέσως: εμφανίζεται κάρτα επιβεβαίωσης στο chat και εφαρμόζεται μόνο όταν ο χρήστης πατήσει «Επιβεβαίωση». Αν ο χρήστης λέει ότι ισχύει γενικά (και για τα μελλοντικά), βάλε save_rule ώστε να αποθηκευτεί κανόνας. Κάθε αλλαγή καταγράφεται αυτόματα στο ιστορικό. Ποτέ δεν διαγράφεις παραστατικά ή κινήσεις.
+- Για αντίστροφη χρέωση / μηδενικό ΦΠΑ συνήθως: vat=0, vatRate=0, net="=total", reverseCharge=true (επιβεβαίωσε με τον χρήστη αν δεν είναι σαφές).
+- Αν κάτι χρειάζεται τον Θεράπωνα (λείπει τιμολόγιο, θέλει απόφαση, ερώτηση για πληρωμή), φτιάξε αίτημα με create_request και πες ότι το κανόνισες και το πέρασες στον Θεράπωνα. Δεν στέλνεις ποτέ email ή μηνύματα σε τρίτους.
+- Αν δεν βρίσκεις κάτι, πες το ειλικρινά και πρότεινε πώς θα το βρούμε.
+- Ο χρήστης ΔΕΝ ξέρει από τεχνολογία ή AI: μην αναφέρεις «εργαλεία», «μοντέλο», «δεδομένα», ονόματα πεδίων ή κωδικούς. Μίλα για «τιμολόγια», «πληρωμές», «καρτέλα», «PDF». Όταν κάτι θέλει επιλογή, δώσε 2-3 απλές επιλογές. Αν η ερώτηση είναι ασαφής, κάνε ΜΙΑ σύντομη διευκρινιστική ερώτηση, όχι λίστα ερωτήσεων.
+- Στο τέλος κάθε απάντησης με αποτέλεσμα, πες σε μία γραμμή τι μπορεί να κάνει μετά (π.χ. «Πάτα Κατέβασέ το, ή πες μου αν το θέλεις και σε Excel»).
+- Πρωτόκολλο διευκρινίσεων: αν ο χρήστης σου πει κάτι που ισχύει γενικά για τα βιβλία (π.χ. «οι διαφημίσεις TikTok δεν έχουν ΦΠΑ», «η Grawe είναι ασφάλεια ζωής»), αντιμετώπισέ το ως κανόνα: εφάρμοσέ το στα υπάρχοντα με update_documents + save_rule, ώστε να ισχύει και στα επόμενα. Οι κανόνες που ισχύουν ήδη σου δίνονται στο <context>· μην τους αμφισβητείς, εφάρμοσέ τους.
+
+ΤΙ ΞΕΡΕΙΣ ΓΙΑ ΤΑ ΒΙΒΛΙΑ
+- Λογαριασμοί: Bank of Cyprus κύριος (···1157122), BoC ταμείο (···2264638), Eurobank (···H59895), Revolut Business. Ο ···6275557 είναι της Ιατρικής ΙΕΠΕ — ΑΛΛΗ εταιρεία.
+- Κατηγορίες εξόδων με κωδικούς (π.χ. 6201 ΑΓΟΡΕΣ, 8103 ΕΝΟΙΚΙΑ, 8203 ΔΙΑΦΗΜΙΣΕΙΣ, 8119 ΔΙΑΦΟΡΑ ΕΞΟΔΑ). Καταστήματα: Πάφος, Λευκωσία, Λεμεσός, Λάρνακα, Γενικά.
+- Χωρίς τιμολόγιο εκ των πραγμάτων: μισθοί (μισθολόγιο), Κοινωνικές Ασφαλίσεις (βεβαίωση πληρωμής), ενοίκια (ετικέτα RENT), επενδυτική ασφάλεια GRAWE (πάγια εντολή), εσωτερικές μεταφορές, χρεώσεις τράπεζας.
+- Αποδείξεις Alibaba: δεν είναι φορολογικά τιμολόγια και δεν έχουν ΦΠΑ Κύπρου. Μηχανήματα/έπιπλα έχουν σημείωση «ΠΑΓΙΟ».
+- Ορισμένες παλιές εγγραφές (πηγή Expensify) έχουν μικρές διαφορές ποσού — ο ιδιοκτήτης αποφάσισε να μείνουν ως έχουν.
+- Δεδομένα πελατών (π.χ. ονόματα σε επιστροφές) δεν τα αναφέρεις χωρίς λόγο.`
+
+const FILTER_PROPS = {
+  query: { type: 'string', description: 'Ελεύθερο κείμενο: προμηθευτής, αριθμός, ποσό, σημείωση (οι τόνοι δεν μετράνε)' },
+  vendor: { type: 'string' }, from: { type: 'string', description: 'YYYY-MM-DD' }, to: { type: 'string', description: 'YYYY-MM-DD' },
+  category: { type: 'string' }, location: { type: 'string' }, min_total: { type: 'number' }, max_total: { type: 'number' },
+  missing_file: { type: 'boolean', description: 'μόνο όσα δεν έχουν συνημμένο αρχείο' },
+  unpaid: { type: 'boolean', description: 'μόνο όσα δεν έχουν συνδεδεμένη πληρωμή' },
+}
+
+const HERMES_TOOLS = [
+  { name: 'search_documents', description: 'Αναζήτηση παραστατικών (τιμολόγια/αποδείξεις εξόδων). Επιστρέφει λίστα με id, ημερομηνία, προμηθευτή, αριθμό, ποσά, αν πληρώθηκε και αν έχει αρχείο. Χρησιμοποίησέ το πριν από show_documents/prepare_bundle/update_documents όταν δεν ξέρεις τα id.',
+    input_schema: { type: 'object', properties: { ...FILTER_PROPS, limit: { type: 'integer', description: 'προεπιλογή 25, μέγιστο 200' } } } },
+  { name: 'show_documents', description: 'Βάζει παραστατικά στο chat ως κάρτες με κουμπιά Προβολή / Λήψη / Εκτύπωση. Για έως 30 συγκεκριμένα έγγραφα.',
+    input_schema: { type: 'object', properties: { ids: { type: 'array', items: { type: 'string' } }, title: { type: 'string' } }, required: ['ids'] } },
+  { name: 'prepare_bundle', description: 'Ετοιμάζει πακέτο πολλών παραστατικών στο chat με κουμπί λήψης. format: pdf = όλα σε ΕΝΑ PDF, zip = τα πρωτότυπα αρχεία + ευρετήριο Excel, excel = λίστα, print = εκτύπωση με τις αποδείξεις. Δώσε ids ή filter.',
+    input_schema: { type: 'object', properties: {
+      ids: { type: 'array', items: { type: 'string' } }, filter: { type: 'object', properties: FILTER_PROPS },
+      format: { type: 'string', enum: ['pdf', 'zip', 'excel', 'print'] }, title: { type: 'string' } }, required: ['format'] } },
+  { name: 'search_bank', description: 'Κινήσεις τράπεζας για περίοδο (υποχρεωτικά from/to, έως 6 μήνες). Επιστρέφει ημερομηνία, περιγραφή, ποσό, λογαριασμό και τι τη δικαιολογεί (παραστατικό / μισθοί / ενοίκιο / χωρίς παραστατικό).',
+    input_schema: { type: 'object', properties: {
+      from: { type: 'string' }, to: { type: 'string' }, query: { type: 'string' },
+      account: { type: 'string', enum: ['357041157122', '357542264638', '589-01-H59895-01', 'revolut', '357046275557', 'all'] },
+      direction: { type: 'string', enum: ['out', 'in', 'all'] }, only_missing: { type: 'boolean', description: 'μόνο πληρωμές χωρίς παραστατικό' },
+      show_in_chat: { type: 'boolean', description: 'εμφάνιση πίνακα στο chat' }, limit: { type: 'integer' } }, required: ['from', 'to'] } },
+  { name: 'supplier_ledger', description: 'Καρτέλα προμηθευτή: τιμολόγια, πληρωμές που τα εξοφλούν, σύνολα. Τη βάζει στο chat με κουμπιά εκτύπωσης και λήψης.',
+    input_schema: { type: 'object', properties: { vendor: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' } }, required: ['vendor'] } },
+  { name: 'period_summary', description: 'Σύνοψη περιόδου: σύνολα εξόδων, ΦΠΑ εισροών ανά συντελεστή, ανά κατηγορία, πόσα παραστατικά χωρίς αρχείο ή πληρωμή, και πόσες πληρωμές τράπεζας χωρίς παραστατικό.',
+    input_schema: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' } }, required: ['from', 'to'] } },
+  { name: 'update_documents', description: 'Προτείνει διόρθωση σε ένα ή πολλά παραστατικά. ΔΕΝ εφαρμόζεται αμέσως: εμφανίζει κάρτα επιβεβαίωσης στο chat. Πεδία: vendor, invoiceNumber, date, net, vat, vatRate, total, currency, category, location, paymentMethod, reverseCharge (boolean), notes_append (κείμενο που προστίθεται στις σημειώσεις). Η τιμή "=total" στο net σημαίνει «καθαρό = σύνολο».',
+    input_schema: { type: 'object', properties: {
+      ids: { type: 'array', items: { type: 'string' } }, filter: { type: 'object', properties: FILTER_PROPS },
+      set: { type: 'object', description: 'πεδίο → νέα τιμή' }, reason: { type: 'string', description: 'γιατί γίνεται η αλλαγή (καταγράφεται)' },
+      save_rule: { type: 'object', description: 'αν ισχύει και για τα επόμενα τιμολόγια', properties: { vendor_match: { type: 'string' } } } }, required: ['set', 'reason'] } },
+  { name: 'create_request', description: 'Δημιουργεί αίτημα ή ερώτηση προς τον Θεράπωνα (εμφανίζεται στα αιτήματα του Print Shop). Για ό,τι χρειάζεται απόφαση ή κάτι που λείπει.',
+    input_schema: { type: 'object', properties: { text: { type: 'string' }, document_id: { type: 'string' } }, required: ['text'] } },
+  { name: 'list_requests', description: 'Τα αιτήματα και οι σημειώσεις του λογιστηρίου (ανοιχτά ή κλειστά) με τις απαντήσεις.',
+    input_schema: { type: 'object', properties: { status: { type: 'string', enum: ['open', 'done', 'all'] } } } },
+  { name: 'open_print_shop', description: 'Ανοίγει το Print Shop σε συγκεκριμένη καρτέλα με αναζήτηση ή περίοδο, για να το δει ο χρήστης στην οθόνη.',
+    input_schema: { type: 'object', properties: { tab: { type: 'string', enum: ['docs', 'bank', 'suppliers', 'packs', 'notes', 'changes'] }, query: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' } } } },
+]
+
+async function callClaude(env, body, withFallback) {
+  const headers = { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }
+  if (withFallback) headers['anthropic-beta'] = 'server-side-fallback-2026-07-01'
+  return fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers,
+    body: JSON.stringify(withFallback ? { ...body, fallbacks: 'default' } : body) })
+}
+
+async function assistantTurn(request, env, json) {
+  if (!env.ANTHROPIC_API_KEY) return json({ error: 'AI not configured' }, 503)
+  let caller
+  try { caller = await requireBooksCaller(request, env) }
+  catch (e) { return json({ error: e.message }, e.status || 401) }
+  const { messages } = await request.json().catch(() => ({}))
+  if (!Array.isArray(messages) || !messages.length || messages.length > 160) return json({ error: 'Bad messages' }, 400)
+  if (messages[0].role !== 'user' || messages.some(m => m.role !== 'user' && m.role !== 'assistant')) return json({ error: 'Bad roles' }, 400)
+  if (JSON.stringify(messages).length > 900000) return json({ error: 'Η συζήτηση έγινε πολύ μεγάλη — ξεκίνα νέα συζήτηση.' }, 413)
+  const used = await bumpAssistantUsage(caller.uid, caller.token, caller.project)
+  if (used > ASSISTANT_DAILY_LIMIT) return json({ error: 'Έφτασες το ημερήσιο όριο του Ερμογένη. Συνεχίζουμε αύριο.' }, 429)
+
+  const body = {
+    model: ASSISTANT_MODEL, max_tokens: 8000,
+    system: [{ type: 'text', text: HERMES_SYSTEM, cache_control: { type: 'ephemeral' } }],
+    tools: HERMES_TOOLS, messages, output_config: { effort: 'medium' },
+  }
+  let r = await callClaude(env, body, true)
+  if (r.status === 400) {
+    const t = await r.text()
+    if (/fallback|beta/i.test(t)) r = await callClaude(env, body, false)
+    else return json({ error: 'Σφάλμα αιτήματος προς το μοντέλο', detail: t.slice(0, 400) }, 400)
+  }
+  if (!r.ok) return json({ error: `Το μοντέλο δεν απάντησε (${r.status})`, detail: (await r.text()).slice(0, 400) }, 502)
+  const out = await r.json()
+  return json({ content: out.content, stop_reason: out.stop_reason, stop_details: out.stop_details || null, usage: out.usage, model: out.model, used })
 }

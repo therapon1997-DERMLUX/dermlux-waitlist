@@ -5,6 +5,9 @@ import {
   query, where, getDocs, limit,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
+import DocViewer from '../printshop/DocViewer'
+import { downloadExpense, printExpense } from '../printshop/files'
+import { diffFields, logChange, whoFrom } from './changeLog'
 import { useAuth } from '../../contexts/AuthContext'
 
 export const CATEGORIES = [
@@ -55,7 +58,7 @@ function fileToBase64(file) {
   })
 }
 
-export default function ExpenseModal({ existing, onClose, readOnly = false }) {
+export default function ExpenseModal({ existing, onClose, readOnly = false, canDelete = true }) {
   const { userProfile, currentUser } = useAuth()
   const editing = !!existing
   const [form, setForm]       = useState(existing ? {
@@ -106,28 +109,7 @@ export default function ExpenseModal({ existing, onClose, readOnly = false }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [lightbox, onClose])
 
-  // Fetch the receipt image (authenticated) as a blob URL for inline preview
-  useEffect(() => {
-    if (!fileUrl || !WORKER) { setPreview(''); return }
-    let revoked = false
-    let blobUrl = ''
-    setPreviewState('loading')
-    ;(async () => {
-      try {
-        const idToken = await currentUser.getIdToken()
-        const res = await fetch(fileUrl, { headers: { Authorization: `Bearer ${idToken}` } })
-        if (!res.ok) throw new Error('load failed')
-        const blob = await res.blob()
-        if (revoked) return
-        blobUrl = URL.createObjectURL(blob)
-        setPreview(blobUrl)
-        setPreviewState('idle')
-      } catch {
-        if (!revoked) setPreviewState('error')
-      }
-    })()
-    return () => { revoked = true; if (blobUrl) URL.revokeObjectURL(blobUrl) }
-  }, [fileUrl, currentUser])
+  // (Η προβολή του αρχείου γίνεται από το DocViewer — αναγνωρίζει PDF και εικόνες.)
 
   // Allow pasting a screenshot (snip) straight into the modal
   useEffect(() => {
@@ -265,6 +247,10 @@ export default function ExpenseModal({ existing, onClose, readOnly = false }) {
     try {
       if (editing) {
         await updateDoc(doc(db, 'expenses', existing.id), payload)
+        // Ιστορικό αλλαγών (για brief): ποιος, πότε, τι ήταν, τι έγινε
+        const changes = diffFields(existing, payload, [...Object.keys(payload).filter(k => k !== 'updatedAt' && k !== 'fileName')])
+        if (changes.length) logChange({ who: whoFrom(currentUser, userProfile), kind: 'expense_update', coll: 'expenses', docId: existing.id,
+          label: `${payload.vendor} ${payload.invoiceNumber || ''} (${payload.date})`.trim(), changes })
         // Learning loop: αν διορθώθηκαν πεδία που είχε διαβάσει το AI, κράτα
         // vendor-specific hint ώστε το /extract-invoice να μην ξανακάνει το ίδιο λάθος.
         if (existing.source && existing.source !== 'manual') {
@@ -282,13 +268,15 @@ export default function ExpenseModal({ existing, onClose, readOnly = false }) {
           }
         }
       } else {
-        await addDoc(collection(db, 'expenses'), {
+        const ref = await addDoc(collection(db, 'expenses'), {
           ...payload,
           status: 'confirmed',
           source: WORKER ? 'ai' : 'manual',
           createdAt: serverTimestamp(),
           createdBy: userProfile?.displayName || '',
         })
+        if (userProfile?.role === 'accountant') logChange({ who: whoFrom(currentUser, userProfile), kind: 'expense_create', coll: 'expenses', docId: ref.id,
+          label: `${payload.vendor} ${payload.invoiceNumber || ''} (${payload.date})`.trim(), changes: [{ field: 'total', before: null, after: payload.total }] })
       }
       onClose()
     } catch (e) {
@@ -298,7 +286,7 @@ export default function ExpenseModal({ existing, onClose, readOnly = false }) {
   }
 
   async function remove() {
-    if (!editing) return
+    if (!editing || !canDelete) return
     if (!confirm('Διαγραφή αυτού του εξόδου;')) return
     setSaving(true)
     try { await deleteDoc(doc(db, 'expenses', existing.id)); onClose() }
@@ -329,30 +317,18 @@ export default function ExpenseModal({ existing, onClose, readOnly = false }) {
 
   // Receipt preview panel — shown on the left when editing an expense that has an image
   const previewPanel = (
-    <div className="shrink-0 md:w-[240px]">
+    <div className="shrink-0 md:w-[320px]">
       <div className="md:sticky md:top-0">
         <span className={label}>Αποδεικτικό</span>
-        {previewState === 'loading' && (
-          <div className="h-44 rounded-lg border border-gray-200 bg-gray-50 grid place-items-center">
-            <div className="w-6 h-6 border-2 border-green-200 border-t-green-600 rounded-full animate-spin" />
-          </div>
-        )}
-        {previewState === 'error' && (
-          <div className="h-44 rounded-lg border border-red-200 bg-red-50 grid place-items-center text-center px-3">
-            <span className="text-xs text-red-500">Αδυναμία φόρτωσης εικόνας</span>
-          </div>
-        )}
-        {previewState === 'idle' && preview && (
+        <DocViewer fileUrl={fileUrl} fileName={fileName} height={340} />
+        <div className="flex gap-1.5 mt-1.5">
           <button type="button" onClick={() => setLightbox(true)}
-            className="group relative block w-full rounded-lg border border-gray-200 overflow-hidden hover:border-green-400 transition-colors">
-            <img src={preview} alt="Αποδεικτικό" className="w-full max-h-[300px] object-contain bg-gray-50" />
-            <span className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors grid place-items-center">
-              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-white text-xs font-medium bg-black/60 px-3 py-1.5 rounded-full">
-                🔍 Μεγέθυνση
-              </span>
-            </span>
-          </button>
-        )}
+            className="flex-1 text-xs border border-gray-200 rounded-md py-1 hover:border-green-400 hover:text-green-700">🔍 Μεγέθυνση</button>
+          <button type="button" onClick={() => downloadExpense({ ...existing, fileUrl, fileName }).catch(e => setError(e.message))}
+            className="flex-1 text-xs border border-gray-200 rounded-md py-1 hover:border-green-400 hover:text-green-700">⬇ Λήψη</button>
+          <button type="button" onClick={() => printExpense({ ...existing, fileUrl, fileName }).catch(e => setError(e.message))}
+            className="flex-1 text-xs border border-gray-200 rounded-md py-1 hover:border-green-400 hover:text-green-700">🖨 Εκτύπωση</button>
+        </div>
         {fileName && <p className="text-[11px] text-gray-400 mt-1 truncate" title={fileName}>{fileName}</p>}
         {Array.isArray(existing?.extraFiles) && existing.extraFiles.length > 0 && (
           <div className="mt-2">
@@ -596,7 +572,7 @@ export default function ExpenseModal({ existing, onClose, readOnly = false }) {
         )}
         {stage === 'form' && !readOnly && (
           <div className="flex gap-3 px-6 py-4 border-t bg-white rounded-b-xl shrink-0">
-            {editing && (
+            {editing && canDelete && (
               <button type="button" onClick={remove} disabled={saving}
                 className="px-4 border border-red-300 text-red-600 py-2 rounded-lg text-sm hover:bg-red-50 transition-colors">
                 Διαγραφή
@@ -617,14 +593,14 @@ export default function ExpenseModal({ existing, onClose, readOnly = false }) {
       </div>
 
       {/* Full-screen receipt viewer */}
-      {lightbox && preview && (
+      {lightbox && fileUrl && (
         <div className="fixed inset-0 z-[60] bg-black/85 flex items-center justify-center p-4"
           onClick={() => setLightbox(false)}>
           <button onClick={() => setLightbox(false)}
             className="absolute top-4 right-5 text-white/80 hover:text-white text-4xl leading-none">×</button>
-          <img src={preview} alt="Αποδεικτικό"
-            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-            onClick={e => e.stopPropagation()} />
+          <div className="w-full max-w-5xl" onClick={e => e.stopPropagation()}>
+            <DocViewer fileUrl={fileUrl} fileName={fileName} height={Math.round(window.innerHeight * 0.88)} className="bg-white" />
+          </div>
         </div>
       )}
     </div>,

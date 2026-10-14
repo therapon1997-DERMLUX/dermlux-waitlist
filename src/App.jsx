@@ -27,6 +27,9 @@ const StavriView      = lazy(() => import('./components/StavriView'))
 const ClaudePinGate   = lazy(() => import('./components/claude/ClaudePinGate'))
 const UnsubscribePage = lazy(() => import('./components/email/UnsubscribePage'))
 const Eshop           = lazy(() => import('./components/eshop/Eshop'))
+const PrintShop       = lazy(() => import('./components/printshop/PrintShop'))
+const PreviewHost     = lazy(() => import('./components/printshop/DocPreview'))
+const Hermes          = lazy(() => import('./components/printshop/Hermes'))
 
 function PageLoader() {
   return (
@@ -52,7 +55,7 @@ function AdminRoute({ children }) {
   return children
 }
 
-// Λογιστικά: admin πλήρη, λογιστής read-only
+// Λογιστικά: admin πλήρη, λογιστής διορθώνει (κάθε αλλαγή καταγράφεται) — όχι διαγραφή
 function BooksRoute({ children }) {
   const { currentUser, isAdmin, isAccountant } = useAuth()
   if (!currentUser) return <Navigate to="/login" replace />
@@ -102,6 +105,7 @@ export default function App() {
               <Route path="/medical/:id" element={<ProtectedRoute><PatientProfile /></ProtectedRoute>} />
               <Route path="/bookkeeping" element={<BooksRoute><Bookkeeping /></BooksRoute>} />
               <Route path="/banks" element={<BooksRoute><BankTransactions /></BooksRoute>} />
+              <Route path="/print-shop" element={<BooksRoute><PrintShop /></BooksRoute>} />
               <Route path="/upload" element={<UploadRoute><ExpenseUpload /></UploadRoute>} />
               <Route path="/import-expensify" element={<AdminRoute><ImportExpensify /></AdminRoute>} />
               <Route path="/claude" element={<AdminRoute><ClaudePinGate><ClaudeRemote /></ClaudePinGate></AdminRoute>} />
@@ -114,6 +118,10 @@ export default function App() {
           </Suspense>
         </ErrorBoundary>
       </main>
+      {/* Print Shop: προβολή παραστατικών από οπουδήποτε + Ερμογένης (λογιστής/admin, παντού) */}
+      {currentUser && !isPublicPage && (
+        <Suspense fallback={null}><PreviewHost /><Hermes /></Suspense>
+      )}
     </div>
   )
 }

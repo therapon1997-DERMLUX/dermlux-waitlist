@@ -44,6 +44,7 @@ export default function Navbar() {
             {isAdmin && <Link to="/email" className={linkClass('/email')}>Email</Link>}
             {(isAdmin || isAccountant) && <Link to="/bookkeeping" className={linkClass('/bookkeeping')}>Λογιστικά</Link>}
             {(isAdmin || isAccountant) && <Link to="/banks" className={linkClass('/banks')}>Τράπεζες</Link>}
+            {(isAdmin || isAccountant) && <Link to="/print-shop" className={linkClass('/print-shop')}>Print Shop</Link>}
             {(isAdmin || isExpenses) && <Link to="/upload" className={linkClass('/upload')}>Αποδείξεις</Link>}
             {isAdmin && <Link to="/claude" className={linkClass('/claude')}>Claude</Link>}
             {isAdmin && <Link to="/stavri" className={linkClass('/stavri')}>Σταύρη Μεταξά</Link>}
@@ -95,6 +96,7 @@ export default function Navbar() {
           {isAdmin && <Link to="/email" className={mobileLinkClass('/email')}>📧 Email</Link>}
           {(isAdmin || isAccountant) && <Link to="/bookkeeping" className={mobileLinkClass('/bookkeeping')}>📒 Λογιστικά</Link>}
           {(isAdmin || isAccountant) && <Link to="/banks" className={mobileLinkClass('/banks')}>🏦 Τράπεζες</Link>}
+          {(isAdmin || isAccountant) && <Link to="/print-shop" className={mobileLinkClass('/print-shop')}>🖨 Print Shop</Link>}
           {(isAdmin || isExpenses) && <Link to="/upload" className={mobileLinkClass('/upload')}>🧾 Αποδείξεις</Link>}
           {isAdmin && <Link to="/claude" className={mobileLinkClass('/claude')}>💻 Claude</Link>}
           {isAdmin && <Link to="/stavri" className={mobileLinkClass('/stavri')}>👩‍💻 Σταύρη Μεταξά</Link>}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { collection, query, where, orderBy, getDocs, doc, getDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
+import { matchTx } from '../printshop/booksData'
 import { BANK_STYLE } from './BankChip'
 
 // «Τράπεζες» — έλεγχος όπως τον κάνει ο λογιστής: κάθε λογαριασμός ξεχωριστά,
@@ -120,6 +121,7 @@ export default function BankTransactions() {
   const [expCache, setExpCache] = useState({})
   const [shown, setShown] = useState(150)   // σταδιακό rendering — δεν κολλάει το scroll
   const [cashExpenses, setCashExpenses] = useState(null)  // lazy: έξοδα μετρητών (ταμείο)
+  const [search, setSearch] = useState('')   // αναζήτηση στις κινήσεις της περιόδου
 
   // Cash view: τα έξοδα με πληρωμή «Μετρητά» δεν περνούν από καμία τράπεζα —
   // φορτώνονται από τα expenses (μία φορά) και φιλτράρονται ανά περίοδο client-side
@@ -178,16 +180,17 @@ export default function BankTransactions() {
   const scoped = useMemo(() => txns.filter(inAccount), [txns, account]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = useMemo(() => scoped.filter(t => {
+    if (search.trim() && !matchTx(t, search)) return false
     const j = justification(t)
     if (view === 'pending')  return t.debit && !j
     if (view === 'income')   return !!t.credit
     if (view === 'salaries') return t.tag === 'Μισθοί'
     if (view === 'matched')  return matchedIds(t).length > 0
     return true
-  }), [scoped, view])
+  }), [scoped, view, search])
 
   // Νέα φίλτρα/περίοδος → ξεκίνα πάλι από τις πρώτες 150 γραμμές
-  useEffect(() => { setShown(150) }, [view, account, year, month, quarter, period])
+  useEffect(() => { setShown(150) }, [view, account, year, month, quarter, period, search])
 
   // Metrics — έσοδα ΧΩΡΙΣ εσωτερικές μεταφορές (αλλιώς διπλομετριούνται)
   const M = useMemo(() => {
@@ -238,9 +241,15 @@ export default function BankTransactions() {
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <div>
+        <div className="flex-1 min-w-[260px]">
           <h1 className="text-2xl font-bold text-gray-800">Τράπεζες</h1>
           <p className="text-sm text-gray-500 mt-0.5">Κάθε λογαριασμός ξεχωριστά — κάθε γραμμή πρέπει να δικαιολογείται</p>
+          <div className="relative mt-2 max-w-xl">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" aria-hidden>⌕</span>
+            <input id="bank-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Αναζήτηση στις κινήσεις: περιγραφή, ποσό, προμηθευτής…"
+              className="w-full pl-9 pr-20 py-2 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-600" />
+            {search && <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-gray-800">Καθαρισμός</button>}
+          </div>
         </div>
         <div className="flex gap-2 items-center flex-wrap">
           <div className="flex rounded-lg border border-gray-200 overflow-hidden">

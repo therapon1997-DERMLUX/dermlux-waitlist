@@ -4,21 +4,21 @@ import { CATEGORIES, LOCATIONS } from './ExpenseModal'
 
 const WORKER = import.meta.env.VITE_WORKER_URL || ''
 
-const eur = n => '€' + (Number(n) || 0).toLocaleString('el-CY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const fmtDate = d => {
+export const eur = n => '€' + (Number(n) || 0).toLocaleString('el-CY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+export const fmtDate = d => {
   if (!d) return '—'
   const [y, m, day] = d.split('-')
   const months = ['Ιαν','Φεβ','Μαρ','Απρ','Μαΐ','Ιουν','Ιουλ','Αυγ','Σεπ','Οκτ','Νοε','Δεκ']
   return `${parseInt(day)} ${months[parseInt(m) - 1]} ${y}`
 }
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
 // Payment banner HTML for a receipt page — only when we are CONFIDENT where it
 // was paid from. If unsure, returns '' (blank), per the user's rule.
 // Order of confidence: matched bank transaction → cash/ταμείο → stated account →
 // personal card note. Installments: if an `installments` array ever exists, list
 // each date/amount; currently the data stores a single matched transaction.
-function paymentBanner(e) {
+export function paymentBanner(e) {
   const inst = Array.isArray(e.installments) ? e.installments.filter(x => x && (x.date || x.amount != null)) : []
   if (inst.length) {
     const rows = inst.map(x => `${fmtDate(x.date)}${x.amount != null ? ` · ${eur(x.amount)}` : ''}${x.bank ? ` · ${esc(x.bank)}` : ''}`).join(' &nbsp;|&nbsp; ')
@@ -70,7 +70,7 @@ async function pdfToImages(arrayBuffer) {
 
 // Fetch a receipt file (image or PDF) and return an array of image data-URLs.
 // PDFs are rasterised page-by-page; images return a single-element array.
-async function fetchReceiptImages(fileUrl) {
+export async function fetchReceiptImages(fileUrl) {
   if (!fileUrl) return []
   try {
     const token = await getAuth().currentUser?.getIdToken()
@@ -95,7 +95,7 @@ async function fetchReceiptImages(fileUrl) {
   }
 }
 
-function buildPrintHtml({ expenses, dateFrom, dateTo, cats, loc, receiptMap }) {
+export function buildPrintHtml({ expenses, dateFrom, dateTo, cats, loc, receiptMap }) {
   const totals = { total: 0, vat: 0, net: 0 }
   const byCat = {}
   for (const e of expenses) {

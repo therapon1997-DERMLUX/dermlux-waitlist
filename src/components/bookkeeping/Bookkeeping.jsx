@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { collection, onSnapshot, query, orderBy, doc, updateDoc } from 'firebase/firestore'
+import { logChange, whoFrom } from './changeLog'
+import { matchExpense } from '../printshop/booksData'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../contexts/AuthContext'
 import { normVendor, findExactDupGroups, mergeGroup } from './mergeDups'
@@ -37,8 +39,10 @@ const catName = c => {
 }
 
 export default function Bookkeeping() {
-  const { isAccountant } = useAuth()
-  const readOnly = isAccountant
+  const { isAccountant, currentUser, userProfile } = useAuth()
+  // 14/10/2026: ο λογιστής ΔΙΟΡΘΩΝΕΙ (όχι διαγραφή) — κάθε αλλαγή στο bk_changes
+  const readOnly = false
+  const adminTools = !isAccountant   // αυτόματη συγχώνευση διπλών μόνο για admin
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading]   = useState(true)
   const [modal, setModal]       = useState(null)
@@ -48,6 +52,7 @@ export default function Bookkeeping() {
   const [loc, setLoc]           = useState('')
   const [onlyNeeds, setOnlyNeeds] = useState(false)
   const [showDups, setShowDups]   = useState(false)
+  const [search, setSearch]       = useState('')   // αναζήτηση παντού (αγνοεί έτος/μήνα όταν γράφεις)
   const [autoMerged, setAutoMerged] = useState(0)
   const mergedOnce = useRef(new Set())
   const [viewMode, setViewMode]   = useState('invoice')   // 'invoice' | 'merchant'
@@ -58,7 +63,12 @@ export default function Bookkeeping() {
   async function changeCategory(id, newCat) {
     if (readOnly) return
     setSavingCat(id)
-    try { await updateDoc(doc(db, 'expenses', id), { category: newCat }) }
+    const before = expenses.find(x => x.id === id)
+    try {
+      await updateDoc(doc(db, 'expenses', id), { category: newCat })
+      if (before && before.category !== newCat) logChange({ who: whoFrom(currentUser, userProfile), kind: 'expense_update', coll: 'expenses', docId: id,
+        label: `${before.vendor || ''} ${before.invoiceNumber || ''} (${before.date || ''})`.trim(), changes: [{ field: 'category', before: before.category || null, after: newCat }] })
+    }
     catch (e) { console.error('recategorise failed', e) }
     finally { setSavingCat(null) }
   }
@@ -90,13 +100,16 @@ export default function Bookkeeping() {
   const filtered = useMemo(() => expenses.filter(e => {
     const y = (e.date || '').slice(0, 4)
     const m = parseInt((e.date || '').slice(5, 7), 10)
-    if (selYears.length  && !selYears.includes(y))  return false
-    if (selMonths.length && !selMonths.includes(m)) return false
+    if (search.trim()) { if (!matchExpense(e, search)) return false }
+    else {
+      if (selYears.length  && !selYears.includes(y))  return false
+      if (selMonths.length && !selMonths.includes(m)) return false
+    }
     if (cat && e.category !== cat) return false
     if (loc && e.location !== loc) return false
     if (onlyNeeds && missingFields(e).length === 0) return false
     return true
-  }), [expenses, selYears, selMonths, cat, loc, onlyNeeds])
+  }), [expenses, selYears, selMonths, cat, loc, onlyNeeds, search])
 
   // How many of the currently date/cat/loc-filtered expenses still need action
   const needsCount = useMemo(() => expenses.filter(e => {
@@ -138,7 +151,7 @@ export default function Bookkeeping() {
   // ΣΙΓΟΥΡΑ διπλά (ίδιος vendor + αρ. τιμολογίου + ποσό) συγχωνεύονται ΑΥΤΟΜΑΤΑ
   // χωρίς ερώτηση (κανόνας Θεράπωνα 10/07) — μόλις φορτώσουν τα Λογιστικά.
   useEffect(() => {
-    if (readOnly || loading) return
+    if (!adminTools || loading) return
     const groups = findExactDupGroups(expenses)
       .filter(g => !mergedOnce.current.has(g.map(e => e.id).sort().join('+')))
     if (!groups.length) return
@@ -151,7 +164,7 @@ export default function Bookkeeping() {
       }
       if (n) setAutoMerged(m => m + n)
     })()
-  }, [expenses, readOnly, loading])
+  }, [expenses, adminTools, loading])
 
   // ΑΜΦΙΒΟΛΑ διπλά — αυτά ΔΕΝ συγχωνεύονται μόνα τους, αποφασίζει ο χρήστης:
   // (α) ίδιος προμηθευτής + ίδιος αρ. τιμολογίου αλλά ΔΙΑΦΟΡΕΤΙΚΟ ποσό
@@ -233,8 +246,16 @@ export default function Bookkeeping() {
         </div>
       </div>
 
+      {/* Αναζήτηση παντού: προμηθευτής, αρ. τιμολογίου, ποσό, σημείωση — αγνοεί έτος/μήνα όταν γράφεις */}
+      <div className="relative mb-4">
+        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" aria-hidden>⌕</span>
+        <input id="bk-search" value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Αναζήτηση σε όλα τα παραστατικά: προμηθευτής, αριθμός, ποσό (π.χ. 1240,76), σημείωση…"
+          className="w-full pl-10 pr-24 py-2.5 rounded-xl border border-gray-200 bg-white shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-green-600" />
+        {search && <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-gray-800">Καθαρισμός</button>}
+      </div>
       {/* Filters — year & month pills, multi-select */}
-      <div className="mb-5 space-y-2.5">
+      <div className={`mb-5 space-y-2.5 ${search.trim() ? 'opacity-40 pointer-events-none' : ''}`}>
         <div className="flex gap-1.5 flex-wrap items-center">
           <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wide w-12 shrink-0">Έτος</span>
           {years.map(y => (
@@ -563,6 +584,7 @@ export default function Bookkeeping() {
         <ExpenseModal
           existing={modal === 'new' ? null : modal}
           readOnly={readOnly}
+          canDelete={!isAccountant}
           onClose={() => setModal(null)}
         />
       )}
