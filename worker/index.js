@@ -198,6 +198,13 @@ export default {
       if (url.pathname === '/upload-invoice-file' && request.method === 'POST') {
         return await uploadInvoiceFile(request, env, json)
       }
+      // Google Ads offline conversions (15/10/2026): το Google Ads scheduled upload δέχεται μόνο URL που
+      // τελειώνει σε .csv, ενώ η Base44 function δεν μπορεί να έχει επέκταση. Αυτή η διεύθυνση απλώς
+      // προωθεί το αίτημα (μαζί με το Basic auth του Google και το query) στο googleOfflineConversions
+      // του Base44 — κανένα μυστικό δεν αποθηκεύεται εδώ· ο έλεγχος κωδικού γίνεται στο Base44.
+      if (url.pathname === '/google-oci/conversions.csv' && request.method === 'GET') {
+        return await googleOciBridge(request, url)
+      }
       // Serve invoice image from R2 (authenticated user)
       if (url.pathname.startsWith('/invoices/') && request.method === 'GET') {
         return await serveInvoiceImage(request, env, url, origin)
@@ -1961,4 +1968,26 @@ async function notifyOwner(request, env, json) {
     const id = await sendOwnerEmail(env, `[Ερμογένης] ${subject || 'Ερώτηση από το λογιστήριο'}`, `Από: ${who}\n\n${text}`)
     return json({ ok: true, channel, id })
   } catch (e) { return json({ error: e.message }, 502) }
+}
+
+// ── Google Ads offline conversions bridge ───────────────────────────────────────────────────────
+// GET /google-oci/conversions.csv → Base44 googleOfflineConversions (ίδιο Authorization header, ίδιο query).
+// Το Base44 απαντά 401 χωρίς σωστό Basic auth (password = GOOGLE_OCI_TOKEN), οπότε η διεύθυνση δεν
+// δίνει τίποτα σε όποιον δεν έχει τον κωδικό. Όνομα αρχείου «conversions.csv» για τον έλεγχο του Google.
+async function googleOciBridge(request, url) {
+  const upstream = new URL('https://dermluxclinics.base44.app/api/functions/googleOfflineConversions')
+  upstream.search = url.search
+  const headers = new Headers()
+  const auth = request.headers.get('Authorization')
+  if (auth) headers.set('Authorization', auth)
+  headers.set('Accept', 'text/csv, application/json')
+  const res = await fetch(upstream.toString(), { method: 'GET', headers })
+  const body = await res.arrayBuffer()
+  const out = new Headers()
+  out.set('Content-Type', res.headers.get('Content-Type') || 'text/csv; charset=utf-8')
+  out.set('Cache-Control', 'no-store')
+  out.set('Content-Disposition', 'inline; filename="conversions.csv"')
+  const build = res.headers.get('X-Build'); if (build) out.set('X-Build', build)
+  const www = res.headers.get('WWW-Authenticate'); if (www) out.set('WWW-Authenticate', www)
+  return new Response(body, { status: res.status, headers: out })
 }
