@@ -56,9 +56,13 @@ export async function updateExpense(id, fields) {
   await patchExpense(id, fields)
 }
 
+// Όπως στις Τράπεζες: matchedExpenseIds (JSON) ΚΑΙ/Ή matchedExpenseId — πολλές κινήσεις έχουν μόνο το δεύτερο
 export const linkedIds = t => {
-  try { const a = JSON.parse(t.matchedExpenseIds || '[]'); return Array.isArray(a) ? a : [] }
-  catch { return t.matchedExpenseId ? [t.matchedExpenseId] : [] }
+  let a = []
+  if (Array.isArray(t.matchedExpenseIds)) a = [...t.matchedExpenseIds]
+  else if (t.matchedExpenseIds) { try { const p = JSON.parse(t.matchedExpenseIds); if (Array.isArray(p)) a = p } catch { /* noop */ } }
+  if (t.matchedExpenseId && !a.includes(t.matchedExpenseId)) a.push(t.matchedExpenseId)
+  return a
 }
 
 // Τι δικαιολογεί την κίνηση (όπως το bk_recon)
