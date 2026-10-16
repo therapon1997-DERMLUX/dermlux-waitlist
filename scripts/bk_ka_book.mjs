@@ -50,7 +50,7 @@ console.log('R2 ✅', done)
 
 // 2) backup κινήσεων πριν την αλλαγή
 writeFileSync('C:/Users/User/backups/bk_ka_book_' + Date.now() + '.json', JSON.stringify({
-  tx_before: Object.fromEntries(txIds.map(id => [id, { matchedExpenseId: txNow[id]?.matchedExpenseId ?? null, matchedExpenseIds: txNow[id]?.matchedExpenseIds ?? null, matchMethod: txNow[id]?.matchMethod ?? null, supportingDoc: txNow[id]?.supportingDoc ?? null, supportingDocFile: txNow[id]?.supportingDocFile ?? null }])),
+  tx_before: Object.fromEntries(txIds.map(id => [id, { matchedExpenseId: txNow[id]?.matchedExpenseId ?? null, matchedExpenseIds: txNow[id]?.matchedExpenseIds ?? null, matchMethod: txNow[id]?.matchMethod ?? null, supportingDoc: txNow[id]?.supportingDoc ?? null, supportingDocFile: txNow[id]?.supportingDocFile ?? null, intercompany: txNow[id]?.intercompany ?? null }])),
   link_existing_before: Object.fromEntries(linkEx.map(s => [s.id, Object.fromEntries(['bankTagBank', 'bankTagDate', 'bankTagDesc', 'bankTagAmount', 'bankTagRef'].map(k => [k, s.data()[k] ?? null]))])),
   created: B.map(b => b.id),
 }, null, 1))
@@ -65,15 +65,16 @@ for (const b of B.filter(b => b.tx)) {
   b2.update(db.collection('bank_transactions').doc(b.tx), {
     matchedExpenseIds: JSON.stringify([b.id]), matchedExpenseId: b.id,
     matchMethod: `bk_KA · ${b.data.kaCompany} ${b.data.kaAme} · μήνας ${b.data.kaMonth} · αρ. ${b.data.kaPaymentNumber}`,
-    ...(t.supportingDoc ? {} : { supportingDoc: b.txSupportingDoc, supportingDocFile: b.txSupportingDocFile }),
-    ...(b.data.intercompany ? { intercompany: b.data.intercompany } : {}),
+    // δικαιολογητικό: κρατάμε το υπάρχον, εκτός αν έγραφε λάθος «ΑΛΛΗΣ ΕΤΑΙΡΕΙΑΣ» για πληρωμή από τον λογαριασμό της ίδιας της εταιρείας
+    ...(!t.supportingDoc || (b.own && /ΑΛΛΗΣ ΕΤΑΙΡΕΙΑΣ/.test(t.supportingDoc)) ? { supportingDoc: b.txSupportingDoc, supportingDocFile: b.txSupportingDocFile } : {}),
+    ...(b.data.intercompany ? { intercompany: b.data.intercompany } : t.intercompany ? { intercompany: admin.firestore.FieldValue.delete() } : {}),
   })
 }
-for (const t of PLAN.tx_only) b2.update(db.collection('bank_transactions').doc(t.tx), { supportingDoc: t.supportingDoc, supportingDocFile: t.supportingDocFile, intercompany: 'IEPE', matchMethod: 'bk_KA · λογαριασμός ΙΕΠΕ (άλλη εταιρεία)' })
+for (const t of PLAN.tx_only) b2.update(db.collection('bank_transactions').doc(t.tx), { supportingDoc: t.supportingDoc, supportingDocFile: t.supportingDocFile, matchMethod: 'bk_KA · λογαριασμός χωρίς βιβλία — μόνο δικαιολογητικό' })
 for (const l of PLAN.link_existing) {
   b2.update(db.collection('bank_transactions').doc(l.tx), { matchedExpenseIds: JSON.stringify([l.expense]), matchedExpenseId: l.expense, matchMethod: l.matchMethod || 'bk_KA', ...(l.supportingDoc ? { supportingDoc: l.supportingDoc, supportingDocFile: l.supportingDocFile } : {}) })
   b2.update(db.collection('expenses').doc(l.expense), { bankTagBank: l.bank, bankTagDate: l.date, bankTagDesc: l.desc, bankTagAmount: l.amount, bankTagRef: l.ref })
 }
 await b2.commit()
-console.log('✅ καταχωρήθηκαν', B.length, '· δέθηκαν', B.filter(b => b.tx).length + PLAN.link_existing.length, '· δικαιολογητικό ΙΕΠΕ', PLAN.tx_only.length)
+console.log('✅ καταχωρήθηκαν', B.length, '· δέθηκαν', B.filter(b => b.tx).length + PLAN.link_existing.length, '· μόνο δικαιολογητικό', PLAN.tx_only.length)
 process.exit(0)

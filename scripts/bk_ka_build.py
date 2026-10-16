@@ -14,6 +14,12 @@ OUT = ARG.get('out', r'C:\Users\User\bookkeeping-ka')
 UP = os.path.join(OUT, 'upload')
 os.makedirs(UP, exist_ok=True)
 DERMLUX_ACC = '357041157122'
+# λογαριασμός → σε ποιας εταιρείας τα βιβλία καταχωρείται ό,τι πληρώθηκε από αυτόν (16/10/2026: «το bank account της ιατρικής ΙΕΠΕ … θα τα καταχωρείς και εκείνα σε εκείνο τον λογαριασμό»)
+ACC_BOOKS = {'357041157122': 'DERMLUX', '357046275557': 'IEPE'}
+OWN_ACC = {v: k for k, v in ACC_BOOKS.items()}
+CO_NAME = {'DERMLUX': 'DermLux', 'IEPE': 'Ιατρικής ΙΕΠΕ', 'EUGMED': 'EUGMED'}
+PAY_SRC = {'DERMLUX': 'BoC Κύριος', 'IEPE': 'BoC ΙΕΠΕ'}
+CO_UP = {'DERMLUX': 'DERMLUX', 'IEPE': 'ΙΑΤΡΙΚΗΣ ΙΕΠΕ', 'EUGMED': 'EUGMED'}
 CITY = {'Nicosia': 'Λευκωσία', 'Limassol': 'Λεμεσός', 'Paphos': 'Πάφος', 'Larnaca': 'Λάρνακα'}
 GRM = ['Ιανουαρίου', 'Φεβρουαρίου', 'Μαρτίου', 'Απριλίου', 'Μαΐου', 'Ιουνίου', 'Ιουλίου', 'Αυγούστου',
        'Σεπτεμβρίου', 'Οκτωβρίου', 'Νοεμβρίου', 'Δεκεμβρίου']
@@ -79,9 +85,10 @@ def pdf_for(k, fname):
     return out
 
 
-def build(k, t):
+def build(k, t, books):
+    # books = η εταιρεία στης οποίας τα βιβλία μπαίνει (ιδιοκτήτης του λογαριασμού που πλήρωσε)
     j, reg = k['j'], k['reg']
-    company = reg.split('_')[0]                                # DERMLUX | IEPE | EUGMED
+    company = reg.split('_')[0]                                # DERMLUX | IEPE | EUGMED (του μητρώου)
     city_en = reg.split('_')[1] if company == 'DERMLUX' else None
     ame_d = ''.join(ch for ch in j['ame'] if ch.isdigit())
     did = f'ka_{ame_d}_{k["month"]}'
@@ -102,8 +109,10 @@ def build(k, t):
              f'Το PDF περιέχει: {kind} + Κατάσταση αποδοχών και εισφορών (portal Κ.Α.). '
              f'Το ποσό περιλαμβάνει εισφορές εργοδότη ΚΑΙ εργαζομένων (παρακράτηση από μισθούς) — εκτός ΦΠΑ. '
              f'Ημερομηνία εγγραφής = τέλος του μήνα εισφορών· η πληρωμή γίνεται τον επόμενο μήνα.')
-    if company != 'DERMLUX':
-        notes += f' ⚠ ΑΛΛΗΣ ΕΤΑΙΡΕΙΑΣ ({who}) — πληρώθηκε από λογαριασμό της DermLux → ενδοεταιρικό, για τον λογιστή.'
+    if company != books:
+        notes += f' ⚠ ΑΛΛΗΣ ΕΤΑΙΡΕΙΑΣ ({who}) — πληρώθηκε από λογαριασμό της {CO_NAME[books]} → ενδοεταιρικό, για τον λογιστή.'
+    if books != 'DERMLUX':
+        notes += f' 📘 ΒΙΒΛΙΑ {CO_UP[books]} (λογαριασμός ···{OWN_ACC[books][-7:]}) — όχι έξοδο της DermLux.'
     if not t:
         notes += ' ⏳ Η κίνηση στην τράπεζα δεν έχει εισαχθεί ακόμα — θα δεθεί στην επόμενη εισαγωγή.'
     card = t and 'Card' in (t.get('description') or '')
@@ -111,21 +120,22 @@ def build(k, t):
         'vendor': 'Υπηρεσίες Κοινωνικών Ασφαλίσεων', 'vatNumber': None, 'invoiceNumber': str(j.get('payment_number') or ''),
         'date': last_day(k['month']), 'net': k['amount'], 'vat': 0, 'vatRate': 0, 'total': k['amount'], 'currency': 'EUR',
         'category': '8136 · ΑΛΛΑ ΕΞΟΔΑ ΠΡΟΣΩΠΙΚΟΥ', 'location': CITY[city_en] if city_en else 'Γενικά',
-        'paymentMethod': 'Κάρτα' if card else 'Τραπεζική', 'paymentSource': 'BoC Κύριος',
+        'paymentMethod': 'Κάρτα' if card else 'Τραπεζική', 'paymentSource': PAY_SRC[books],
         'paymentDetail': 'Κάρτα BoC (portal Κ.Α.)' if card else 'Άμεση χρέωση (πάγια εντολή Κ.Α.)',
         'docType': 'payment_receipt', 'lineItems': json.dumps(items, ensure_ascii=False), 'notes': notes,
         'kaMonth': k['month'], 'kaAme': j['ame'], 'kaCompany': company, 'kaPaymentNumber': str(j.get('payment_number') or ''),
         'kaPaidAt': j.get('paid_at'),
     }
-    if company != 'DERMLUX': data['intercompany'] = company
+    if company != books: data['intercompany'] = company
+    if books != 'DERMLUX': data['books'] = books
     if t:
         data.update({'bankTagBank': t.get('bank') or 'Bank of Cyprus', 'bankTagDate': t['date'], 'bankTagDesc': t.get('description'),
                      'bankTagAmount': float(t['debit']), 'bankTagRef': t.get('ref')})
     sd = f'Κ.Α. {reg.replace("_", " ")} · μήνας {k["month"]} · {kind} αρ. {j.get("payment_number")} ({j["paid_at"][:10]})'
-    if company != 'DERMLUX': sd += ' · ⚠ ΑΛΛΗΣ ΕΤΑΙΡΕΙΑΣ — πληρώθηκε από DermLux (ενδοεταιρικό)'
+    if company != books: sd += f' · ⚠ ΑΛΛΗΣ ΕΤΑΙΡΕΙΑΣ — πληρώθηκε από {CO_NAME[books]} (ενδοεταιρικό)'
     return {'id': did, 'file': os.path.join(UP, fname), 'key': f'expenses/{fname}', 'fileName': fname, 'data': data,
             'tx': t['id'] if t else None, 'txSupportingDoc': sd, 'txSupportingDocFile': k['pay_pdf'].replace('\\', '/'),
-            'reg': reg, 'month': k['month'], 'amount': k['amount']}
+            'reg': reg, 'month': k['month'], 'amount': k['amount'], 'books': books, 'own': company == books}
 
 
 plan = {'book': [], 'tx_only': [], 'link_existing': [], 'skipped': [], 'not_booked': []}
@@ -142,34 +152,36 @@ for t in tx:
             plan['skipped'].append({'tx': t['id'], 'date': t['date'], 'amount': t['debit'], 'why': f'ήδη δεμένη σε παραστατικό ({k["reg"][:20]} {k["month"]})'})
         continue
     if ka_id(k) in EXIST:                                      # καταχωρήθηκε σε προηγούμενο τρέξιμο πριν έρθει η κίνηση → τώρα δένεται
-        b = build(k, t)
+        b = build(k, t, ACC_BOOKS.get(t.get('account'), 'DERMLUX'))
         plan['link_existing'].append({'tx': t['id'], 'expense': ka_id(k), 'date': t['date'], 'amount': float(t['debit']),
                                       'desc': t.get('description'), 'bank': t.get('bank') or 'Bank of Cyprus', 'ref': t.get('ref'),
                                       'supportingDoc': None if t.get('supportingDoc') else b['txSupportingDoc'], 'supportingDocFile': b['txSupportingDocFile'],
                                       'matchMethod': f'bk_KA · {b["data"]["kaCompany"]} {b["data"]["kaAme"]} · μήνας {k["month"]} · αρ. {b["data"]["kaPaymentNumber"]}'})
         continue
-    b = build(k, t)
-    if t.get('account') != DERMLUX_ACC:                        # λογαριασμός ΙΕΠΕ: άλλη εταιρεία — όχι στα βιβλία DermLux, μόνο δικαιολογητικό
+    books = ACC_BOOKS.get(t.get('account'))
+    if not books:                                              # άγνωστος λογαριασμός → μόνο δικαιολογητικό στην κίνηση
+        b = build(k, t, 'DERMLUX')
         if not t.get('supportingDoc'):
             plan['tx_only'].append({'tx': t['id'], 'supportingDoc': b['txSupportingDoc'], 'supportingDocFile': b['txSupportingDocFile']})
-        plan['not_booked'].append({'reg': k['reg'], 'month': k['month'], 'amount': k['amount'], 'why': f'πληρώθηκε από λογαριασμό ΙΕΠΕ {t["account"]} — βιβλία ΙΕΠΕ'})
+        plan['not_booked'].append({'reg': k['reg'], 'month': k['month'], 'amount': k['amount'], 'why': f'λογαριασμός {t.get("account")} χωρίς βιβλία'})
         continue
-    plan['book'].append(b)
+    plan['book'].append(build(k, t, books))
 # βεβαιώσεις DermLux χωρίς κίνηση ακόμα (πληρώθηκαν μετά την τελευταία εισαγωγή τράπεζας) → καταχώρηση χωρίς σύνδεση,
 # δένονται στο επόμενο τρέξιμο (link_existing). Παλιότερες χωρίς κίνηση = άλλος λογαριασμός/εταιρεία → μόνο αναφορά.
-last_bank = max(t['date'] for t in bank if t.get('account') == DERMLUX_ACC)
+last_bank = {co: max((t['date'] for t in bank if t.get('account') == acc), default='0000-00-00') for co, acc in OWN_ACC.items()}
 for i, k in enumerate(ka):
     if i in used or ka_id(k) in EXIST: continue
-    if k['reg'].startswith('DERMLUX') and k['j']['paid_at'][:10] >= str(day(last_bank) - datetime.timedelta(days=3)):
-        plan['book'].append(build(k, None))
+    co = k['reg'].split('_')[0]
+    if co in last_bank and last_bank[co] > '0000' and k['j']['paid_at'][:10] >= str(day(last_bank[co]) - datetime.timedelta(days=3)):
+        plan['book'].append(build(k, None, co))
     else:
         plan['not_booked'].append({'reg': k['reg'], 'month': k['month'], 'amount': k['amount'], 'why': 'δεν υπάρχει κίνηση στους λογαριασμούς μας (άλλος λογαριασμός/εταιρεία)'})
 
 json.dump(plan, open(os.path.join(OUT, 'book_plan.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
 B = plan['book']
 print('καταχωρήσεις:', len(B), '· με σύνδεση:', sum(1 for b in B if b['tx']), '· χωρίς (αναμένεται τράπεζα):', [(b['reg'][:16], b['month']) for b in B if not b['tx']])
-print('ανά εταιρεία:', collections.Counter(b['data']['kaCompany'] for b in B), '· σύνολο €', round(sum(b['amount'] for b in B), 2))
-print('ενδοεταιρικά €', round(sum(b['amount'] for b in B if b['data']['kaCompany'] != 'DERMLUX'), 2))
+print('ανά βιβλία/μητρώο:', collections.Counter((b['books'], b['data']['kaCompany']) for b in B), '· σύνολο €', round(sum(b['amount'] for b in B), 2))
+print('ενδοεταιρικά €', round(sum(b['amount'] for b in B if not b['own']), 2))
 print('μόνο δικαιολογητικό σε κίνηση ΙΕΠΕ:', len(plan['tx_only']), '· δέσιμο υπάρχοντος:', plan['link_existing'])
 print('παραλείφθηκαν:', plan['skipped'])
 print('δεν καταχωρούνται:', collections.Counter(n['why'][:40] for n in plan['not_booked']))
