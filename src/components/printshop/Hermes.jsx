@@ -61,7 +61,12 @@ export default function Hermes() {
           const s = await getDocs(query(collection(db, 'hermes_chats'), where('uid', '==', who.uid), orderBy('updatedAt', 'desc'), qlimit(1)))
           const d = s.docs[0]
           const today = new Date().toISOString().slice(0, 10)
-          if (d && d.id === chatId && alive && String(d.data().updatedAt || '').slice(0, 10) === today) { const x = d.data(); setTurns(x.turns || []); setFeed(x.feed || []); return }
+          if (d && d.id === chatId && alive && String(d.data().updatedAt || '').slice(0, 10) === today) {
+            const x = d.data()
+            let feedIn = x.feed || []
+            if (!feedIn.length && x.feedJson) { try { feedIn = JSON.parse(x.feedJson) } catch {} }
+            setTurns(x.turns || []); setFeed(feedIn); return
+          }
         } catch {}
       }
       if (alive) startNew()
@@ -77,9 +82,24 @@ export default function Hermes() {
     setFeed([{ kind: 'assistant', text: `${greet()}${name ? ' ' + name : ''}! Είμαι ο Ερμογένης, ο βοηθός σου για τα βιβλία της DermLux.${userProfile?.role === 'accountant' ? ' Ό,τι χρειαστείς από τον Θεράπωνα, μπορώ να τον ρωτήσω εγώ.' : ''}\n\nΓράψε μου απλά, όπως θα έλεγες σε συνάδελφο, π.χ.:\n- «βρες μου το τιμολόγιο της MJ του Ιουλίου»\n- «ετοίμασέ μου όλα τα παραστατικά Ιούλιο–Σεπτέμβριο σε ένα PDF»\n- «πόσο ΦΠΑ έχουμε το τρίμηνο;»\n- «το TikTok δεν έχει ΦΠΑ, διόρθωσέ το»\n\nΌ,τι ετοιμάζω το βάζω εδώ στο chat, με κουμπί για να το κατεβάσεις ή να το τυπώσεις. Αν χρειαστείς οτιδήποτε, πες μου και θα το κανονίσω.` }])
   }
 
+  // 16/10/2026: μέχρι τώρα ΚΑΜΙΑ συζήτηση δεν γραφόταν (σιωπηλό catch): το Firestore δεν δέχεται undefined
+  // (_blobs, κενά πεδία καρτών) και οι μεγάλες συζητήσεις ξεπερνούσαν το 1MB. Τώρα: καθάρισμα + κόψιμο
+  // των αποτελεσμάτων εργαλείων στο turns (το feed — ό,τι βλέπει ο χρήστης — μένει ολόκληρο).
   const persist = useCallback((t, f) => {
     if (!chatId) return
-    setDoc(doc(db, 'hermes_chats', chatId), { uid: who.uid, name: who.name, email: who.email, role: who.role, turns: t, feed: f.map(x => x.kind === 'attach' ? { ...x, attach: { ...x.attach, _blobs: undefined } } : x), updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {})
+    const clean = v => JSON.parse(JSON.stringify(v ?? null))
+    const feedOut = clean(f.map(x => x.kind === 'attach' ? { ...x, attach: { ...x.attach, _blobs: undefined } } : x))
+    let turnsOut = clean(t.map(m => Array.isArray(m.content)
+      ? { ...m, content: m.content.map(b => b.type === 'tool_result' && typeof b.content === 'string' && b.content.length > 3000 ? { ...b, content: b.content.slice(0, 3000) + ' …[κόπηκε στην αποθήκευση]' } : b) }
+      : m))
+    while (turnsOut.length > 2 && JSON.stringify({ turnsOut, feedOut }).length > 850000) turnsOut = turnsOut.slice(2)
+    const base = { uid: who.uid, name: who.name, email: who.email, role: who.role, updatedAt: new Date().toISOString() }
+    setDoc(doc(db, 'hermes_chats', chatId), { ...base, turns: turnsOut, feed: feedOut }, { merge: true })
+      .catch(err => {
+        console.warn('Ερμογένης: αποθήκευση συζήτησης απέτυχε, δοκιμή ως κείμενο', err)
+        return setDoc(doc(db, 'hermes_chats', chatId), { ...base, turns: [], feed: [], feedJson: JSON.stringify(feedOut).slice(0, 900000) }, { merge: true })
+      })
+      .catch(err => console.warn('Ερμογένης: η συζήτηση δεν αποθηκεύτηκε', err))
   }, [chatId, who])
 
   async function callWorker(messages) {
