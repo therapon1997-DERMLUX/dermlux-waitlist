@@ -11,6 +11,11 @@ export const ACCOUNTS = [
   { key: '357046275557', bank: 'Bank of Cyprus', label: 'Ιατρική ΙΕΠΕ (άλλη εταιρεία)' },
 ]
 export const accountOf = t => t.bank === 'Revolut' ? 'revolut' : (t.account || '')
+// Σε ποιας εταιρείας τα βιβλία ανήκει ένα παραστατικό (16/10/2026): ό,τι πληρώθηκε από τον λογαριασμό της
+// Ιατρικής ΙΕΠΕ έχει books:'IEPE' — ξεχωριστή εταιρεία, ΕΚΤΟΣ συνόλων DermLux (όπως και στις Τράπεζες)
+export const COMPANIES = [{ key: 'DERMLUX', label: 'DermLux' }, { key: 'IEPE', label: '⚕️ Ιατρική ΙΕΠΕ' }]
+export const IEPE_ACCOUNT = '357046275557'
+export const bookOf = e => e.books || 'DERMLUX'
 export const accountLabel = key => ACCOUNTS.find(a => a.key === key)?.label || key
 
 let expPromise = null

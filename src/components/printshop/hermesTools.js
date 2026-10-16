@@ -1,7 +1,7 @@
 // Εργαλεία του Ερμογένη — εκτελούνται στον browser πάνω στα δεδομένα που έχει ήδη φορτώσει η σελίδα.
 // Κάθε εργαλείο επιστρέφει { result } για το μοντέλο και, όπου χρειάζεται, { attach } για να μπει κάρτα στο chat.
 import { loadExpenses, loadBank, accountOf, accountLabel, txKind, KIND_LABEL, linkedIds, fold, matchExpense, matchTx,
-  addNote, loadNotes, updateExpense, saveRule } from './booksData'
+  addNote, loadNotes, updateExpense, saveRule, bookOf, IEPE_ACCOUNT } from './booksData'
 import { vatSummary } from './printViews'
 import { emit } from './bridge'
 import { auth } from '../../firebase/config'
@@ -16,8 +16,13 @@ export const compactDoc = e => ({ id: e.id, date: e.date, vendor: e.vendor, invo
   vatRate: e.vatRate ?? null, currency: e.currency || 'EUR', category: e.category || '', location: e.location || '', paid: paidOf(e), file: !!e.fileUrl,
   reverseCharge: !!e.reverseCharge, notes: (e.notes || '').slice(0, 120) })
 
+// Βιβλία: προεπιλογή DermLux — η Ιατρική ΙΕΠΕ (books:'IEPE') μόνο όταν ζητηθεί ρητά (company 'IEPE' ή 'all')
+const inCompany = (e, company) => company === 'all' || bookOf(e) === (company || 'DERMLUX')
+const txInCompany = (t, company) => company === 'all' || (company === 'IEPE') === (t.account === IEPE_ACCOUNT)
+
 export function filterExpenses(list, f = {}) {
   return list.filter(e => {
+    if (!inCompany(e, f.company)) return false
     if (f.from && e.date < f.from) return false
     if (f.to && e.date > f.to) return false
     if (f.vendor && !fold(e.vendor).includes(fold(f.vendor))) return false
@@ -104,7 +109,7 @@ export async function runTool(name, input = {}, ctx = {}) {
     }
     case 'supplier_ledger': {
       const all = await loadExpenses()
-      let rows = all.filter(e => fold(e.vendor).includes(fold(input.vendor)))
+      let rows = all.filter(e => inCompany(e, input.company) && fold(e.vendor).includes(fold(input.vendor)))
       if (input.from) rows = rows.filter(e => e.date >= input.from)
       if (input.to) rows = rows.filter(e => e.date <= input.to)
       if (!rows.length) return { result: { error: `Δεν βρέθηκε προμηθευτής «${input.vendor}»` } }
@@ -116,13 +121,13 @@ export async function runTool(name, input = {}, ctx = {}) {
     }
     case 'period_summary': {
       const all = await loadExpenses()
-      const rows = all.filter(e => e.date >= input.from && e.date <= input.to)
+      const rows = all.filter(e => inCompany(e, input.company) && e.date >= input.from && e.date <= input.to)
       const { byRate, byCat } = vatSummary(rows)
       let bankMissing = null
       if ((new Date(input.to) - new Date(input.from)) / 864e5 <= 400) {
         const byId = new Map(all.map(e => [e.id, e]))
         const txs = await loadBank(input.from, input.to)
-        const m = txs.filter(t => txKind(t, byId) === 'missing')
+        const m = txs.filter(t => txInCompany(t, input.company) && txKind(t, byId) === 'missing')
         bankMissing = { count: m.length, total: r2(m.reduce((a, t) => a + n(t.debit), 0)) }
       }
       return { result: { documents: rows.length, total: r2(rows.reduce((a, e) => a + n(e.total), 0)), net: r2(rows.reduce((a, e) => a + n(e.net), 0)), vat: r2(rows.reduce((a, e) => a + n(e.vat), 0)),

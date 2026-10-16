@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import {
   loadExpenses, loadBank, onBooksChange, ACCOUNTS, accountOf, accountLabel, txKind, KIND_LABEL, linkedIds,
   periodRange, MONTHS, matchExpense, matchTx, loadNotes, addNote, setNoteStatus, loadChanges, fold,
+  COMPANIES, IEPE_ACCOUNT, bookOf,
 } from './booksData'
 import { printHtml, rowsXlsxBlob, saveBlob, downloadExpense, printExpense } from './files'
 import { runBundle } from './bundles'
@@ -58,6 +59,7 @@ export default function PrintShop() {
   const [expenses, setExpenses] = useState(null)
   const [err, setErr] = useState('')
   const [, force] = useState(0)
+  const [company, setCompany] = useState('DERMLUX')   // βιβλία: DermLux ή Ιατρική ΙΕΠΕ — ποτέ μαζί
   const searchRef = useRef(null)
 
   const [from, to] = useMemo(() => {
@@ -70,7 +72,7 @@ export default function PrintShop() {
 
   useEffect(() => { loadExpenses().then(setExpenses).catch(e => setErr(e.message)) }, [])
   useEffect(() => onBooksChange(() => { loadExpenses().then(l => setExpenses([...l])); force(x => x + 1) }), [])
-  useEffect(() => { setHermesContext({ page: 'Print Shop', tab: TABS.find(t => t.k === tab)?.label || tab, period: `${periodLabel} (${from} έως ${to})`, query: q }) }, [tab, periodLabel, from, to, q])
+  useEffect(() => { setHermesContext({ page: 'Print Shop', company: COMPANIES.find(c => c.key === company)?.label, tab: TABS.find(t => t.k === tab)?.label || tab, period: `${periodLabel} (${from} έως ${to})`, query: q }) }, [tab, periodLabel, from, to, q, company])
   // Ο Ερμογένης μπορεί να ανοίξει καρτέλα/αναζήτηση/περίοδο
   useEffect(() => on('printshop:open', o => {
     if (o.tab) setTab(o.tab)
@@ -84,15 +86,22 @@ export default function PrintShop() {
   useEffect(() => { const p = {}; if (tab !== 'docs') p.tab = tab; if (q) p.q = q; setParams(p, { replace: true }) }, [tab, q])
 
   const expById = useMemo(() => new Map((expenses || []).map(e => [e.id, e])), [expenses])
+  const scopedExp = useMemo(() => expenses && expenses.filter(e => bookOf(e) === company), [expenses, company])
+  const hasIepe = useMemo(() => (expenses || []).some(e => bookOf(e) === 'IEPE'), [expenses])
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 pb-28">
       <header className="flex flex-wrap items-end justify-between gap-3 mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Print Shop</h1>
-          <p className="text-sm text-gray-500">Εκτυπώσεις, λήψεις και φάκελοι για το λογιστήριο · {periodLabel}</p>
+          <p className="text-sm text-gray-500">Εκτυπώσεις, λήψεις και φάκελοι για το λογιστήριο · {company === 'IEPE' ? 'Ιατρική ΙΕΠΕ · ' : ''}{periodLabel}</p>
         </div>
-        <PeriodPicker period={period} setPeriod={setPeriod} />
+        <div className="flex flex-wrap items-center gap-2">
+          {(hasIepe || company !== 'DERMLUX') && COMPANIES.map(c => (
+            <Pill key={c.key} active={company === c.key} onClick={() => setCompany(c.key)}>{c.label}</Pill>
+          ))}
+          <PeriodPicker period={period} setPeriod={setPeriod} />
+        </div>
       </header>
 
       <div className="relative mb-4">
@@ -113,10 +122,10 @@ export default function PrintShop() {
       {err && <p className="text-sm text-red-600 mb-3">Σφάλμα φόρτωσης: {err}</p>}
       {!expenses && !err && <p className="text-sm text-gray-500 animate-pulse py-10 text-center">Φόρτωση παραστατικών…</p>}
 
-      {expenses && tab === 'docs' && <DocsTab expenses={expenses} q={q} from={from} to={to} periodLabel={periodLabel} />}
-      {expenses && tab === 'bank' && <BankTab q={q} from={from} to={to} period={period} expById={expById} periodLabel={periodLabel} />}
-      {expenses && tab === 'suppliers' && <SuppliersTab expenses={expenses} q={q} from={from} to={to} period={period} />}
-      {expenses && tab === 'packs' && <PacksTab expenses={expenses} from={from} to={to} periodLabel={periodLabel} expById={expById} />}
+      {expenses && tab === 'docs' && <DocsTab key={company} expenses={scopedExp} q={q} from={from} to={to} periodLabel={periodLabel} />}
+      {expenses && tab === 'bank' && <BankTab key={company} company={company} q={q} from={from} to={to} period={period} expById={expById} periodLabel={periodLabel} />}
+      {expenses && tab === 'suppliers' && <SuppliersTab key={company} expenses={scopedExp} q={q} from={from} to={to} period={period} />}
+      {expenses && tab === 'packs' && <PacksTab key={company} expenses={scopedExp} from={from} to={to} periodLabel={periodLabel} expById={expById} />}
       {tab === 'notes' && <NotesTab who={who} isAdmin={isAdmin} q={q} expById={expById} />}
       {tab === 'changes' && <ChangesTab q={q} />}
 
@@ -250,7 +259,7 @@ function DocsTab({ expenses, q, from, to, periodLabel }) {
 }
 
 // ---------------- Τράπεζα ----------------
-function BankTab({ q, from, to, period, expById, periodLabel }) {
+function BankTab({ company = 'DERMLUX', q, from, to, period, expById, periodLabel }) {
   const [acc, setAcc] = useState('all'), [kind, setKind] = useState('all')
   const [txs, setTxs] = useState(null), [err, setErr] = useState('')
   const [prog, setProg] = useProgress()
@@ -261,6 +270,7 @@ function BankTab({ q, from, to, period, expById, periodLabel }) {
     loadBank(from, to).then(setTxs).catch(e => setErr(e.message))
   }, [from, to, tooWide])
   const rows = useMemo(() => (txs || []).filter(t => {
+    if ((company === 'IEPE') !== (t.account === IEPE_ACCOUNT)) return false   // λογαριασμοί μόνο της επιλεγμένης εταιρείας
     if (acc !== 'all' && accountOf(t) !== acc) return false
     if (!matchTx(t, q)) return false
     const k = txKind(t, expById)
@@ -268,7 +278,7 @@ function BankTab({ q, from, to, period, expById, periodLabel }) {
     if (kind === 'out' && !(n(t.debit) > 0)) return false
     if (kind === 'in' && !(n(t.credit) > 0)) return false
     return true
-  }), [txs, acc, q, kind, expById])
+  }), [txs, acc, q, kind, expById, company])
   const docsOf = rows => rows.flatMap(t => linkedIds(t).map(i => expById.get(i)).filter(Boolean))
   const sel = 'border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm bg-white'
   if (tooWide) return <Empty>Για την τράπεζα διάλεξε μήνα, τρίμηνο ή έτος (πάνω δεξιά).</Empty>
@@ -276,7 +286,7 @@ function BankTab({ q, from, to, period, expById, periodLabel }) {
     <section>
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <select id="b-acc" className={sel} value={acc} onChange={e => setAcc(e.target.value)}>
-          <option value="all">Όλοι οι λογαριασμοί</option>{ACCOUNTS.map(a => <option key={a.key} value={a.key}>{a.label}</option>)}
+          <option value="all">Όλοι οι λογαριασμοί</option>{ACCOUNTS.filter(a => (company === 'IEPE') === (a.key === IEPE_ACCOUNT)).map(a => <option key={a.key} value={a.key}>{a.label}</option>)}
         </select>
         {[['all', 'Όλες'], ['out', 'Χρεώσεις'], ['in', 'Πιστώσεις'], ['missing', 'Χωρίς παραστατικό']].map(([k, l]) => <Pill key={k} active={kind === k} onClick={() => setKind(k)}>{l}</Pill>)}
       </div>

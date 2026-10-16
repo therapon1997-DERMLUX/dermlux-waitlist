@@ -1845,6 +1845,7 @@ const FILTER_PROPS = {
   category: { type: 'string' }, location: { type: 'string' }, min_total: { type: 'number' }, max_total: { type: 'number' },
   missing_file: { type: 'boolean', description: 'μόνο όσα δεν έχουν συνημμένο αρχείο' },
   unpaid: { type: 'boolean', description: 'μόνο όσα δεν έχουν συνδεδεμένη πληρωμή' },
+  company: { type: 'string', enum: ['DERMLUX', 'IEPE', 'all'], description: 'Βιβλία ποιας εταιρείας: DERMLUX (προεπιλογή) ή IEPE (Ιατρική ΙΕΠΕ — ξεχωριστή εταιρεία, μόνο όταν ρωτούν ρητά για την ΙΕΠΕ)' },
 }
 
 const HERMES_TOOLS = [
@@ -1863,9 +1864,9 @@ const HERMES_TOOLS = [
       direction: { type: 'string', enum: ['out', 'in', 'all'] }, only_missing: { type: 'boolean', description: 'μόνο πληρωμές χωρίς παραστατικό' },
       show_in_chat: { type: 'boolean', description: 'εμφάνιση πίνακα στο chat' }, limit: { type: 'integer' } }, required: ['from', 'to'] } },
   { name: 'supplier_ledger', description: 'Καρτέλα προμηθευτή: τιμολόγια, πληρωμές που τα εξοφλούν, σύνολα. Τη βάζει στο chat με κουμπιά εκτύπωσης και λήψης.',
-    input_schema: { type: 'object', properties: { vendor: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' } }, required: ['vendor'] } },
+    input_schema: { type: 'object', properties: { vendor: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' }, company: { type: 'string', enum: ['DERMLUX', 'IEPE', 'all'], description: 'Βιβλία ποιας εταιρείας: DERMLUX (προεπιλογή) ή IEPE (Ιατρική ΙΕΠΕ — ξεχωριστή εταιρεία, μόνο όταν ρωτούν ρητά για την ΙΕΠΕ)' } }, required: ['vendor'] } },
   { name: 'period_summary', description: 'Σύνοψη περιόδου: σύνολα εξόδων, ΦΠΑ εισροών ανά συντελεστή, ανά κατηγορία, πόσα παραστατικά χωρίς αρχείο ή πληρωμή, και πόσες πληρωμές τράπεζας χωρίς παραστατικό.',
-    input_schema: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' } }, required: ['from', 'to'] } },
+    input_schema: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' }, company: { type: 'string', enum: ['DERMLUX', 'IEPE', 'all'], description: 'Βιβλία ποιας εταιρείας: DERMLUX (προεπιλογή) ή IEPE (Ιατρική ΙΕΠΕ — ξεχωριστή εταιρεία, μόνο όταν ρωτούν ρητά για την ΙΕΠΕ)' } }, required: ['from', 'to'] } },
   { name: 'update_documents', description: 'Προτείνει διόρθωση σε ένα ή πολλά παραστατικά. ΔΕΝ εφαρμόζεται αμέσως: εμφανίζει κάρτα επιβεβαίωσης στο chat. Πεδία: vendor, invoiceNumber, date, net, vat, vatRate, total, currency, category, location, paymentMethod, reverseCharge (boolean), notes_append (κείμενο που προστίθεται στις σημειώσεις). Η τιμή "=total" στο net σημαίνει «καθαρό = σύνολο».',
     input_schema: { type: 'object', properties: {
       ids: { type: 'array', items: { type: 'string' } }, filter: { type: 'object', properties: FILTER_PROPS },

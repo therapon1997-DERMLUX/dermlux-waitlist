@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { collection, onSnapshot, query, orderBy, doc, updateDoc } from 'firebase/firestore'
 import { logChange, whoFrom } from './changeLog'
-import { matchExpense } from '../printshop/booksData'
+import { matchExpense, bookOf, COMPANIES } from '../printshop/booksData'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../contexts/AuthContext'
 import { normVendor, findExactDupGroups, mergeGroup } from './mergeDups'
@@ -58,6 +58,7 @@ export default function Bookkeeping() {
   const [viewMode, setViewMode]   = useState('invoice')   // 'invoice' | 'merchant'
   const [openMerchant, setOpenMerchant] = useState(null)  // expanded merchant key
   const [savingCat, setSavingCat] = useState(null)        // docId being recategorised
+  const [company, setCompany]     = useState('DERMLUX')   // βιβλία: DermLux ή Ιατρική ΙΕΠΕ (ξεχωριστή εταιρεία)
 
   // Change an expense's category inline (onSnapshot refreshes the list)
   async function changeCategory(id, newCat) {
@@ -82,11 +83,19 @@ export default function Bookkeeping() {
     }, () => setLoading(false))
   }, [])
 
+  // Μόνο τα παραστατικά της επιλεγμένης εταιρείας — η ΙΕΠΕ δεν μπαίνει ποτέ στα σύνολα της DermLux
+  const scoped = useMemo(() => expenses.filter(e => bookOf(e) === company), [expenses, company])
+  const perCompany = useMemo(() => {
+    const m = {}
+    for (const e of expenses) m[bookOf(e)] = (m[bookOf(e)] || 0) + 1
+    return m
+  }, [expenses])
+
   const years = useMemo(() => {
-    const set = new Set(expenses.map(e => (e.date || '').slice(0, 4)).filter(Boolean))
+    const set = new Set(scoped.map(e => (e.date || '').slice(0, 4)).filter(Boolean))
     set.add(nowYear)
     return [...set].sort().reverse()
-  }, [expenses])
+  }, [scoped])
 
   const toggleIn = (arr, set, v) =>
     set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v])
@@ -97,7 +106,7 @@ export default function Bookkeeping() {
     setSelMonths([])
   }
 
-  const filtered = useMemo(() => expenses.filter(e => {
+  const filtered = useMemo(() => scoped.filter(e => {
     const y = (e.date || '').slice(0, 4)
     const m = parseInt((e.date || '').slice(5, 7), 10)
     if (search.trim()) { if (!matchExpense(e, search)) return false }
@@ -109,10 +118,10 @@ export default function Bookkeeping() {
     if (loc && e.location !== loc) return false
     if (onlyNeeds && missingFields(e).length === 0) return false
     return true
-  }), [expenses, selYears, selMonths, cat, loc, onlyNeeds, search])
+  }), [scoped, selYears, selMonths, cat, loc, onlyNeeds, search])
 
   // How many of the currently date/cat/loc-filtered expenses still need action
-  const needsCount = useMemo(() => expenses.filter(e => {
+  const needsCount = useMemo(() => scoped.filter(e => {
     const y = (e.date || '').slice(0, 4)
     const m = parseInt((e.date || '').slice(5, 7), 10)
     if (selYears.length  && !selYears.includes(y))  return false
@@ -120,7 +129,7 @@ export default function Bookkeeping() {
     if (cat && e.category !== cat) return false
     if (loc && e.location !== loc) return false
     return missingFields(e).length > 0
-  }).length, [expenses, selYears, selMonths, cat, loc])
+  }).length, [scoped, selYears, selMonths, cat, loc])
 
   const totals = useMemo(() => {
     const t = { total: 0, vat: 0, net: 0, count: filtered.length, byCat: {} }
@@ -175,7 +184,7 @@ export default function Bookkeeping() {
     const groups = []
     const seen = new Set()
     const byInv = {}
-    for (const e of expenses) {
+    for (const e of scoped) {
       const v = normVendor(e.vendor)
       const inv = (e.invoiceNumber || '').trim().toUpperCase()
       if (v && inv) (byInv[v + '|' + inv] ||= []).push(e)
@@ -187,7 +196,7 @@ export default function Bookkeeping() {
       if (totals.size > 1) groups.push(arr)   // ίδιος αρ. αλλά άλλο ποσό → στον χρήστη
     }
     const byAmt = {}
-    for (const e of expenses) {
+    for (const e of scoped) {
       const v = normVendor(e.vendor)
       if (!v || e.total == null || seen.has(e.id)) continue
       (byAmt[v + '|' + Number(e.total).toFixed(2)] ||= []).push(e)
@@ -207,7 +216,7 @@ export default function Bookkeeping() {
     const ids = new Set()
     groups.forEach(g => g.forEach(e => ids.add(e.id)))
     return { groups, ids }
-  }, [expenses])
+  }, [scoped])
 
   // Group by merchant (normalised so "MJ Mediscience" == "MJ MEDISCIENCE LTD")
   const merchants = useMemo(() => {
@@ -233,10 +242,12 @@ export default function Bookkeeping() {
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Λογιστικά / Έξοδα</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Καταχώρηση & ανάλυση εξόδων</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {company === 'IEPE' ? 'Ιατρική ΙΕΠΕ — ξεχωριστή εταιρεία, εκτός συνόλων DermLux' : 'Καταχώρηση & ανάλυση εξόδων DermLux'}
+          </p>
         </div>
         <div className="flex gap-2">
-          <ExportPrint expenses={expenses} />
+          <ExportPrint expenses={scoped} />
           {!readOnly && (
             <button onClick={() => setModal('new')}
               className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm">
@@ -245,6 +256,22 @@ export default function Bookkeeping() {
           )}
         </div>
       </div>
+
+      {/* Εταιρεία — όπως στις Τράπεζες: «DermLux» = μόνο DermLux LTD, η ΙΕΠΕ με το δικό της κουμπί */}
+      {(perCompany.IEPE > 0 || company !== 'DERMLUX') && (
+        <div className="flex gap-1.5 flex-wrap items-center mb-3">
+          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wide w-12 shrink-0">Βιβλία</span>
+          {COMPANIES.map(c => (
+            <button key={c.key} onClick={() => { setCompany(c.key); setCat(''); setLoc(''); setOnlyNeeds(false); setShowDups(false) }}
+              className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                company === c.key
+                  ? (c.key === 'IEPE' ? 'bg-sky-700 border-sky-700 text-white shadow-sm' : 'bg-green-600 border-green-600 text-white shadow-sm')
+                  : 'bg-white border-gray-200 text-gray-600 hover:border-green-400 hover:text-green-700'}`}>
+              {c.label} <span className="opacity-70 text-xs">({perCompany[c.key] || 0})</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Αναζήτηση παντού: προμηθευτής, αρ. τιμολογίου, ποσό, σημείωση — αγνοεί έτος/μήνα όταν γράφεις */}
       <div className="relative mb-4">
@@ -583,6 +610,7 @@ export default function Bookkeeping() {
       {modal && (
         <ExpenseModal
           existing={modal === 'new' ? null : modal}
+          books={company}
           readOnly={readOnly}
           canDelete={!isAccountant}
           onClose={() => setModal(null)}

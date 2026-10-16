@@ -58,7 +58,7 @@ function fileToBase64(file) {
   })
 }
 
-export default function ExpenseModal({ existing, onClose, readOnly = false, canDelete = true }) {
+export default function ExpenseModal({ existing, onClose, readOnly = false, canDelete = true, books = 'DERMLUX' }) {
   const { userProfile, currentUser } = useAuth()
   const editing = !!existing
   const [form, setForm]       = useState(existing ? {
@@ -270,6 +270,7 @@ export default function ExpenseModal({ existing, onClose, readOnly = false, canD
       } else {
         const ref = await addDoc(collection(db, 'expenses'), {
           ...payload,
+          ...(books && books !== 'DERMLUX' ? { books } : {}),   // νέο έξοδο από τα «βιβλία ΙΕΠΕ» → μένει στην ΙΕΠΕ
           status: 'confirmed',
           source: WORKER ? 'ai' : 'manual',
           createdAt: serverTimestamp(),
